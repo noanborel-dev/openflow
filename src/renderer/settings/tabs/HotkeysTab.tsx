@@ -1,108 +1,85 @@
 import { useEffect, useState } from 'react'
 import type { Settings } from '../../../shared/types'
+import { Card, Row } from '../../shared/ui/Card'
+import { Pill } from '../../shared/ui/Pill'
 
-function keyEventToString(e: KeyboardEvent): string {
-  const parts: string[] = []
-  if (e.metaKey) parts.push('Command')
-  if (e.ctrlKey) parts.push('Control')
-  if (e.altKey) parts.push('Option')
-  if (e.shiftKey) parts.push('Shift')
-
-  const key = e.key
-  // Ignore pure modifier presses
-  if (['Meta', 'Control', 'Alt', 'Shift'].includes(key)) return ''
-
-  // Map browser key names to node-global-key-listener names
-  const keyMap: Record<string, string> = {
-    ' ': 'Space',
-    'Enter': 'Return',
-    'Escape': 'Escape',
-    'Backspace': 'Backspace',
-    'Tab': 'Tab',
-    'ArrowUp': 'Up',
-    'ArrowDown': 'Down',
-    'ArrowLeft': 'Left',
-    'ArrowRight': 'Right',
-  }
-  parts.push(keyMap[key] ?? key.toUpperCase())
-  return parts.join('+')
+// Map a browser KeyboardEvent.code to the node-global-key-listener canonical name.
+// We only accept modifier keys or function/letter keys — NOT chords.
+function eventToKeyName(e: KeyboardEvent): string | null {
+  const code = e.code
+  if (code === 'ControlLeft' || code === 'ControlRight') return 'CTRL'
+  if (code === 'AltLeft' || code === 'AltRight') return 'ALT'
+  if (code === 'ShiftLeft' || code === 'ShiftRight') return 'SHIFT'
+  if (code === 'MetaLeft' || code === 'MetaRight') return 'META'
+  // Letters, digits, F-keys — use .key (uppercased)
+  if (e.key.length === 1) return e.key.toUpperCase()
+  if (/^F\d{1,2}$/.test(e.key)) return e.key.toUpperCase()
+  return null
 }
 
-function formatForDisplay(binding: string): string {
-  return binding
-    .replace('Command', '⌘')
-    .replace('Option', '⌥')
-    .replace('Control', '⌃')
-    .replace('Shift', '⇧')
-    .replace(/\+/g, '')
+function prettify(name: string): string {
+  if (name === 'CTRL') return '⌃ Ctrl'
+  if (name === 'ALT') return '⌥ Option'
+  if (name === 'SHIFT') return '⇧ Shift'
+  if (name === 'META') return '⌘ Command'
+  return name
 }
-
-type HotkeyField = 'pushToTalk' | 'pasteLast'
 
 export default function HotkeysTab() {
   const [hotkeys, setHotkeys] = useState<Settings['hotkeys'] | null>(null)
-  const [recording, setRecording] = useState<HotkeyField | null>(null)
+  const [listening, setListening] = useState(false)
 
   useEffect(() => {
     window.openflow.getSettings().then(s => setHotkeys(s.hotkeys))
   }, [])
 
   useEffect(() => {
-    if (!recording) return
-
+    if (!listening) return
     function onKeyDown(e: KeyboardEvent) {
       e.preventDefault()
-      const binding = keyEventToString(e)
-      if (!binding) return
-
+      const name = eventToKeyName(e)
+      if (!name) return
       setHotkeys(prev => {
         if (!prev) return prev
-        const updated = { ...prev, [recording!]: binding }
+        const updated = { ...prev, pushToTalk: name }
         window.openflow.setSettings({ hotkeys: updated }).then(() => {
           window.openflow.reloadHotkeys()
         })
         return updated
       })
-      setRecording(null)
+      setListening(false)
     }
-
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [recording])
+  }, [listening])
 
-  if (!hotkeys) return <div className="text-white/50 text-sm">Loading…</div>
-
-  const rows: { label: string; field: HotkeyField }[] = [
-    { label: 'Push-to-talk', field: 'pushToTalk' },
-    { label: 'Paste last dictation', field: 'pasteLast' },
-  ]
+  if (!hotkeys) return <div className="text-ink-45 text-sm">Loading…</div>
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Hotkeys</h2>
-      <div className="space-y-3 text-sm">
-        {rows.map(({ label, field }) => (
-          <div key={field} className="flex justify-between items-center py-2 border-b border-white/10">
-            <span className="text-white/70">{label}</span>
-            <button
-              onClick={() => setRecording(field)}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                recording === field
-                  ? 'bg-blue-600 text-white animate-pulse'
-                  : 'bg-white/10 hover:bg-white/20 text-white'
-              }`}
-            >
-              {recording === field ? 'Press any key…' : formatForDisplay(hotkeys[field])}
-            </button>
+    <div className="max-w-md space-y-3">
+      <Card>
+        <Row>
+          <div className="flex-1">
+            <div className="text-[12.5px] font-medium">Push-to-talk</div>
+            <div className="text-[10.5px] text-ink-45 mt-0.5">
+              Hold to talk. Double-tap to lock recording on.
+            </div>
           </div>
-        ))}
-        <div className="flex justify-between items-center py-2 border-b border-white/10">
-          <span className="text-white/70">Command mode</span>
-          <kbd className="px-2 py-1 bg-white/10 rounded text-xs font-mono">⌘⇧Space</kbd>
-        </div>
-      </div>
-      {recording && (
-        <button onClick={() => setRecording(null)} className="text-white/30 text-xs hover:text-white/60">
+          <Pill
+            variant={listening ? 'volt' : 'secondary'}
+            onClick={() => setListening(l => !l)}
+          >
+            <span className="font-mono text-[11px]">
+              {listening ? 'Press any key…' : prettify(hotkeys.pushToTalk)}
+            </span>
+          </Pill>
+        </Row>
+      </Card>
+      {listening && (
+        <button
+          onClick={() => setListening(false)}
+          className="text-ink-45 text-xs hover:text-ink"
+        >
           Cancel
         </button>
       )}
