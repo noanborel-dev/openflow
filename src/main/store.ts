@@ -5,12 +5,12 @@ import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS } from '../shared/constants'
 const defaults: Settings = {
   firstRun: true,
   provider: {
-    provider: 'groq',
+    provider: 'local',
     groqKey: '',
     openaiKey: '',
     anthropicKey: '',
-    transcriptionModel: 'whisper-large-v3-turbo',
-    cleanupModel: 'llama-3.3-70b-versatile',
+    transcriptionModel: 'Xenova/whisper-base',
+    cleanupModel: '',
   },
   hotkeys: DEFAULT_HOTKEYS,
   perAppRules: [],

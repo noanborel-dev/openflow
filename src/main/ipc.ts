@@ -49,9 +49,9 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.ACCESSIBILITY_OPEN, () => {
     if (process.platform === 'darwin') {
-      shell.openExternal(
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
-      )
+      // isTrustedAccessibilityClient(true) prompts macOS to add this process
+      // to the Accessibility list automatically — no manual search needed.
+      systemPreferences.isTrustedAccessibilityClient(true)
     }
   })
 }

@@ -58,4 +58,5 @@ export const IPC = {
   OPEN_ONBOARDING: 'open-onboarding',
   MIC_PERMISSION: 'mic:permission',
   ACCESSIBILITY_OPEN: 'accessibility:open',
+  HOTKEYS_RELOAD: 'hotkeys:reload',
 } as const

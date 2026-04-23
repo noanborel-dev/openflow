@@ -39,16 +39,16 @@ Remove the local Whisper provider entirely from the shipped app. No Python shell
 
 ### 2. Hold-to-talk + double-tap to lock
 
-Replace the current `globalShortcut` toggle with a **Right Ctrl** hold-to-talk + double-tap-to-lock interaction.
+Replace the current `globalShortcut` toggle with a **Ctrl** hold-to-talk + double-tap-to-lock interaction.
 
 **Behavior:**
-- **Hold Right Ctrl** → start recording on keydown, stop on keyup. Transcribe + paste.
-- **Double-tap Right Ctrl** (two presses within 350ms) → start recording and *stay* recording (locked). Next single press stops + transcribes.
+- **Hold Ctrl** → start recording on keydown, stop on keyup. Transcribe + paste.
+- **Double-tap Ctrl** (two presses within 350ms) → start recording and *stay* recording (locked). Next single press stops + transcribes.
 - **Idle** → recording not active.
 
 **Why the switch:** Electron's `globalShortcut` only emits on press, not release — that's the reason the code was built as a toggle in the first place. The project already depends on `node-global-key-listener`, which exposes keydown and keyup; we use it directly for this one key.
 
-**Key detection:** `node-global-key-listener` reports `RIGHT CTRL` on macOS and Windows. On macOS this corresponds to the Right Control key (not "right-hand Cmd"). We listen only for this key.
+**Key detection:** `node-global-key-listener` reports `CTRL` on macOS and Windows. On macOS this corresponds to the Control key. We listen only for this key.
 
 **State machine:**
 ```
@@ -61,13 +61,13 @@ holding ──dbltap detected (2nd press arrived)──> locked
 - `holdThreshold` = 150 ms. Shorter presses don't record (prevents accidental triggers).
 - `dblTapWindow` = 350 ms between keydown events of first and second tap.
 
-**Settings:** Hotkey setting still exists and lets the user pick the key (default: Right Ctrl). The **mode** (hold-to-talk + double-tap) is fixed — no toggle mode. Simpler.
+**Settings:** Hotkey setting still exists and lets the user pick the key (default: Ctrl). The **mode** (hold-to-talk + double-tap) is fixed — no toggle mode. Simpler.
 
 **Files touched:**
 - `src/main/hotkeys.ts` — replace `globalShortcut` implementation with `node-global-key-listener`-based hold/double-tap detector. Exports `registerHotkey(key, { onStart, onStop })`.
 - `src/main/index.ts` — update wiring: `onStart` triggers record, `onStop` triggers stop-and-transcribe.
 - `src/renderer/settings/tabs/HotkeysTab.tsx` — show current key as a readonly pill with a "Change" button that listens for the next keypress; remove the modifier-chord builder UI (we only accept single modifier keys now).
-- `src/shared/constants.ts` — default hotkey = `RIGHT CTRL`; remove accelerator-style strings.
+- `src/shared/constants.ts` — default hotkey = `CTRL`; remove accelerator-style strings.
 
 ### 3. Visual redesign — "Electric Paper"
 
@@ -111,7 +111,7 @@ Single cohesive visual language across onboarding, settings, and the indicator. 
 
 - Left sidebar (180 px): logo + name + 4 nav items (General, Provider, Hotkey, About). Active item: inverted (black background, paper text).
 - Main pane: serif-italic page title, sub, then cards grouping related rows.
-- Rows have a left label + hint, right-side control. Consistent height (~56 px).
+- Rows have a left label + hint, side control. Consistent height (~56 px).
 - Remove tab component from current implementation — sidebar replaces it.
 
 #### 3c. Indicator pill
@@ -160,8 +160,8 @@ src/
 
 ## Testing
 
-- Manual: run the app, hold Right Ctrl, speak, release — transcribed text pastes into focused app.
-- Manual: double-tap Right Ctrl to lock; single press stops.
+- Manual: run the app, hold  Ctrl, speak, release — transcribed text pastes into focused app.
+- Manual: double-tap  Ctrl to lock; single press stops.
 - Manual: missing API key → friendly onboarding prompt, not a red pill.
 - Manual: kill network → pill shows "Couldn't reach Groq. Check your connection."
 - Smoke: indicator reaches Idle → Listening → Transcribing → Pasted without stuck state.
@@ -171,9 +171,9 @@ Unit testing is light on this codebase; no new unit tests required. Behavior is 
 
 ## Open questions (resolved inline)
 
-- Hotkey key: **Right Ctrl** (user choice C).
+- Hotkey key: ** Ctrl** (user choice C).
 - Local transcription: **deferred**, tracked for future (`whisper.cpp` bundled native).
-- Palette: **Electric Paper** (option D). Cobalt/electric-blue experiment parked for a future iteration if volt-green doesn't feel right in practice.
+- Palette: **Electric Paper** (option D). Cobalt/electric-blue experiment parked for a future iteration if volt-green doesn't feel  in practice.
 - Framework: **stay on Electron**.
 
 ## Out of scope

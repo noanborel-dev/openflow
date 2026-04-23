@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-// 'stopping' is an internal transition: keep recording UI visible while
-// we wait for MediaRecorder to flush its final chunk before sending AUDIO_DONE.
-// 'downloading:N' means the local Whisper model is being downloaded (N = % complete).
 type IndicatorState = 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'error' | 'clipboard' | `downloading:${number}`
 
 declare global {
@@ -17,6 +14,7 @@ declare global {
 
 export default function Indicator() {
   const [state, setState] = useState<IndicatorState>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
   const [downloadPct, setDownloadPct] = useState(0)
   const [waveform, setWaveform] = useState<number[]>(Array(20).fill(0))
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -27,7 +25,12 @@ export default function Indicator() {
     const unsub = window.indicator.onStateChange((s) => {
       if (s.startsWith('downloading:')) {
         setDownloadPct(parseInt(s.split(':')[1], 10))
-        setState('downloading:0') // use a stable key for the state type
+        setState('downloading:0')
+        return
+      }
+      if (s.startsWith('error:')) {
+        setErrorMsg(s.slice(6))
+        setState('error')
         return
       }
       const next = s as IndicatorState
@@ -54,15 +57,20 @@ export default function Indicator() {
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
 
+      // Track pending arrayBuffer() promises so onstop waits for them all.
+      const pendingChunks: Promise<void>[] = []
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
-          e.data.arrayBuffer().then((buf) => window.indicator.sendAudioChunk(buf))
+          const p = e.data.arrayBuffer().then((buf) => window.indicator.sendAudioChunk(buf))
+          pendingChunks.push(p)
         }
       }
 
-      // AUDIO_DONE is sent from onstop, which fires after the final ondataavailable.
-      // This guarantees all audio chunks reach main before the pipeline starts.
-      recorder.onstop = () => {
+      // Wait for all pending chunks to be sent before signalling done.
+      // Without this, the final chunk (arrayBuffer is async) would race AUDIO_DONE.
+      recorder.onstop = async () => {
+        await Promise.all(pendingChunks)
         window.indicator.sendAudioDone()
         stream.getTracks().forEach((t) => t.stop())
         audioContextRef.current?.close()
@@ -141,7 +149,7 @@ export default function Indicator() {
           </>
         )}
         {state === 'done' && <span className="text-white text-xs font-medium">✓ Done</span>}
-        {state === 'error' && <span className="text-white text-xs font-medium">✗ Error — check API key</span>}
+        {state === 'error' && <span className="text-white text-xs font-medium">✗ {errorMsg || 'Transcription failed'}</span>}
         {state === 'clipboard' && <span className="text-white text-xs font-medium">Copied — press ⌘V to paste</span>}
       </div>
     </div>

@@ -10,6 +10,7 @@ declare global {
       getHistory: () => Promise<unknown>
       requestMicPermission: () => Promise<boolean>
       openAccessibilitySettings: () => Promise<void>
+      reloadHotkeys: () => void
       onStateChange: (cb: (state: string) => void) => () => void
     }
   }

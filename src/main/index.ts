@@ -8,12 +8,12 @@ import {
   screen,
 } from 'electron'
 import { join } from 'path'
-import { is } from '@electron-toolkit/utils'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
-import { hotkeyManager } from './hotkeys'
+import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
 import { pasteText } from './paste'
+import { createLocalWhisperProvider } from './providers/local-whisper'
 import { IPC } from '../shared/types'
 import type { DictationResult } from '../shared/types'
 
@@ -52,7 +52,7 @@ function createIndicatorWindow(): BrowserWindow {
 
   win.setIgnoreMouseEvents(true, { forward: true })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/indicator/index.html`)
   } else {
     win.loadFile(join(__dirname, '../renderer/indicator/index.html'))
@@ -79,7 +79,7 @@ function createSettingsWindow(): BrowserWindow {
     },
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/settings/index.html`)
   } else {
     win.loadFile(join(__dirname, '../renderer/settings/index.html'))
@@ -110,7 +110,7 @@ function createOnboardingWindow(): BrowserWindow {
     },
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/onboarding/index.html`)
   } else {
     win.loadFile(join(__dirname, '../renderer/onboarding/index.html'))
@@ -164,6 +164,7 @@ function setupTray(): void {
 
   tray = new Tray(icon)
   tray.setToolTip('OpenFlow')
+  tray.on('click', () => createSettingsWindow())
   updateTrayMenu()
 }
 
@@ -173,36 +174,21 @@ function broadcastState(state: string): void {
 
 function setupHotkeys(): void {
   const settings = getSettings()
+  unregisterAll()
 
-  hotkeyManager.unregisterAll()
-
-  // Push-to-talk: key DOWN starts recording; key UP tells renderer to stop.
-  // Pipeline runs when AUDIO_DONE arrives (after final ondataavailable fires).
-  hotkeyManager.register(settings.hotkeys.pushToTalk, (event) => {
-    if (event === 'down') {
-      if (isRecording) return  // re-entrancy guard: ignore repeat key-down events
+  // Toggle: first press starts recording, second press stops and transcribes.
+  registerHotkey(settings.hotkeys.pushToTalk, () => {
+    if (!isRecording) {
       isRecording = true
       audioChunks.length = 0
-      indicatorWindow?.setIgnoreMouseEvents(false)
-      indicatorWindow?.show()
+      indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+      indicatorWindow?.showInactive()
       broadcastState('recording')
     } else {
-      if (!isRecording) return
       isRecording = false
-      // Tell the renderer to stop MediaRecorder; pipeline fires on AUDIO_DONE below
       broadcastState('stopping')
     }
   })
-
-  // Paste last dictation
-  hotkeyManager.register(settings.hotkeys.pasteLast, (event) => {
-    if (event === 'down') {
-      const hist = getHistory()
-      if (hist.length > 0) pasteText(hist[0].cleaned)
-    }
-  })
-
-  hotkeyManager.start()
 }
 
 function setupAudioIpc(): void {
@@ -244,13 +230,14 @@ function setupAudioIpc(): void {
         indicatorWindow?.hide()
       }, 1500)
     } catch (err) {
-      console.error('[OpenFlow] Pipeline error:', err)
-      broadcastState('error')
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[OpenFlow] Pipeline error:', msg)
+      broadcastState(`error:${msg}`)
       setTimeout(() => {
         broadcastState('idle')
         indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
         indicatorWindow?.hide()
-      }, 2000)
+      }, 3000)
     }
   })
 }
@@ -258,6 +245,7 @@ function setupAudioIpc(): void {
 function setupIpcListeners(): void {
   ipcMain.on(IPC.OPEN_SETTINGS, () => createSettingsWindow())
   ipcMain.on(IPC.OPEN_ONBOARDING, () => createOnboardingWindow())
+  ipcMain.on(IPC.HOTKEYS_RELOAD, () => setupHotkeys())
 }
 
 app.whenReady().then(() => {
@@ -277,6 +265,11 @@ app.whenReady().then(() => {
   const settings = getSettings()
   if (settings.firstRun) {
     createOnboardingWindow()
+  }
+
+  // Pre-install openai-whisper in background (one-time, silent)
+  if (settings.provider.provider === 'local') {
+    createLocalWhisperProvider()
   }
 })
 

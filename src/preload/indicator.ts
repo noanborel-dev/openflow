@@ -1,14 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC } from '../shared/types'
+
+// Channel names inlined here intentionally — importing from shared/types would
+// cause Rollup to emit a shared chunk that Electron's preload sandbox cannot resolve.
+const STATE_CHANGE = 'state-change'
+const AUDIO_CHUNK = 'audio-chunk'
+const AUDIO_DONE = 'audio-done'
 
 contextBridge.exposeInMainWorld('indicator', {
   onStateChange: (cb: (state: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, state: string) => cb(state)
-    ipcRenderer.on(IPC.STATE_CHANGE, handler)
-    return () => ipcRenderer.removeListener(IPC.STATE_CHANGE, handler)
+    ipcRenderer.on(STATE_CHANGE, handler)
+    return () => ipcRenderer.removeListener(STATE_CHANGE, handler)
   },
   sendAudioChunk: (chunk: ArrayBuffer) =>
-    ipcRenderer.send(IPC.AUDIO_CHUNK, chunk),
+    ipcRenderer.send(AUDIO_CHUNK, chunk),
   sendAudioDone: () =>
-    ipcRenderer.send(IPC.AUDIO_DONE),
+    ipcRenderer.send(AUDIO_DONE),
 })

@@ -12,6 +12,7 @@ declare global {
       getHistory: () => Promise<unknown>
       requestMicPermission: () => Promise<boolean>
       openAccessibilitySettings: () => Promise<void>
+      reloadHotkeys: () => void
       onStateChange: (cb: (state: string) => void) => () => void
     }
   }
@@ -80,8 +81,8 @@ export default function OnboardingApp() {
           </Screen>
         )}
         {step === 'accessibility' && (
-          <Screen step={n} total={5} title="Accessibility Access" subtitle="Needed to automatically paste text at your cursor. Open System Settings → Privacy & Security → Accessibility and add OpenFlow.">
-            <button onClick={() => window.openflow.openAccessibilitySettings()} className="btn-primary">Open System Settings</button>
+          <Screen step={n} total={5} title="Accessibility Access" subtitle="Needed to automatically paste text at your cursor. Click the button below — macOS will prompt you to allow access.">
+            <button onClick={() => window.openflow.openAccessibilitySettings()} className="btn-primary">Allow Access</button>
             <button onClick={() => setStep('hotkey')} className="btn-ghost">Done / Skip</button>
           </Screen>
         )}

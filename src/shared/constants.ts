@@ -1,7 +1,7 @@
 import type { AppCategory, Provider } from './types'
 
 export const DEFAULT_HOTKEYS = {
-  pushToTalk: 'Right Alt',
+  pushToTalk: 'Option+Space',
   commandMode: 'Command+Shift+Space',
   pasteLast: 'Command+Shift+V',
 }

@@ -44,10 +44,7 @@ function buildProviders(
 
   if (provider === 'local') {
     return {
-      transcription: createLocalWhisperProvider(
-        transcriptionModel || MODELS.local.transcription,
-        onDownloadProgress
-      ),
+      transcription: createLocalWhisperProvider(onDownloadProgress),
       cleanup: noopCleanup,
     }
   }
