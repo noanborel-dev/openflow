@@ -11,19 +11,11 @@ import {
   createOpenAICleanupProvider,
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
-import { createLocalWhisperProvider } from './providers/local-whisper'
 import { getFocusedApp } from './focused-app'
 import { pasteText } from './paste'
 
-// Null cleanup provider — used for local mode which skips LLM cleanup
-const noopCleanup: CleanupProvider = {
-  name: 'None',
-  async cleanup(text) { return text },
-}
-
 function buildProviders(
-  settings: Settings,
-  onDownloadProgress?: (pct: number) => void
+  settings: Settings
 ): { transcription: TranscriptionProvider; cleanup: CleanupProvider } {
   const { provider, groqKey, openaiKey, anthropicKey, transcriptionModel, cleanupModel } =
     settings.provider
@@ -42,14 +34,7 @@ function buildProviders(
     }
   }
 
-  if (provider === 'local') {
-    return {
-      transcription: createLocalWhisperProvider(onDownloadProgress),
-      cleanup: noopCleanup,
-    }
-  }
-
-  // anthropic: use Groq for transcription
+  // anthropic: use Groq for transcription, Anthropic for cleanup
   return {
     transcription: createGroqTranscriptionProvider(groqKey, MODELS.groq.transcription),
     cleanup: createAnthropicCleanupProvider(anthropicKey, cleanupModel),
@@ -59,40 +44,30 @@ function buildProviders(
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
-  onState: (state: 'processing' | 'done' | 'error') => void,
-  onDownloadProgress?: (pct: number) => void
+  onState: (state: 'processing' | 'done' | 'error') => void
 ): Promise<DictationResult & { pasteMethod: 'paste' | 'clipboard' }> {
   onState('processing')
 
   const focusedApp = await getFocusedApp()
-  const { transcription, cleanup } = buildProviders(settings, onDownloadProgress)
+  const { transcription, cleanup } = buildProviders(settings)
 
-  // Force 'code' category for dev-mode apps
   const category = settings.devModeApps.includes(focusedApp.bundleId)
     ? ('code' as const)
     : focusedApp.category
 
-  // 1. Transcribe
   const transcript = await transcription.transcribe(audioBuffer, { dictionary: [] })
 
-  // 2. For local mode, skip cleanup — paste raw transcript
-  let cleaned = transcript
-  if (settings.provider.provider !== 'local') {
-    const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
-    const effectiveCategory = rule?.category ?? category
-    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
-      .replace('{text}', transcript)
+  const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
+  const effectiveCategory = rule?.category ?? category
+  const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
+    .replace('{text}', transcript)
 
-    cleaned = await cleanup.cleanup(transcript, {
-      appName: focusedApp.name,
-      appCategory: effectiveCategory,
-      systemPrompt,
-    })
-  }
+  const cleaned = await cleanup.cleanup(transcript, {
+    appName: focusedApp.name,
+    appCategory: effectiveCategory,
+    systemPrompt,
+  })
 
-  const effectiveCategory = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)?.category ?? category
-
-  // 3. Paste
   const { method: pasteMethod } = await pasteText(cleaned)
 
   onState('done')
@@ -116,7 +91,6 @@ export async function runCommandPipeline(
   const { transcription, cleanup } = buildProviders(settings)
   const focusedApp = await getFocusedApp()
 
-  // Transcribe the spoken command
   const command = await transcription.transcribe(audioBuffer, { dictionary: [] })
 
   const systemPrompt = `You are a text editing assistant. The user has selected the following text and dictated an editing command.
