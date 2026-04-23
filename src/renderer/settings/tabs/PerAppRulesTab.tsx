@@ -1,7 +1,6 @@
 export default function PerAppRulesTab() {
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Per-App Rules</h2>
       <p className="text-ink-45 text-sm">
         OpenFlow automatically detects the app you're typing in and adjusts tone and format.
       </p>
