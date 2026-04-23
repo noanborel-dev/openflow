@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 
 // 'stopping' is an internal transition: keep recording UI visible while
 // we wait for MediaRecorder to flush its final chunk before sending AUDIO_DONE.
-type IndicatorState = 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'error' | 'clipboard'
+// 'downloading:N' means the local Whisper model is being downloaded (N = % complete).
+type IndicatorState = 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'error' | 'clipboard' | `downloading:${number}`
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ declare global {
 
 export default function Indicator() {
   const [state, setState] = useState<IndicatorState>('idle')
+  const [downloadPct, setDownloadPct] = useState(0)
   const [waveform, setWaveform] = useState<number[]>(Array(20).fill(0))
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -23,6 +25,11 @@ export default function Indicator() {
 
   useEffect(() => {
     const unsub = window.indicator.onStateChange((s) => {
+      if (s.startsWith('downloading:')) {
+        setDownloadPct(parseInt(s.split(':')[1], 10))
+        setState('downloading:0') // use a stable key for the state type
+        return
+      }
       const next = s as IndicatorState
       setState(next)
       if (next === 'recording') startRecording()
@@ -92,8 +99,11 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
+  const isDownloading = state.toString().startsWith('downloading')
+
   const bgClass =
     (state === 'recording' || state === 'stopping') ? 'bg-red-500/90' :
+    isDownloading ? 'bg-purple-600/90' :
     state === 'processing' ? 'bg-blue-500/90' :
     state === 'done' ? 'bg-green-500/90' :
     state === 'error' ? 'bg-red-800/90' :
@@ -114,6 +124,14 @@ export default function Indicator() {
                 />
               ))}
             </div>
+          </>
+        )}
+        {isDownloading && (
+          <>
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span className="text-white text-xs font-medium">
+              Downloading model… {downloadPct}%
+            </span>
           </>
         )}
         {state === 'processing' && (

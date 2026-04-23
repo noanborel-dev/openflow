@@ -36,6 +36,8 @@ export const DEFAULT_DEV_MODE_APPS = [
   'com.googlecode.iterm2',
 ]
 
+export const LOCAL_WHISPER_MODEL = 'Xenova/whisper-base'
+
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
     transcription: 'whisper-large-v3-turbo',
@@ -49,6 +51,11 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
     // No Anthropic transcription model — callers use Groq for transcription
     transcription: 'whisper-large-v3-turbo',
     cleanup: 'claude-3-haiku-20240307',
+  },
+  local: {
+    // whisper-base runs locally via @xenova/transformers — no API key needed
+    transcription: 'Xenova/whisper-base',
+    cleanup: '', // no cleanup for local mode — raw Whisper output is pasted directly
   },
 }
 

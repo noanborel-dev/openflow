@@ -11,13 +11,20 @@ import {
   createOpenAICleanupProvider,
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
+import { createLocalWhisperProvider } from './providers/local-whisper'
 import { getFocusedApp } from './focused-app'
 import { pasteText } from './paste'
 
-function buildProviders(settings: Settings): {
-  transcription: TranscriptionProvider
-  cleanup: CleanupProvider
-} {
+// Null cleanup provider — used for local mode which skips LLM cleanup
+const noopCleanup: CleanupProvider = {
+  name: 'None',
+  async cleanup(text) { return text },
+}
+
+function buildProviders(
+  settings: Settings,
+  onDownloadProgress?: (pct: number) => void
+): { transcription: TranscriptionProvider; cleanup: CleanupProvider } {
   const { provider, groqKey, openaiKey, anthropicKey, transcriptionModel, cleanupModel } =
     settings.provider
 
@@ -35,6 +42,16 @@ function buildProviders(settings: Settings): {
     }
   }
 
+  if (provider === 'local') {
+    return {
+      transcription: createLocalWhisperProvider(
+        transcriptionModel || MODELS.local.transcription,
+        onDownloadProgress
+      ),
+      cleanup: noopCleanup,
+    }
+  }
+
   // anthropic: use Groq for transcription
   return {
     transcription: createGroqTranscriptionProvider(groqKey, MODELS.groq.transcription),
@@ -45,12 +62,13 @@ function buildProviders(settings: Settings): {
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
-  onState: (state: 'processing' | 'done' | 'error') => void
+  onState: (state: 'processing' | 'done' | 'error') => void,
+  onDownloadProgress?: (pct: number) => void
 ): Promise<DictationResult & { pasteMethod: 'paste' | 'clipboard' }> {
   onState('processing')
 
   const focusedApp = await getFocusedApp()
-  const { transcription, cleanup } = buildProviders(settings)
+  const { transcription, cleanup } = buildProviders(settings, onDownloadProgress)
 
   // Force 'code' category for dev-mode apps
   const category = settings.devModeApps.includes(focusedApp.bundleId)
@@ -60,20 +78,24 @@ export async function runDictationPipeline(
   // 1. Transcribe
   const transcript = await transcription.transcribe(audioBuffer, { dictionary: [] })
 
-  // 2. Find per-app rule or use category default
-  const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
-  const effectiveCategory = rule?.category ?? category
-  const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
-    .replace('{text}', transcript)
+  // 2. For local mode, skip cleanup — paste raw transcript
+  let cleaned = transcript
+  if (settings.provider.provider !== 'local') {
+    const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
+    const effectiveCategory = rule?.category ?? category
+    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
+      .replace('{text}', transcript)
 
-  // 3. Cleanup
-  const cleaned = await cleanup.cleanup(transcript, {
-    appName: focusedApp.name,
-    appCategory: effectiveCategory,
-    systemPrompt,
-  })
+    cleaned = await cleanup.cleanup(transcript, {
+      appName: focusedApp.name,
+      appCategory: effectiveCategory,
+      systemPrompt,
+    })
+  }
 
-  // 4. Paste
+  const effectiveCategory = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)?.category ?? category
+
+  // 3. Paste
   const { method: pasteMethod } = await pasteText(cleaned)
 
   onState('done')

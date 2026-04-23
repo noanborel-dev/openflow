@@ -227,7 +227,8 @@ function setupAudioIpc(): void {
       const result = await runDictationPipeline(
         audioBuffer,
         getSettings(),
-        (s) => broadcastState(s)
+        (s) => broadcastState(s),
+        (pct) => broadcastState(`downloading:${Math.round(pct)}`)
       )
 
       addToHistory(result)

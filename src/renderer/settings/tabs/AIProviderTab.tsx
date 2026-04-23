@@ -57,14 +57,38 @@ export default function AIProviderTab() {
         <label className="text-xs text-white/50 uppercase tracking-wider">Provider</label>
         <select
           value={provider}
-          onChange={(e) => save({ provider: e.target.value as Provider })}
+          onChange={(e) => {
+            const p = e.target.value as Provider
+            // Pre-fill transcription model for local
+            save({
+              provider: p,
+              transcriptionModel: p === 'local' ? 'Xenova/whisper-base' : settings.provider.transcriptionModel,
+            })
+          }}
           className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
         >
+          <option value="local">Local (Whisper) — no API key needed</option>
           <option value="groq">Groq — recommended (fastest, cheapest)</option>
           <option value="openai">OpenAI</option>
           <option value="anthropic">Anthropic (needs Groq key for transcription)</option>
         </select>
       </div>
+
+      {provider === 'local' && (
+        <div className="p-4 rounded-lg bg-purple-600/10 border border-purple-500/20 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-purple-300 text-sm font-medium">🔒 Fully offline</span>
+          </div>
+          <p className="text-white/60 text-xs leading-relaxed">
+            Uses <strong className="text-white/80">whisper-base</strong> running locally on your
+            machine via ONNX. No API key required. The model (~145 MB) downloads once on first use
+            and is stored in your cache folder.
+          </p>
+          <p className="text-white/40 text-xs">
+            Note: LLM cleanup is skipped in local mode — raw Whisper output is pasted directly.
+          </p>
+        </div>
+      )}
 
       {(provider === 'groq' || provider === 'anthropic') && (
         <div className="space-y-1.5">
@@ -114,13 +138,15 @@ export default function AIProviderTab() {
         </div>
       )}
 
-      <button
-        onClick={testKey}
-        disabled={testing}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-      >
-        {testing ? 'Testing…' : 'Test Connection'}
-      </button>
+      {provider !== 'local' && (
+        <button
+          onClick={testKey}
+          disabled={testing}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+        >
+          {testing ? 'Testing…' : 'Test Connection'}
+        </button>
+      )}
 
       {testResult && (
         <div
