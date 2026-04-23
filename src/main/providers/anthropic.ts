@@ -26,5 +26,10 @@ export function createAnthropicCleanupProvider(
 
 export async function testAnthropicKey(apiKey: string): Promise<void> {
   const client = new Anthropic({ apiKey })
-  await client.models.list()
+  // Anthropic SDK has no models.list(); cheapest validity probe is a 1-token call.
+  await client.messages.create({
+    model: 'claude-3-haiku-20240307',
+    max_tokens: 1,
+    messages: [{ role: 'user', content: 'hi' }],
+  })
 }

@@ -3,7 +3,9 @@ import type { TranscriptionProvider, CleanupProvider } from './types'
 
 function bufferToFile(audio: Buffer, filename = 'audio.webm'): File {
   const blob = new Blob([audio], { type: 'audio/webm' })
-  return new File([blob], filename, { type: 'audio/webm' })
+  // Node 20's buffer.File and DOM File have mismatched declarations; the
+  // Groq SDK accepts either at runtime, so cast through unknown.
+  return new File([blob], filename, { type: 'audio/webm' }) as unknown as File
 }
 
 export function createGroqTranscriptionProvider(
