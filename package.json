@@ -10,11 +10,17 @@
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
-  "keywords": ["dictation", "whisper", "voice", "electron"],
+  "keywords": [
+    "dictation",
+    "whisper",
+    "voice",
+    "electron"
+  ],
   "author": "OpenFlow Contributors",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
+    "@electron-toolkit/utils": "^4.0.0",
     "electron-store": "^10.0.0",
     "groq-sdk": "^0.3.3",
     "node-global-key-listener": "^0.3.0",
