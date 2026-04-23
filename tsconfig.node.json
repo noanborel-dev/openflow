@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "out/main",
+    "baseUrl": ".",
+    "paths": { "@shared/*": ["src/shared/*"] }
+  },
+  "include": ["src/main", "src/shared"]
+}
