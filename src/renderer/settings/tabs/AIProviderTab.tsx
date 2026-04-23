@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { Settings, Provider } from '../../../shared/types'
+import { MODELS } from '../../../shared/constants'
+import { Card, Row } from '../../shared/ui/Card'
+import { Pill } from '../../shared/ui/Pill'
 
 declare global {
   interface Window {
@@ -16,6 +19,12 @@ declare global {
   }
 }
 
+const PROVIDER_OPTIONS: { value: Provider; label: string; hint: string }[] = [
+  { value: 'groq',      label: 'Groq · Whisper',        hint: 'Recommended — fast & free tier' },
+  { value: 'openai',    label: 'OpenAI',                hint: 'Whisper + GPT-4o-mini cleanup' },
+  { value: 'anthropic', label: 'Anthropic (+ Groq key)',hint: 'Claude cleanup, Groq transcription' },
+]
+
 export default function AIProviderTab() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [testing, setTesting] = useState(false)
@@ -25,7 +34,7 @@ export default function AIProviderTab() {
     window.openflow.getSettings().then(setSettings)
   }, [])
 
-  if (!settings) return <div className="text-white/50 text-sm">Loading…</div>
+  if (!settings) return <div className="text-ink-45 text-sm">Loading…</div>
 
   const { provider } = settings.provider
 
@@ -50,116 +59,109 @@ export default function AIProviderTab() {
     setTesting(false)
   }
 
+  const needsGroqKey = provider === 'groq' || provider === 'anthropic'
+
   return (
-    <div className="space-y-6 max-w-md">
-      <h2 className="text-lg font-semibold">AI Provider</h2>
+    <div className="max-w-md space-y-3">
+      <Card>
+        {PROVIDER_OPTIONS.map((opt, i) => {
+          const on = opt.value === provider
+          return (
+            <Row key={opt.value} className={i === PROVIDER_OPTIONS.length - 1 ? '' : ''}>
+              <button
+                onClick={() => save({
+                  provider: opt.value,
+                  transcriptionModel: MODELS[opt.value].transcription,
+                  cleanupModel: MODELS[opt.value].cleanup,
+                })}
+                className="flex items-center gap-3 w-full text-left"
+              >
+                <span className={`w-4 h-4 rounded-full border ${on ? 'border-ink bg-ink' : 'border-ink-08'} flex items-center justify-center`}>
+                  {on && <span className="w-1.5 h-1.5 rounded-full bg-volt" />}
+                </span>
+                <span className="flex-1">
+                  <div className="text-[12.5px] font-medium">{opt.label}</div>
+                  <div className="text-[10.5px] text-ink-45 mt-0.5">{opt.hint}</div>
+                </span>
+              </button>
+            </Row>
+          )
+        })}
+      </Card>
 
-      <div className="space-y-1.5">
-        <label className="text-xs text-white/50 uppercase tracking-wider">Provider</label>
-        <select
-          value={provider}
-          onChange={(e) => {
-            const p = e.target.value as Provider
-            // Pre-fill transcription model for local
-            save({
-              provider: p,
-              transcriptionModel: p === 'local' ? 'Xenova/whisper-base' : settings.provider.transcriptionModel,
-            })
-          }}
-          className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white"
-        >
-          <option value="local">Local (Whisper) — no API key needed</option>
-          <option value="groq">Groq — recommended (fastest, cheapest)</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic (needs Groq key for transcription)</option>
-        </select>
-      </div>
-
-      {provider === 'local' && (
-        <div className="p-4 rounded-lg bg-purple-600/10 border border-purple-500/20 space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-purple-300 text-sm font-medium">🔒 Fully offline</span>
-          </div>
-          <p className="text-white/60 text-xs leading-relaxed">
-            Uses <strong className="text-white/80">whisper-base</strong> running locally on your
-            machine via ONNX. No API key required. The model (~145 MB) downloads once on first use
-            and is stored in your cache folder.
-          </p>
-          <p className="text-white/40 text-xs">
-            Note: LLM cleanup is skipped in local mode — raw Whisper output is pasted directly.
-          </p>
-        </div>
-      )}
-
-      {(provider === 'groq' || provider === 'anthropic') && (
-        <div className="space-y-1.5">
-          <label className="text-xs text-white/50 uppercase tracking-wider">
-            Groq API Key{' '}
-            <a
-              className="normal-case text-blue-400"
-              onClick={() => window.open('https://console.groq.com', '_blank')}
-              style={{ cursor: 'pointer' }}
-            >
-              Get free key ↗
-            </a>
-          </label>
-          <input
-            type="password"
-            value={settings.provider.groqKey}
-            onChange={(e) => save({ groqKey: e.target.value })}
-            placeholder="gsk_…"
-            className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-mono text-white placeholder-white/30"
-          />
-        </div>
+      {needsGroqKey && (
+        <Card>
+          <Row>
+            <div className="flex-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-45 mb-1.5">
+                Groq API Key
+              </div>
+              <input
+                type="password"
+                value={settings.provider.groqKey}
+                onChange={(e) => save({ groqKey: e.target.value })}
+                placeholder="gsk_…"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+              />
+              <a
+                onClick={() => window.open('https://console.groq.com', '_blank')}
+                className="text-[11px] text-ink-45 hover:text-ink mt-2 inline-block cursor-pointer"
+              >
+                Get a free Groq key ↗
+              </a>
+            </div>
+          </Row>
+        </Card>
       )}
 
       {provider === 'openai' && (
-        <div className="space-y-1.5">
-          <label className="text-xs text-white/50 uppercase tracking-wider">OpenAI API Key</label>
-          <input
-            type="password"
-            value={settings.provider.openaiKey}
-            onChange={(e) => save({ openaiKey: e.target.value })}
-            placeholder="sk-…"
-            className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-mono text-white placeholder-white/30"
-          />
-        </div>
+        <Card>
+          <Row>
+            <div className="flex-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-45 mb-1.5">
+                OpenAI API Key
+              </div>
+              <input
+                type="password"
+                value={settings.provider.openaiKey}
+                onChange={(e) => save({ openaiKey: e.target.value })}
+                placeholder="sk-…"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+              />
+            </div>
+          </Row>
+        </Card>
       )}
 
       {provider === 'anthropic' && (
-        <div className="space-y-1.5">
-          <label className="text-xs text-white/50 uppercase tracking-wider">Anthropic API Key</label>
-          <input
-            type="password"
-            value={settings.provider.anthropicKey}
-            onChange={(e) => save({ anthropicKey: e.target.value })}
-            placeholder="sk-ant-…"
-            className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm font-mono text-white placeholder-white/30"
-          />
-        </div>
+        <Card>
+          <Row>
+            <div className="flex-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-45 mb-1.5">
+                Anthropic API Key
+              </div>
+              <input
+                type="password"
+                value={settings.provider.anthropicKey}
+                onChange={(e) => save({ anthropicKey: e.target.value })}
+                placeholder="sk-ant-…"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+              />
+            </div>
+          </Row>
+        </Card>
       )}
 
-      {provider !== 'local' && (
-        <button
-          onClick={testKey}
-          disabled={testing}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-        >
-          {testing ? 'Testing…' : 'Test Connection'}
-        </button>
-      )}
-
-      {testResult && (
-        <div
-          className={`text-sm p-3 rounded-lg ${
-            testResult.ok
-              ? 'bg-green-600/20 text-green-400'
-              : 'bg-red-600/20 text-red-400'
-          }`}
-        >
-          {testResult.ok ? '✓ Connected successfully' : `✗ ${testResult.error}`}
-        </div>
-      )}
+      <div className="flex items-center gap-3">
+        <Pill variant="primary" onClick={testKey} disabled={testing}>
+          {testing ? 'Testing…' : 'Test connection'}
+        </Pill>
+        {testResult && (
+          <span className={`text-[12px] ${testResult.ok ? 'text-ok' : 'text-danger'}`}>
+            {testResult.ok ? '✓ Connected' : `✗ ${testResult.error}`}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
