@@ -16,7 +16,8 @@ contextBridge.exposeInMainWorld('openflow', {
   requestMicPermission: () => ipcRenderer.invoke(IPC.MIC_PERMISSION),
   openAccessibilitySettings: () => ipcRenderer.invoke(IPC.ACCESSIBILITY_OPEN),
   onStateChange: (cb: (state: string) => void) => {
-    ipcRenderer.on(IPC.STATE_CHANGE, (_e, state) => cb(state))
-    return () => ipcRenderer.removeAllListeners(IPC.STATE_CHANGE)
+    const handler = (_e: Electron.IpcRendererEvent, state: string) => cb(state)
+    ipcRenderer.on(IPC.STATE_CHANGE, handler)
+    return () => ipcRenderer.removeListener(IPC.STATE_CHANGE, handler)
   },
 })

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-type IndicatorState = 'idle' | 'recording' | 'processing' | 'done' | 'error' | 'clipboard'
+// 'stopping' is an internal transition: keep recording UI visible while
+// we wait for MediaRecorder to flush its final chunk before sending AUDIO_DONE.
+type IndicatorState = 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'error' | 'clipboard'
 
 declare global {
   interface Window {
@@ -16,6 +18,7 @@ export default function Indicator() {
   const [state, setState] = useState<IndicatorState>('idle')
   const [waveform, setWaveform] = useState<number[]>(Array(20).fill(0))
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const animFrameRef = useRef<number>(0)
 
   useEffect(() => {
@@ -23,7 +26,7 @@ export default function Indicator() {
       const next = s as IndicatorState
       setState(next)
       if (next === 'recording') startRecording()
-      else stopRecording()
+      else if (next === 'stopping') stopRecording()
     })
     return unsub
   }, [])
@@ -32,6 +35,7 @@ export default function Indicator() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const ctx = new AudioContext()
+      audioContextRef.current = ctx
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 64
@@ -48,6 +52,16 @@ export default function Indicator() {
           e.data.arrayBuffer().then((buf) => window.indicator.sendAudioChunk(buf))
         }
       }
+
+      // AUDIO_DONE is sent from onstop, which fires after the final ondataavailable.
+      // This guarantees all audio chunks reach main before the pipeline starts.
+      recorder.onstop = () => {
+        window.indicator.sendAudioDone()
+        stream.getTracks().forEach((t) => t.stop())
+        audioContextRef.current?.close()
+        audioContextRef.current = null
+      }
+
       recorder.start(100)
 
       const tick = () => {
@@ -70,17 +84,16 @@ export default function Indicator() {
     cancelAnimationFrame(animFrameRef.current)
     setWaveform(Array(20).fill(0))
     if (mediaRecorderRef.current?.state !== 'inactive') {
+      // onstop handler will send AUDIO_DONE after final ondataavailable
       mediaRecorderRef.current?.stop()
-      window.indicator.sendAudioDone()
     }
-    mediaRecorderRef.current?.stream.getTracks().forEach((t) => t.stop())
     mediaRecorderRef.current = null
   }
 
   if (state === 'idle') return null
 
   const bgClass =
-    state === 'recording' ? 'bg-red-500/90' :
+    (state === 'recording' || state === 'stopping') ? 'bg-red-500/90' :
     state === 'processing' ? 'bg-blue-500/90' :
     state === 'done' ? 'bg-green-500/90' :
     state === 'error' ? 'bg-red-800/90' :
@@ -89,7 +102,7 @@ export default function Indicator() {
   return (
     <div className="flex items-center justify-center w-full h-full">
       <div className={`flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md shadow-xl ${bgClass}`}>
-        {state === 'recording' && (
+        {(state === 'recording' || state === 'stopping') && (
           <>
             <span className="w-2 h-2 rounded-full bg-white animate-pulse shrink-0" />
             <div className="flex items-end gap-px h-5">

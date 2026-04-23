@@ -23,6 +23,7 @@ let onboardingWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const audioChunks: Buffer[] = []
+let isRecording = false
 
 function createIndicatorWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -116,7 +117,11 @@ function createOnboardingWindow(): BrowserWindow {
   }
 
   win.once('ready-to-show', () => win.show())
-  win.on('closed', () => { onboardingWindow = null })
+  win.on('closed', () => {
+    // Clear firstRun regardless of how the window is closed (button or traffic light)
+    setSettings({ firstRun: false })
+    onboardingWindow = null
+  })
   onboardingWindow = win
   return win
 }
@@ -171,53 +176,21 @@ function setupHotkeys(): void {
 
   hotkeyManager.unregisterAll()
 
-  // Push-to-talk: hold to record, release to transcribe
-  hotkeyManager.register(settings.hotkeys.pushToTalk, async (event) => {
+  // Push-to-talk: key DOWN starts recording; key UP tells renderer to stop.
+  // Pipeline runs when AUDIO_DONE arrives (after final ondataavailable fires).
+  hotkeyManager.register(settings.hotkeys.pushToTalk, (event) => {
     if (event === 'down') {
+      if (isRecording) return  // re-entrancy guard: ignore repeat key-down events
+      isRecording = true
       audioChunks.length = 0
       indicatorWindow?.setIgnoreMouseEvents(false)
       indicatorWindow?.show()
       broadcastState('recording')
     } else {
-      // Release: build buffer and run pipeline
-      const audioBuffer = Buffer.concat(audioChunks)
-      audioChunks.length = 0
-
-      if (audioBuffer.length < 500) {
-        // Too short — ignore
-        broadcastState('idle')
-        indicatorWindow?.hide()
-        return
-      }
-
-      try {
-        const result = await runDictationPipeline(
-          audioBuffer,
-          getSettings(),
-          (s) => broadcastState(s)
-        )
-
-        addToHistory(result)
-        updateTrayMenu()
-
-        if (result.pasteMethod === 'clipboard') {
-          broadcastState('clipboard')
-        }
-
-        setTimeout(() => {
-          broadcastState('idle')
-          indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-          indicatorWindow?.hide()
-        }, 1500)
-      } catch (err) {
-        console.error('[OpenFlow] Pipeline error:', err)
-        broadcastState('error')
-        setTimeout(() => {
-          broadcastState('idle')
-          indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-          indicatorWindow?.hide()
-        }, 2000)
-      }
+      if (!isRecording) return
+      isRecording = false
+      // Tell the renderer to stop MediaRecorder; pipeline fires on AUDIO_DONE below
+      broadcastState('stopping')
     }
   })
 
@@ -237,9 +210,47 @@ function setupAudioIpc(): void {
     audioChunks.push(Buffer.from(chunk))
   })
 
-  ipcMain.on(IPC.AUDIO_DONE, () => {
-    // No-op: we use the hotkey release event to trigger the pipeline,
-    // not the AUDIO_DONE message, to avoid race conditions.
+  // AUDIO_DONE fires from the renderer after MediaRecorder.onstop —
+  // meaning all ondataavailable chunks have already arrived. Safe to pipeline now.
+  ipcMain.on(IPC.AUDIO_DONE, async () => {
+    const audioBuffer = Buffer.concat(audioChunks)
+    audioChunks.length = 0
+
+    if (audioBuffer.length < 500) {
+      broadcastState('idle')
+      indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+      indicatorWindow?.hide()
+      return
+    }
+
+    try {
+      const result = await runDictationPipeline(
+        audioBuffer,
+        getSettings(),
+        (s) => broadcastState(s)
+      )
+
+      addToHistory(result)
+      updateTrayMenu()
+
+      if (result.pasteMethod === 'clipboard') {
+        broadcastState('clipboard')
+      }
+
+      setTimeout(() => {
+        broadcastState('idle')
+        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+        indicatorWindow?.hide()
+      }, 1500)
+    } catch (err) {
+      console.error('[OpenFlow] Pipeline error:', err)
+      broadcastState('error')
+      setTimeout(() => {
+        broadcastState('idle')
+        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+        indicatorWindow?.hide()
+      }, 2000)
+    }
   })
 }
 

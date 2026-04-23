@@ -48,7 +48,7 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
   anthropic: {
     // No Anthropic transcription model — callers use Groq for transcription
     transcription: 'whisper-large-v3-turbo',
-    cleanup: 'claude-haiku-20240307',
+    cleanup: 'claude-3-haiku-20240307',
   },
 }
 
