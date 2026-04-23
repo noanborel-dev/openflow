@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
-type IndicatorState = 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'error' | 'clipboard' | `downloading:${number}`
+type IndicatorState =
+  | 'idle'
+  | 'recording'
+  | 'stopping'
+  | 'processing'
+  | 'done'
+  | 'clipboard'
+  | 'error'
 
 declare global {
   interface Window {
@@ -15,19 +22,13 @@ declare global {
 export default function Indicator() {
   const [state, setState] = useState<IndicatorState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [downloadPct, setDownloadPct] = useState(0)
-  const [waveform, setWaveform] = useState<number[]>(Array(20).fill(0))
+  const [waveform, setWaveform] = useState<number[]>(Array(6).fill(0))
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const animFrameRef = useRef<number>(0)
 
   useEffect(() => {
     const unsub = window.indicator.onStateChange((s) => {
-      if (s.startsWith('downloading:')) {
-        setDownloadPct(parseInt(s.split(':')[1], 10))
-        setState('downloading:0')
-        return
-      }
       if (s.startsWith('error:')) {
         setErrorMsg(s.slice(6))
         setState('error')
@@ -57,7 +58,6 @@ export default function Indicator() {
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
 
-      // Track pending arrayBuffer() promises so onstop waits for them all.
       const pendingChunks: Promise<void>[] = []
 
       recorder.ondataavailable = (e) => {
@@ -67,8 +67,6 @@ export default function Indicator() {
         }
       }
 
-      // Wait for all pending chunks to be sent before signalling done.
-      // Without this, the final chunk (arrayBuffer is async) would race AUDIO_DONE.
       recorder.onstop = async () => {
         await Promise.all(pendingChunks)
         window.indicator.sendAudioDone()
@@ -82,8 +80,8 @@ export default function Indicator() {
       const tick = () => {
         const data = new Uint8Array(analyser.frequencyBinCount)
         analyser.getByteFrequencyData(data)
-        const bars = Array.from({ length: 20 }, (_, i) => {
-          const idx = Math.floor((i / 20) * data.length)
+        const bars = Array.from({ length: 6 }, (_, i) => {
+          const idx = Math.floor((i / 6) * data.length)
           return Math.round((data[idx] / 255) * 100)
         })
         setWaveform(bars)
@@ -97,9 +95,8 @@ export default function Indicator() {
 
   function stopRecording() {
     cancelAnimationFrame(animFrameRef.current)
-    setWaveform(Array(20).fill(0))
+    setWaveform(Array(6).fill(0))
     if (mediaRecorderRef.current?.state !== 'inactive') {
-      // onstop handler will send AUDIO_DONE after final ondataavailable
       mediaRecorderRef.current?.stop()
     }
     mediaRecorderRef.current = null
@@ -107,50 +104,41 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
-  const isDownloading = state.toString().startsWith('downloading')
-
-  const bgClass =
-    (state === 'recording' || state === 'stopping') ? 'bg-red-500/90' :
-    isDownloading ? 'bg-purple-600/90' :
-    state === 'processing' ? 'bg-blue-500/90' :
-    state === 'done' ? 'bg-green-500/90' :
-    state === 'error' ? 'bg-red-800/90' :
-    state === 'clipboard' ? 'bg-yellow-500/90' : 'bg-gray-700/90'
-
   return (
-    <div className="flex items-center justify-center w-full h-full">
-      <div className={`flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md shadow-xl ${bgClass}`}>
+    <div className="flex items-center justify-center w-full h-full font-sans">
+      <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-pill bg-ink text-paper shadow-2xl">
         {(state === 'recording' || state === 'stopping') && (
           <>
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse shrink-0" />
-            <div className="flex items-end gap-px h-5">
+            <span className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse shrink-0" />
+            <div className="flex items-end gap-[2px] h-[14px]">
               {waveform.map((v, i) => (
                 <div
                   key={i}
-                  className="w-1 bg-white/80 rounded-full transition-all duration-75"
-                  style={{ height: `${Math.max(3, v * 0.18)}px` }}
+                  className="w-[2px] bg-volt rounded-[2px] transition-all duration-75"
+                  style={{ height: `${Math.max(3, v * 0.14)}px` }}
                 />
               ))}
             </div>
-          </>
-        )}
-        {isDownloading && (
-          <>
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span className="text-white text-xs font-medium">
-              Downloading model… {downloadPct}%
-            </span>
+            <span className="font-mono text-[9px] tracking-widest text-paper/50 ml-1">HOLD</span>
           </>
         )}
         {state === 'processing' && (
           <>
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            <span className="text-white text-xs font-medium">Processing…</span>
+            <span className="w-3 h-3 rounded-full border-[1.5px] border-paper/20 border-t-volt animate-spin shrink-0" />
+            <span className="font-mono text-[10.5px] tracking-wide">Transcribing</span>
           </>
         )}
-        {state === 'done' && <span className="text-white text-xs font-medium">✓ Done</span>}
-        {state === 'error' && <span className="text-white text-xs font-medium">✗ {errorMsg || 'Transcription failed'}</span>}
-        {state === 'clipboard' && <span className="text-white text-xs font-medium">Copied — press ⌘V to paste</span>}
+        {(state === 'done' || state === 'clipboard') && (
+          <span className="font-mono text-[10.5px] text-volt font-medium">
+            {state === 'clipboard' ? '✓ Copied — ⌘V to paste' : '✓ Pasted'}
+          </span>
+        )}
+        {state === 'error' && (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-danger shrink-0" />
+            <span className="font-mono text-[10.5px]">{errorMsg || 'Transcription failed'}</span>
+          </>
+        )}
       </div>
     </div>
   )
