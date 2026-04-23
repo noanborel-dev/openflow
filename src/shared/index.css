@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.btn-primary {
+  @apply px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-medium transition-colors w-full;
+}
+.btn-ghost {
+  @apply px-6 py-2 text-white/40 hover:text-white/70 text-sm transition-colors;
+}
