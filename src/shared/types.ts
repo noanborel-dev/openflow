@@ -2,7 +2,7 @@ export type AppCategory = 'messaging' | 'email' | 'code' | 'docs' | 'other'
 
 export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
 
-export type Provider = 'groq' | 'openai' | 'anthropic' | 'local'
+export type Provider = 'groq' | 'openai' | 'anthropic'
 
 export interface ProviderSettings {
   provider: Provider
@@ -14,9 +14,7 @@ export interface ProviderSettings {
 }
 
 export interface HotkeySettings {
-  pushToTalk: string   // e.g. "Right Alt"
-  commandMode: string  // e.g. "Command+Shift+Space"
-  pasteLast: string    // e.g. "Command+Shift+V"
+  pushToTalk: string   // single-key name matching node-global-key-listener (e.g. "LEFT CTRL")
 }
 
 export interface PerAppRule {

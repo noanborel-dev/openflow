@@ -1,12 +1,16 @@
 import type { AppCategory, Provider } from './types'
 
+// Default hotkey is any Ctrl key (LEFT or RIGHT). Matcher in hotkeys.ts accepts both.
 export const DEFAULT_HOTKEYS = {
-  pushToTalk: 'Option+Space',
-  commandMode: 'Command+Shift+Space',
-  pasteLast: 'Command+Shift+V',
+  pushToTalk: 'CTRL',
 }
 
-// Bundle ID → category (macOS)
+// Thresholds for hold-to-talk + double-tap-lock interaction.
+export const HOTKEY_TIMING = {
+  holdThresholdMs: 150,
+  dblTapWindowMs: 350,
+}
+
 export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
   'com.tinyspeck.slackmacgap': 'messaging',
   'com.discord': 'messaging',
@@ -15,7 +19,7 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
   'com.apple.mail': 'email',
   'com.microsoft.Outlook': 'email',
   'com.readdle.smartemail': 'email',
-  'com.todesktop.230313mzl4w4u92': 'code', // Cursor
+  'com.todesktop.230313mzl4w4u92': 'code',
   'com.microsoft.VSCode': 'code',
   'dev.zed.zed': 'code',
   'com.apple.dt.Xcode': 'code',
@@ -28,15 +32,13 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
 }
 
 export const DEFAULT_DEV_MODE_APPS = [
-  'com.todesktop.230313mzl4w4u92', // Cursor
+  'com.todesktop.230313mzl4w4u92',
   'com.microsoft.VSCode',
   'dev.zed.zed',
   'com.apple.dt.Xcode',
   'com.apple.Terminal',
   'com.googlecode.iterm2',
 ]
-
-export const LOCAL_WHISPER_MODEL = 'Xenova/whisper-base'
 
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
@@ -51,11 +53,6 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
     // No Anthropic transcription model — callers use Groq for transcription
     transcription: 'whisper-large-v3-turbo',
     cleanup: 'claude-3-haiku-20240307',
-  },
-  local: {
-    // whisper-base runs locally via @xenova/transformers — no API key needed
-    transcription: 'Xenova/whisper-base',
-    cleanup: '', // no cleanup for local mode — raw Whisper output is pasted directly
   },
 }
 

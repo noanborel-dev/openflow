@@ -1,16 +1,16 @@
 import ElectronStore from 'electron-store'
 import type { Settings } from '../shared/types'
-import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS } from '../shared/constants'
+import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS, MODELS } from '../shared/constants'
 
 const defaults: Settings = {
   firstRun: true,
   provider: {
-    provider: 'local',
+    provider: 'groq',
     groqKey: '',
     openaiKey: '',
     anthropicKey: '',
-    transcriptionModel: 'Xenova/whisper-base',
-    cleanupModel: '',
+    transcriptionModel: MODELS.groq.transcription,
+    cleanupModel: MODELS.groq.cleanup,
   },
   hotkeys: DEFAULT_HOTKEYS,
   perAppRules: [],
