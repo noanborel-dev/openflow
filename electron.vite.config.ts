@@ -9,7 +9,15 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': resolve('src/shared') } }
+    resolve: { alias: { '@shared': resolve('src/shared') } },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          indicator: resolve('src/preload/indicator.ts'),
+        }
+      }
+    }
   },
   renderer: {
     resolve: { alias: { '@shared': resolve('src/shared') } },
