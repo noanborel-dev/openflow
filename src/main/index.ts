@@ -59,6 +59,20 @@ function createIndicatorWindow(): BrowserWindow {
   return win
 }
 
+// Move the indicator to the display the cursor is currently on, centered
+// near the bottom. Called each time recording starts so the pill follows
+// the user across monitors/spaces.
+function positionIndicatorOnActiveDisplay(): void {
+  if (!indicatorWindow) return
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { x: dx, y: dy, width, height } = display.workArea
+  const [winW, winH] = indicatorWindow.getSize()
+  const x = Math.round(dx + width / 2 - winW / 2)
+  const y = Math.round(dy + height - winH - 24)
+  indicatorWindow.setBounds({ x, y, width: winW, height: winH })
+}
+
 function createSettingsWindow(): BrowserWindow {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus()
@@ -175,6 +189,7 @@ function setupHotkeys(): void {
   registerHotkey(settings.hotkeys.pushToTalk, {
     onStart: () => {
       audioChunks.length = 0
+      positionIndicatorOnActiveDisplay()
       indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
       indicatorWindow?.showInactive()
       broadcastState('recording')

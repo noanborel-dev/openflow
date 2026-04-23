@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import OpenAI, { toFile } from 'openai'
 import type { TranscriptionProvider, CleanupProvider } from './types'
 
 export function createOpenAITranscriptionProvider(
@@ -9,7 +9,7 @@ export function createOpenAITranscriptionProvider(
   return {
     name: 'OpenAI',
     async transcribe(audio, options = {}) {
-      const file = new File([audio], 'audio.webm', { type: 'audio/webm' })
+      const file = await toFile(audio, 'audio.webm', { type: 'audio/webm' })
       const response = await client.audio.transcriptions.create({
         file,
         model,
