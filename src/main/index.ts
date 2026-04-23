@@ -13,9 +13,8 @@ import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
 import { pasteText } from './paste'
-import { createLocalWhisperProvider } from './providers/local-whisper'
+import { toUserError } from './errors'
 import { IPC } from '../shared/types'
-import type { DictationResult } from '../shared/types'
 
 let indicatorWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
@@ -23,7 +22,6 @@ let onboardingWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const audioChunks: Buffer[] = []
-let isRecording = false
 
 function createIndicatorWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -68,10 +66,11 @@ function createSettingsWindow(): BrowserWindow {
   }
 
   const win = new BrowserWindow({
-    width: 700,
+    width: 720,
     height: 560,
     show: false,
     titleBarStyle: 'hiddenInset',
+    backgroundColor: '#FAFAF5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -98,11 +97,12 @@ function createOnboardingWindow(): BrowserWindow {
   }
 
   const win = new BrowserWindow({
-    width: 580,
-    height: 520,
+    width: 560,
+    height: 540,
     resizable: false,
     show: false,
     titleBarStyle: 'hiddenInset',
+    backgroundColor: '#FAFAF5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -118,7 +118,6 @@ function createOnboardingWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
-    // Clear firstRun regardless of how the window is closed (button or traffic light)
     setSettings({ firstRun: false })
     onboardingWindow = null
   })
@@ -131,9 +130,7 @@ function updateTrayMenu(): void {
 
   const history = getHistory()
   const historyItems: Electron.MenuItemConstructorOptions[] = history.slice(0, 5).map(item => ({
-    label: item.cleaned.length > 50
-      ? item.cleaned.slice(0, 50) + '…'
-      : item.cleaned,
+    label: item.cleaned.length > 50 ? item.cleaned.slice(0, 50) + '…' : item.cleaned,
     click: () => pasteText(item.cleaned),
   }))
 
@@ -153,7 +150,6 @@ function updateTrayMenu(): void {
 }
 
 function setupTray(): void {
-  // Use a simple empty image as placeholder — replace assets/tray.png with a real icon
   const iconPath = join(__dirname, '../../assets/tray.png')
   let icon: Electron.NativeImage
   try {
@@ -176,18 +172,17 @@ function setupHotkeys(): void {
   const settings = getSettings()
   unregisterAll()
 
-  // Toggle: first press starts recording, second press stops and transcribes.
-  registerHotkey(settings.hotkeys.pushToTalk, () => {
-    if (!isRecording) {
-      isRecording = true
+  registerHotkey(settings.hotkeys.pushToTalk, {
+    onStart: () => {
       audioChunks.length = 0
       indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
       indicatorWindow?.showInactive()
       broadcastState('recording')
-    } else {
-      isRecording = false
+    },
+    onStop: () => {
+      // Renderer transitions recording → stopping → (flush) → sends AUDIO_DONE
       broadcastState('stopping')
-    }
+    },
   })
 }
 
@@ -196,8 +191,6 @@ function setupAudioIpc(): void {
     audioChunks.push(Buffer.from(chunk))
   })
 
-  // AUDIO_DONE fires from the renderer after MediaRecorder.onstop —
-  // meaning all ondataavailable chunks have already arrived. Safe to pipeline now.
   ipcMain.on(IPC.AUDIO_DONE, async () => {
     const audioBuffer = Buffer.concat(audioChunks)
     audioChunks.length = 0
@@ -213,16 +206,13 @@ function setupAudioIpc(): void {
       const result = await runDictationPipeline(
         audioBuffer,
         getSettings(),
-        (s) => broadcastState(s),
-        (pct) => broadcastState(`downloading:${Math.round(pct)}`)
+        (s) => broadcastState(s)
       )
 
       addToHistory(result)
       updateTrayMenu()
 
-      if (result.pasteMethod === 'clipboard') {
-        broadcastState('clipboard')
-      }
+      broadcastState(result.pasteMethod === 'clipboard' ? 'clipboard' : 'done')
 
       setTimeout(() => {
         broadcastState('idle')
@@ -230,14 +220,14 @@ function setupAudioIpc(): void {
         indicatorWindow?.hide()
       }, 1500)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[OpenFlow] Pipeline error:', msg)
-      broadcastState(`error:${msg}`)
+      const { userMessage } = toUserError(err)
+      console.error('[OpenFlow] Pipeline error:', err)
+      broadcastState(`error:${userMessage}`)
       setTimeout(() => {
         broadcastState('idle')
         indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
         indicatorWindow?.hide()
-      }, 3000)
+      }, 4000)
     }
   })
 }
@@ -249,7 +239,6 @@ function setupIpcListeners(): void {
 }
 
 app.whenReady().then(() => {
-  // macOS: hide dock icon (runs as menubar/tray app)
   if (process.platform === 'darwin') {
     app.dock?.hide()
   }
@@ -266,14 +255,8 @@ app.whenReady().then(() => {
   if (settings.firstRun) {
     createOnboardingWindow()
   }
-
-  // Pre-install openai-whisper in background (one-time, silent)
-  if (settings.provider.provider === 'local') {
-    createLocalWhisperProvider()
-  }
 })
 
-// Keep app alive when all windows are closed (runs in tray)
 app.on('window-all-closed', () => {
   // Intentionally empty — app lives in tray
 })
