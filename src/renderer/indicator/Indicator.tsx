@@ -108,23 +108,26 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
-  // Liquid Glass pill: translucent frosted backdrop with enough opacity
-  // to remain readable on light desktops. Layered with a subtle dark
-  // tint (rgba 0,0,0,0.35) so text/icons stay legible regardless of the
-  // surface beneath. Drop-shadow rather than box-shadow keeps the glow
-  // tight to the pill's rounded shape — box-shadow on a rounded element
-  // inside an Electron transparent window produces a rectangular halo
-  // artifact on macOS.
+  // Liquid Glass pill: dark-tinted gradient over the blur for readability
+  // on any desktop. Drop-shadow on the parent (not box-shadow) follows
+  // the rounded outline — box-shadow on a rounded element inside an
+  // Electron transparent window leaves a rectangular halo on macOS.
   const pillStyle = {
     background:
-      'linear-gradient(180deg, rgba(20,20,28,0.55) 0%, rgba(20,20,28,0.45) 100%)',
+      'linear-gradient(180deg, rgba(22,24,32,0.6) 0%, rgba(22,24,32,0.5) 100%)',
     backdropFilter: 'blur(28px) saturate(180%)',
     WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-    border: '1px solid rgba(255,255,255,0.18)',
+    border: '1px solid rgba(255,255,255,0.16)',
     boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.35), ' +
-      'inset 0 -1px 0 rgba(255,255,255,0.06)',
+      'inset 0 1px 0 rgba(255,255,255,0.32), ' +
+      'inset 0 -1px 0 rgba(255,255,255,0.05)',
   }
+
+  // Refined cobalt that reads premium against the cool dark glass —
+  // the brighter electric blue used elsewhere in the app feels neon
+  // here. This sits closer to iOS system blue.
+  const accent = '#7BA3F0'
+  const accentGlow = 'rgba(123,163,240,0.55)'
 
   return (
     <div
@@ -139,47 +142,82 @@ export default function Indicator() {
           <>
             <span
               className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse shrink-0"
-              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
+              style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }}
             />
             <div className="flex items-end gap-[2px] h-[14px]">
               {waveform.map((v, i) => (
                 <div
                   key={i}
-                  className="w-[2px] bg-volt rounded-[2px] transition-all duration-75"
+                  className="w-[2px] rounded-[2px] transition-all duration-75"
                   style={{
                     height: `${Math.max(3, v * 0.14)}px`,
-                    boxShadow: '0 0 6px rgba(43,127,255,0.8)',
+                    background: accent,
+                    boxShadow: `0 0 5px ${accentGlow}`,
                   }}
                 />
               ))}
             </div>
-            <span className="font-mono text-[9px] tracking-widest text-white/60 ml-1">HOLD</span>
+            <span
+              className="text-[11px] text-white/55 ml-1 tracking-tight"
+              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
+            >
+              listening
+            </span>
           </>
         )}
         {state === 'processing' && (
           <>
             <span
-              className="w-3 h-3 rounded-full border-[1.5px] border-white/25 border-t-volt animate-spin shrink-0"
-              style={{ filter: 'drop-shadow(0 0 4px rgba(43,127,255,0.6))' }}
+              className="w-3 h-3 rounded-full border-[1.5px] border-white/20 animate-spin shrink-0"
+              style={{
+                borderTopColor: accent,
+                filter: `drop-shadow(0 0 3px ${accentGlow})`,
+              }}
             />
-            <span className="font-mono text-[10.5px] tracking-wide">Transcribing</span>
+            <span
+              className="text-[12px] tracking-tight"
+              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
+            >
+              transcribing
+            </span>
           </>
         )}
         {(state === 'done' || state === 'clipboard') && (
-          <span
-            className="font-mono text-[10.5px] text-volt font-medium"
-            style={{ textShadow: '0 0 6px rgba(43,127,255,0.6)' }}
-          >
-            {state === 'clipboard' ? '✓ Copied — ⌘V to paste' : '✓ Pasted'}
-          </span>
+          <>
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ filter: `drop-shadow(0 0 3px ${accentGlow})` }}>
+              <path
+                d="M2 5.5 L4.5 8 L9 3"
+                stroke={accent}
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+            <span
+              className="text-[12px] tracking-tight"
+              style={{
+                color: accent,
+                fontStyle: 'italic',
+                fontFamily: '"Cormorant Garamond", Georgia, serif',
+              }}
+            >
+              {state === 'clipboard' ? 'copied — ⌘V to paste' : 'pasted'}
+            </span>
+          </>
         )}
         {state === 'error' && (
           <>
             <span
               className="w-1.5 h-1.5 rounded-full bg-danger shrink-0"
-              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
+              style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }}
             />
-            <span className="font-mono text-[10.5px]">{errorMsg || 'Transcription failed'}</span>
+            <span
+              className="text-[12px] tracking-tight"
+              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
+            >
+              {errorMsg || 'transcription failed'}
+            </span>
           </>
         )}
       </div>
