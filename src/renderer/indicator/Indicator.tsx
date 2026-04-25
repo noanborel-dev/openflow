@@ -58,24 +58,28 @@ export default function Indicator() {
       const recorder = new MediaRecorder(stream, { mimeType })
       mediaRecorderRef.current = recorder
 
-      const pendingChunks: Promise<void>[] = []
-
+      // Collect every dataavailable blob locally and emit as a single WebM
+      // on stop. Streaming chunks (timeslice=100ms) produced corrupted
+      // containers ~80% of the time on Groq's side because only the first
+      // chunk had the EBML header and races during teardown sometimes
+      // dropped the trailing cluster — yielding "could not process file".
+      const blobs: Blob[] = []
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          const p = e.data.arrayBuffer().then((buf) => window.indicator.sendAudioChunk(buf))
-          pendingChunks.push(p)
-        }
+        if (e.data.size > 0) blobs.push(e.data)
       }
 
       recorder.onstop = async () => {
-        await Promise.all(pendingChunks)
+        const full = new Blob(blobs, { type: mimeType })
+        const buf = await full.arrayBuffer()
+        window.indicator.sendAudioChunk(buf)
         window.indicator.sendAudioDone()
         stream.getTracks().forEach((t) => t.stop())
         audioContextRef.current?.close()
         audioContextRef.current = null
       }
 
-      recorder.start(100)
+      // No timeslice — one complete, self-contained WebM blob on stop.
+      recorder.start()
 
       const tick = () => {
         const data = new Uint8Array(analyser.frequencyBinCount)
