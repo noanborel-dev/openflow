@@ -86,7 +86,7 @@ export default function AIProviderTab() {
                 value={settings.provider.groqKey}
                 onChange={(e) => save({ groqKey: e.target.value })}
                 placeholder="gsk_…"
-                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
               />
               <a
                 onClick={() => window.open('https://console.groq.com', '_blank')}
@@ -111,7 +111,7 @@ export default function AIProviderTab() {
                 value={settings.provider.openaiKey}
                 onChange={(e) => save({ openaiKey: e.target.value })}
                 placeholder="sk-…"
-                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
               />
             </div>
           </Row>
@@ -130,7 +130,7 @@ export default function AIProviderTab() {
                 value={settings.provider.anthropicKey}
                 onChange={(e) => save({ anthropicKey: e.target.value })}
                 placeholder="sk-ant-…"
-                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-ink"
+                className="w-full bg-paper border border-ink-08 rounded-input px-3 py-2 text-[12.5px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
               />
             </div>
           </Row>

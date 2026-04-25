@@ -2,18 +2,18 @@ import { useState } from 'react'
 import GeneralTab from './tabs/GeneralTab'
 import HotkeysTab from './tabs/HotkeysTab'
 import AIProviderTab from './tabs/AIProviderTab'
-import PerAppRulesTab from './tabs/PerAppRulesTab'
+import DictionaryTab from './tabs/DictionaryTab'
 import AboutTab from './tabs/AboutTab'
 
-const TABS = ['General', 'Provider', 'Hotkey', 'Per-App Rules', 'About'] as const
+const TABS = ['Provider', 'Hotkey', 'Dictionary', 'General', 'About'] as const
 type Tab = typeof TABS[number]
 
 const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
-  General:        { title: 'Your',      italic: 'preferences.', sub: 'How OpenFlow should behave' },
-  Provider:       { title: 'Your',      italic: 'provider.',    sub: 'Transcription + cleanup service' },
-  Hotkey:         { title: 'Your',      italic: 'hotkey.',      sub: 'Hold to talk · double-tap to lock' },
-  'Per-App Rules':{ title: 'App',       italic: 'rules.',       sub: 'Per-app cleanup overrides' },
-  About:          { title: 'About',     italic: 'OpenFlow.',    sub: 'Version & diagnostics' },
+  Provider:   { title: 'Your',  italic: 'provider.',    sub: 'Transcription + cleanup service' },
+  Hotkey:     { title: 'Your',  italic: 'hotkey.',      sub: 'Hold to talk · double-tap to lock' },
+  Dictionary: { title: 'Your',  italic: 'dictionary.',  sub: 'Bias Whisper toward terms it mishears' },
+  General:    { title: 'Your',  italic: 'preferences.', sub: 'How OpenFlow should behave' },
+  About:      { title: 'About', italic: 'OpenFlow.',    sub: 'Version & diagnostics' },
 }
 
 export default function SettingsApp() {
@@ -55,10 +55,10 @@ export default function SettingsApp() {
         </h1>
         <p className="text-[11.5px] text-ink-45 mt-1 mb-5">{titleInfo.sub}</p>
 
-        {tab === 'General' && <GeneralTab />}
-        {tab === 'Hotkey' && <HotkeysTab />}
         {tab === 'Provider' && <AIProviderTab />}
-        {tab === 'Per-App Rules' && <PerAppRulesTab />}
+        {tab === 'Hotkey' && <HotkeysTab />}
+        {tab === 'Dictionary' && <DictionaryTab />}
+        {tab === 'General' && <GeneralTab />}
         {tab === 'About' && <AboutTab />}
       </main>
     </div>

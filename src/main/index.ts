@@ -253,14 +253,18 @@ function setupAudioIpc(): void {
       updateTrayMenu()
 
       if (stillLatest()) {
-        broadcastState(result.pasteMethod === 'clipboard' ? 'clipboard' : 'done')
+        const isClipboard = result.pasteMethod === 'clipboard'
+        broadcastState(isClipboard ? 'clipboard' : 'done')
+        // Clipboard fallback (Accessibility denied or paste failed) needs
+        // longer so the user has time to read "press ⌘V to paste" and act.
+        const dismissAfter = isClipboard ? 6000 : 1500
         setTimeout(() => {
           if (stillLatest()) {
             broadcastState('idle')
             indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
             indicatorWindow?.hide()
           }
-        }, 1500)
+        }, dismissAfter)
       }
     } catch (err) {
       const { userMessage } = toUserError(err)

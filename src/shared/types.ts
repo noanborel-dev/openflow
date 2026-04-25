@@ -32,6 +32,7 @@ export interface Settings {
   perAppRules: PerAppRule[]
   devModeApps: string[]   // bundle IDs that force dev/code mode
   indicatorPosition: { x: number; y: number } | null
+  userDictionary: string[]   // user-added terms biased into Whisper transcription
 }
 
 export interface DictationResult {

@@ -10,10 +10,13 @@ export function createOpenAITranscriptionProvider(
     name: 'OpenAI',
     async transcribe(audio, options = {}) {
       const file = await toFile(audio, 'audio.webm', { type: 'audio/webm' })
+      const dict = options.dictionary ?? []
+      const prompt = dict.length > 0 ? dict.join(', ') : undefined
       const response = await client.audio.transcriptions.create({
         file,
         model,
         language: options.language ?? 'en',
+        ...(prompt ? { prompt } : {}),
       })
       return response.text
     },

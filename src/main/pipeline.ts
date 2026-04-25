@@ -1,5 +1,5 @@
 import { buildCleanupPrompt } from '../shared/prompts'
-import { MODELS } from '../shared/constants'
+import { MODELS, BUILTIN_DICTIONARY } from '../shared/constants'
 import type { DictationResult, Settings } from '../shared/types'
 import type { TranscriptionProvider, CleanupProvider } from './providers/types'
 import {
@@ -13,6 +13,7 @@ import {
 import { createAnthropicCleanupProvider } from './providers/anthropic'
 import { getFocusedApp } from './focused-app'
 import { pasteText } from './paste'
+import { logInfo, logError } from './log'
 
 function buildProviders(
   settings: Settings
@@ -41,34 +42,79 @@ function buildProviders(
   }
 }
 
+// Run the given async fn; if it rejects, retry once after a short delay.
+// Used for transcription + cleanup since both are network calls that can
+// transiently fail (cold-start timeouts, dropped connections).
+async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    logError(`${label} failed (attempt 1) — retrying`, err)
+    await new Promise(r => setTimeout(r, 250))
+    try {
+      return await fn()
+    } catch (err2) {
+      logError(`${label} failed (attempt 2) — giving up`, err2)
+      throw err2
+    }
+  }
+}
+
+function buildDictionary(settings: Settings): string[] {
+  const user = settings.userDictionary ?? []
+  // Lowercased de-dup so the same term in different cases doesn't repeat.
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const term of [...BUILTIN_DICTIONARY, ...user]) {
+    const k = term.trim().toLowerCase()
+    if (!k || seen.has(k)) continue
+    seen.add(k)
+    out.push(term.trim())
+  }
+  return out
+}
+
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
   onState: (state: 'processing' | 'done' | 'error') => void
 ): Promise<DictationResult & { pasteMethod: 'paste' | 'clipboard' }> {
+  const start = Date.now()
   onState('processing')
+  logInfo('Pipeline start', { audioBytes: audioBuffer.length, provider: settings.provider.provider })
 
   const focusedApp = await getFocusedApp()
+  logInfo('Focused app', { name: focusedApp.name, bundleId: focusedApp.bundleId })
+
   const { transcription, cleanup } = buildProviders(settings)
 
   const category = settings.devModeApps.includes(focusedApp.bundleId)
     ? ('code' as const)
     : focusedApp.category
 
-  const transcript = await transcription.transcribe(audioBuffer, { dictionary: [] })
+  const dictionary = buildDictionary(settings)
+
+  const tStart = Date.now()
+  const transcript = await withRetry('Transcription', () =>
+    transcription.transcribe(audioBuffer, { dictionary }))
+  logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length })
 
   const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
   const effectiveCategory = rule?.category ?? category
   const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
     .replace('{text}', transcript)
 
-  const cleaned = await cleanup.cleanup(transcript, {
-    appName: focusedApp.name,
-    appCategory: effectiveCategory,
-    systemPrompt,
-  })
+  const cStart = Date.now()
+  const cleaned = await withRetry('Cleanup', () =>
+    cleanup.cleanup(transcript, {
+      appName: focusedApp.name,
+      appCategory: effectiveCategory,
+      systemPrompt,
+    }))
+  logInfo('Cleaned', { ms: Date.now() - cStart, chars: cleaned.length })
 
   const { method: pasteMethod } = await pasteText(cleaned)
+  logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
 
   onState('done')
 
@@ -90,8 +136,10 @@ export async function runCommandPipeline(
 ): Promise<string> {
   const { transcription, cleanup } = buildProviders(settings)
   const focusedApp = await getFocusedApp()
+  const dictionary = buildDictionary(settings)
 
-  const command = await transcription.transcribe(audioBuffer, { dictionary: [] })
+  const command = await withRetry('Transcription', () =>
+    transcription.transcribe(audioBuffer, { dictionary }))
 
   const systemPrompt = `You are a text editing assistant. The user has selected the following text and dictated an editing command.
 
@@ -102,11 +150,12 @@ Editing command: ${command}
 
 Apply the command to the selected text and return ONLY the modified text, nothing else.`
 
-  const result = await cleanup.cleanup(command, {
-    appName: focusedApp.name,
-    appCategory: focusedApp.category,
-    systemPrompt,
-  })
+  const result = await withRetry('Cleanup', () =>
+    cleanup.cleanup(command, {
+      appName: focusedApp.name,
+      appCategory: focusedApp.category,
+      systemPrompt,
+    }))
 
   return result
 }
