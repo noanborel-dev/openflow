@@ -42,6 +42,11 @@ function createIndicatorWindow(): BrowserWindow {
     y,
     frame: false,
     transparent: true,
+    // hasShadow: false eliminates the macOS native rectangular window
+    // shadow that traces the BrowserWindow bounds and produces a faint
+    // outline around the rounded pill. Our pill renders its own
+    // drop-shadow that follows its actual shape.
+    hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
