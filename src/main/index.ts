@@ -56,6 +56,15 @@ function createIndicatorWindow(): BrowserWindow {
 
   win.setIgnoreMouseEvents(true, { forward: true })
 
+  // Show the indicator on every macOS Space — including fullscreen apps.
+  // Without this the window is pinned to the Space it was created on, so
+  // swiping to another desktop loses sight of it. setAlwaysOnTop with the
+  // 'screen-saver' level pierces fullscreen-app layering as well.
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (process.platform === 'darwin') {
+    win.setAlwaysOnTop(true, 'screen-saver')
+  }
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/indicator/index.html`)
   } else {
