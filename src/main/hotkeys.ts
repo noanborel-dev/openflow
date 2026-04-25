@@ -18,10 +18,17 @@ let chordBinding: string | null = null       // e.g. "CTRL+SHIFT+V"
 let chordCallback: (() => void) | null = null
 let lastChordFireAt = 0                       // debounce OS auto-repeat
 
-// Interaction state machine state
+// Interaction state machine state.
+//
+// Two modes:
+//  - HOLD: press + hold => record while held; release stops.
+//  - TAP TOGGLE: a quick press-and-release stays recording. Next press stops.
+//
+// `locked` means we're in the tap-toggle mode (audio still streaming
+// after the user released the key). `active` reflects whether onStart
+// has fired without a matching onStop yet.
 let pressedAt = 0         // timestamp of current keydown, 0 if not pressed
-let lastTapAt = 0         // timestamp of last short tap (for double-tap detection)
-let locked = false        // true after a double-tap until next press releases it
+let locked = false        // true while a tap-toggle session is in progress
 let active = false        // true while a recording session is in progress (start fired, stop not yet)
 
 // Map the user-facing key name to the set of node-global-key-listener key names
@@ -98,7 +105,6 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
   currentKey = key
   callbacks = cbs
   pressedAt = 0
-  lastTapAt = 0
   locked = false
   active = false
 
@@ -118,24 +124,16 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       if (pressedAt !== 0) return
       pressedAt = now
 
-      // Locked mode: pressing while locked ends the session.
+      // If we're currently in a tap-toggle session, this press ends it.
       if (locked) {
         locked = false
         fireStop()
         return
       }
 
-      // Double-tap detection: two DOWN events within window => enter lock.
-      if (lastTapAt !== 0 && now - lastTapAt <= HOTKEY_TIMING.dblTapWindowMs) {
-        lastTapAt = 0
-        locked = true
-        // If we weren't already recording (tap was too short to cross holdThreshold), start now.
-        fireStart()
-        return
-      }
-
-      // Normal hold: start recording. (We start on DOWN immediately for
-      // responsiveness; the holdThreshold gate only matters on UP.)
+      // Otherwise this is the start of either a hold or a tap. We begin
+      // recording on DOWN for responsiveness; UP will decide whether the
+      // session ended (hold released) or transitions into locked tap mode.
       fireStart()
     } else if (e.state === 'UP') {
       if (pressedAt === 0) return
@@ -143,23 +141,18 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       pressedAt = 0
 
       if (locked) {
-        // Stay active. UP during a locked session is ignored.
+        // Already in tap-toggle mode (we entered it on a prior cycle).
+        // UP is irrelevant — recording continues until the next DOWN.
         return
       }
 
       if (held < HOTKEY_TIMING.holdThresholdMs) {
-        // Short press: discard this recording attempt and remember the tap
-        // for possible double-tap.
-        lastTapAt = now
-        // Cancel the start we fired on DOWN by firing stop — but the pipeline
-        // will naturally no-op on empty audio (main/index.ts already guards
-        // `audioBuffer.length < 500`).
-        fireStop()
+        // Quick tap: stay recording. Next press stops it.
+        locked = true
         return
       }
 
-      // Real hold: fire stop.
-      lastTapAt = 0
+      // Real hold: release stops recording.
       fireStop()
     }
   })
@@ -173,7 +166,6 @@ export function unregisterHotkey(): void {
   currentKey = null
   callbacks = null
   pressedAt = 0
-  lastTapAt = 0
   locked = false
   active = false
 }

@@ -93,7 +93,7 @@ export default function HotkeysTab() {
           <div className="flex-1">
             <div className="text-[12.5px] font-medium">Push-to-talk</div>
             <div className="text-[10.5px] text-ink-45 mt-0.5">
-              Hold to talk. Double-tap to lock recording on.
+              Tap once to toggle on. Hold to record while held.
             </div>
           </div>
           <Pill

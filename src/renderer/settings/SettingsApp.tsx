@@ -10,7 +10,7 @@ type Tab = typeof TABS[number]
 
 const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
   Provider:   { title: 'Your',  italic: 'provider.',    sub: 'Transcription + cleanup service' },
-  Hotkey:     { title: 'Your',  italic: 'hotkey.',      sub: 'Hold to talk · double-tap to lock' },
+  Hotkey:     { title: 'Your',  italic: 'hotkey.',      sub: 'Tap to toggle · hold to talk' },
   Dictionary: { title: 'Your',  italic: 'dictionary.',  sub: 'Bias Whisper toward terms it mishears' },
   General:    { title: 'Your',  italic: 'preferences.', sub: 'How OpenFlow should behave' },
   About:      { title: 'About', italic: 'OpenFlow.',    sub: 'Version & diagnostics' },

@@ -114,7 +114,7 @@ export default function OnboardingApp() {
               Start <span className="font-display italic font-medium">speaking.</span>
             </h1>
             <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[380px] mb-7">
-              Hold <kbd className="font-mono text-[12px] bg-card border border-ink-08 px-1.5 py-0.5 rounded">⌃ Ctrl</kbd> anywhere and speak. Release to paste. Double-tap to lock on.
+              Tap <kbd className="font-mono text-[12px] bg-card border border-ink-08 px-1.5 py-0.5 rounded">⌃ Ctrl</kbd> to start, tap again to stop. Or hold to talk while pressed.
             </p>
             <div>
               <Pill variant="primary" onClick={handleFinish}>
