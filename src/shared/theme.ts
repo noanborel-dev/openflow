@@ -1,5 +1,7 @@
-// Single source of truth for Electric Paper palette.
+// Single source of truth for the paper + electric-blue palette.
 // Consumed directly by renderer components AND by tailwind.config.js.
+// The `volt` token is kept as an alias of the electric-blue accent so
+// existing markup continues to work without a find-and-replace pass.
 export const COLORS = {
   paper: '#FAFAF5',
   ink: '#0A0A0A',
@@ -7,8 +9,9 @@ export const COLORS = {
   'ink-45': 'rgba(10,10,10,0.45)',
   'ink-08': 'rgba(10,10,10,0.08)',
   card: '#FFFFFF',
-  volt: '#D4FF3D',
-  'volt-muted': 'rgba(212,255,61,0.25)',
+  volt: '#2B7FFF',
+  'volt-muted': 'rgba(43,127,255,0.25)',
+  'volt-glow': 'rgba(43,127,255,0.6)',
   danger: '#E84A3A',
   ok: '#16A34A',
 } as const

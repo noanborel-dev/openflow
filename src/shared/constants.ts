@@ -3,6 +3,7 @@ import type { AppCategory, Provider } from './types'
 // Default hotkey is any Ctrl key (LEFT or RIGHT). Matcher in hotkeys.ts accepts both.
 export const DEFAULT_HOTKEYS = {
   pushToTalk: 'CTRL',
+  pasteLast: 'CTRL+SHIFT+V',
 }
 
 // Thresholds for hold-to-talk + double-tap-lock interaction.

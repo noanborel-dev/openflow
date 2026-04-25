@@ -14,6 +14,12 @@ export default function AboutTab() {
         >
           github.com/openflow-app/openflow ↗
         </div>
+        <div
+          className="text-ink hover:opacity-70 cursor-pointer underline underline-offset-2 pt-2"
+          onClick={() => window.openflow.revealLog()}
+        >
+          Reveal log file ↗
+        </div>
       </div>
       <div className="pt-4 text-xs text-ink-45 leading-relaxed">
         Your voice goes from your mic to your API provider. OpenFlow never sees or stores

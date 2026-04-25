@@ -6,14 +6,16 @@ import {
   nativeImage,
   ipcMain,
   screen,
+  shell,
 } from 'electron'
 import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
-import { registerHotkey, unregisterAll } from './hotkeys'
+import { registerHotkey, registerPasteLastHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
 import { pasteText } from './paste'
 import { toUserError } from './errors'
+import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
 
 let indicatorWindow: BrowserWindow | null = null
@@ -22,6 +24,10 @@ let onboardingWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const audioChunks: Buffer[] = []
+// Session ID bumped on every new recording start. Async hide/cleanup
+// callbacks check this against the ID they captured; if it has changed,
+// a newer session is in progress and the callback skips its hide.
+let sessionId = 0
 
 function createIndicatorWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
@@ -188,6 +194,7 @@ function setupHotkeys(): void {
 
   registerHotkey(settings.hotkeys.pushToTalk, {
     onStart: () => {
+      sessionId++
       audioChunks.length = 0
       positionIndicatorOnActiveDisplay()
       indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
@@ -199,6 +206,17 @@ function setupHotkeys(): void {
       broadcastState('stopping')
     },
   })
+
+  if (settings.hotkeys.pasteLast) {
+    registerPasteLastHotkey(settings.hotkeys.pasteLast, () => {
+      const last = getHistory()[0]
+      if (!last) {
+        logInfo('Paste-last pressed with empty history')
+        return
+      }
+      pasteText(last.cleaned).catch(err => logError('Paste-last failed', err))
+    })
+  }
 }
 
 function setupAudioIpc(): void {
@@ -207,13 +225,20 @@ function setupAudioIpc(): void {
   })
 
   ipcMain.on(IPC.AUDIO_DONE, async () => {
+    const mySession = sessionId
     const audioBuffer = Buffer.concat(audioChunks)
     audioChunks.length = 0
 
+    // Skip all further work if a newer recording has begun since this
+    // AUDIO_DONE was queued — otherwise we'd hide the active indicator.
+    const stillLatest = () => mySession === sessionId
+
     if (audioBuffer.length < 500) {
-      broadcastState('idle')
-      indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-      indicatorWindow?.hide()
+      if (stillLatest()) {
+        broadcastState('idle')
+        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+        indicatorWindow?.hide()
+      }
       return
     }
 
@@ -221,28 +246,35 @@ function setupAudioIpc(): void {
       const result = await runDictationPipeline(
         audioBuffer,
         getSettings(),
-        (s) => broadcastState(s)
+        (s) => { if (stillLatest()) broadcastState(s) }
       )
 
       addToHistory(result)
       updateTrayMenu()
 
-      broadcastState(result.pasteMethod === 'clipboard' ? 'clipboard' : 'done')
-
-      setTimeout(() => {
-        broadcastState('idle')
-        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-        indicatorWindow?.hide()
-      }, 1500)
+      if (stillLatest()) {
+        broadcastState(result.pasteMethod === 'clipboard' ? 'clipboard' : 'done')
+        setTimeout(() => {
+          if (stillLatest()) {
+            broadcastState('idle')
+            indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+            indicatorWindow?.hide()
+          }
+        }, 1500)
+      }
     } catch (err) {
       const { userMessage } = toUserError(err)
-      console.error('[OpenFlow] Pipeline error:', err)
-      broadcastState(`error:${userMessage}`)
-      setTimeout(() => {
-        broadcastState('idle')
-        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-        indicatorWindow?.hide()
-      }, 4000)
+      logError('Pipeline error', err)
+      if (stillLatest()) {
+        broadcastState(`error:${userMessage}`)
+        setTimeout(() => {
+          if (stillLatest()) {
+            broadcastState('idle')
+            indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+            indicatorWindow?.hide()
+          }
+        }, 4000)
+      }
     }
   })
 }
@@ -251,6 +283,9 @@ function setupIpcListeners(): void {
   ipcMain.on(IPC.OPEN_SETTINGS, () => createSettingsWindow())
   ipcMain.on(IPC.OPEN_ONBOARDING, () => createOnboardingWindow())
   ipcMain.on(IPC.HOTKEYS_RELOAD, () => setupHotkeys())
+  ipcMain.handle(IPC.REVEAL_LOG, () => {
+    shell.showItemInFolder(getLogPath())
+  })
 }
 
 app.whenReady().then(() => {

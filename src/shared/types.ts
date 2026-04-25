@@ -15,6 +15,7 @@ export interface ProviderSettings {
 
 export interface HotkeySettings {
   pushToTalk: string   // single-key name matching node-global-key-listener (e.g. "LEFT CTRL")
+  pasteLast: string    // chord name, e.g. "CTRL+SHIFT+V" — empty string disables
 }
 
 export interface PerAppRule {
@@ -57,4 +58,5 @@ export const IPC = {
   MIC_PERMISSION: 'mic:permission',
   ACCESSIBILITY_OPEN: 'accessibility:open',
   HOTKEYS_RELOAD: 'hotkeys:reload',
+  REVEAL_LOG: 'reveal:log',
 } as const

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('openflow', {
   getHistory: () => ipcRenderer.invoke(IPC.HISTORY_GET),
   requestMicPermission: () => ipcRenderer.invoke(IPC.MIC_PERMISSION),
   openAccessibilitySettings: () => ipcRenderer.invoke(IPC.ACCESSIBILITY_OPEN),
+  revealLog: () => ipcRenderer.invoke(IPC.REVEAL_LOG),
   reloadHotkeys: () => ipcRenderer.send(IPC.HOTKEYS_RELOAD),
   onStateChange: (cb: (state: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, state: string) => cb(state)

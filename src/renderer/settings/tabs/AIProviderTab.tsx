@@ -4,21 +4,6 @@ import { MODELS } from '../../../shared/constants'
 import { Card, Row } from '../../shared/ui/Card'
 import { Pill } from '../../shared/ui/Pill'
 
-declare global {
-  interface Window {
-    openflow: {
-      getSettings: () => Promise<Settings>
-      setSettings: (p: Partial<Settings>) => Promise<void>
-      testProvider: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>
-      getHistory: () => Promise<unknown>
-      requestMicPermission: () => Promise<boolean>
-      openAccessibilitySettings: () => Promise<void>
-      reloadHotkeys: () => void
-      onStateChange: (cb: (state: string) => void) => () => void
-    }
-  }
-}
-
 const PROVIDER_OPTIONS: { value: Provider; label: string; hint: string }[] = [
   { value: 'groq',      label: 'Groq · Whisper',        hint: 'Recommended — fast & free tier' },
   { value: 'openai',    label: 'OpenAI',                hint: 'Whisper + GPT-4o-mini cleanup' },

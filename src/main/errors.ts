@@ -18,5 +18,5 @@ export function toUserError(err: unknown): UserError {
   if (AUTH_HINTS.some(h => raw.includes(h))) {
     return { code: 'AUTH', userMessage: 'Groq key rejected. Update it in Settings.' }
   }
-  return { code: 'TRANSCRIBE_FAILED', userMessage: 'Transcription failed. Open Settings for logs.' }
+  return { code: 'TRANSCRIBE_FAILED', userMessage: 'Transcription failed — try again.' }
 }

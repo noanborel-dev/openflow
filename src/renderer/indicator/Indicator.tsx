@@ -104,38 +104,71 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
+  // Liquid Glass pill — translucent frosted backdrop so the user's desktop
+  // colors show through. Inset highlight on the top edge creates the "wet
+  // glass" feel. Accent color (electric blue) is applied to the waveform /
+  // spinner / checkmark so it glows through the frosted layer.
+  const pillStyle = {
+    background: 'rgba(255,255,255,0.12)',
+    backdropFilter: 'blur(22px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(22px) saturate(180%)',
+    border: '1px solid rgba(255,255,255,0.35)',
+    boxShadow:
+      '0 10px 30px rgba(0,0,0,0.25), ' +
+      'inset 0 1px 0 rgba(255,255,255,0.55), ' +
+      'inset 0 -1px 0 rgba(255,255,255,0.08)',
+  }
+
   return (
     <div className="flex items-center justify-center w-full h-full font-sans">
-      <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-pill bg-ink text-paper shadow-2xl">
+      <div
+        className="inline-flex items-center gap-2.5 px-4 py-2 rounded-pill text-white"
+        style={pillStyle}
+      >
         {(state === 'recording' || state === 'stopping') && (
           <>
-            <span className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse shrink-0" />
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse shrink-0"
+              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
+            />
             <div className="flex items-end gap-[2px] h-[14px]">
               {waveform.map((v, i) => (
                 <div
                   key={i}
                   className="w-[2px] bg-volt rounded-[2px] transition-all duration-75"
-                  style={{ height: `${Math.max(3, v * 0.14)}px` }}
+                  style={{
+                    height: `${Math.max(3, v * 0.14)}px`,
+                    boxShadow: '0 0 6px rgba(43,127,255,0.8)',
+                  }}
                 />
               ))}
             </div>
-            <span className="font-mono text-[9px] tracking-widest text-paper/50 ml-1">HOLD</span>
+            <span className="font-mono text-[9px] tracking-widest text-white/60 ml-1">HOLD</span>
           </>
         )}
         {state === 'processing' && (
           <>
-            <span className="w-3 h-3 rounded-full border-[1.5px] border-paper/20 border-t-volt animate-spin shrink-0" />
+            <span
+              className="w-3 h-3 rounded-full border-[1.5px] border-white/25 border-t-volt animate-spin shrink-0"
+              style={{ filter: 'drop-shadow(0 0 4px rgba(43,127,255,0.6))' }}
+            />
             <span className="font-mono text-[10.5px] tracking-wide">Transcribing</span>
           </>
         )}
         {(state === 'done' || state === 'clipboard') && (
-          <span className="font-mono text-[10.5px] text-volt font-medium">
+          <span
+            className="font-mono text-[10.5px] text-volt font-medium"
+            style={{ textShadow: '0 0 6px rgba(43,127,255,0.6)' }}
+          >
             {state === 'clipboard' ? '✓ Copied — ⌘V to paste' : '✓ Pasted'}
           </span>
         )}
         {state === 'error' && (
           <>
-            <span className="w-1.5 h-1.5 rounded-full bg-danger shrink-0" />
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-danger shrink-0"
+              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
+            />
             <span className="font-mono text-[10.5px]">{errorMsg || 'Transcription failed'}</span>
           </>
         )}
