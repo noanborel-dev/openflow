@@ -108,23 +108,29 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
-  // Liquid Glass pill — translucent frosted backdrop so the user's desktop
-  // colors show through. Inset highlight on the top edge creates the "wet
-  // glass" feel. Accent color (electric blue) is applied to the waveform /
-  // spinner / checkmark so it glows through the frosted layer.
+  // Liquid Glass pill: translucent frosted backdrop with enough opacity
+  // to remain readable on light desktops. Layered with a subtle dark
+  // tint (rgba 0,0,0,0.35) so text/icons stay legible regardless of the
+  // surface beneath. Drop-shadow rather than box-shadow keeps the glow
+  // tight to the pill's rounded shape — box-shadow on a rounded element
+  // inside an Electron transparent window produces a rectangular halo
+  // artifact on macOS.
   const pillStyle = {
-    background: 'rgba(255,255,255,0.12)',
-    backdropFilter: 'blur(22px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(22px) saturate(180%)',
-    border: '1px solid rgba(255,255,255,0.35)',
+    background:
+      'linear-gradient(180deg, rgba(20,20,28,0.55) 0%, rgba(20,20,28,0.45) 100%)',
+    backdropFilter: 'blur(28px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+    border: '1px solid rgba(255,255,255,0.18)',
     boxShadow:
-      '0 10px 30px rgba(0,0,0,0.25), ' +
-      'inset 0 1px 0 rgba(255,255,255,0.55), ' +
-      'inset 0 -1px 0 rgba(255,255,255,0.08)',
+      'inset 0 1px 0 rgba(255,255,255,0.35), ' +
+      'inset 0 -1px 0 rgba(255,255,255,0.06)',
   }
 
   return (
-    <div className="flex items-center justify-center w-full h-full font-sans">
+    <div
+      className="flex items-center justify-center w-full h-full font-sans"
+      style={{ filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.35))' }}
+    >
       <div
         className="inline-flex items-center gap-2.5 px-4 py-2 rounded-pill text-white"
         style={pillStyle}
