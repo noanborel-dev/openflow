@@ -281,17 +281,25 @@ function setupAudioIpc(): void {
         }, dismissAfter)
       }
     } catch (err) {
-      const { userMessage } = toUserError(err)
-      logError('Pipeline error', err)
+      const userErr = toUserError(err)
+      // NO_SPEECH is expected user behavior (held the key, didn't talk),
+      // not a true error — log info-level and dismiss faster than a real
+      // pipeline failure.
+      if (userErr.code === 'NO_SPEECH') {
+        logInfo('No speech detected')
+      } else {
+        logError('Pipeline error', err)
+      }
       if (stillLatest()) {
-        broadcastState(`error:${userMessage}`)
+        broadcastState(`error:${userErr.userMessage}`)
+        const dismissAfter = userErr.code === 'NO_SPEECH' ? 2200 : 4000
         setTimeout(() => {
           if (stillLatest()) {
             broadcastState('idle')
             indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
             indicatorWindow?.hide()
           }
-        }, 4000)
+        }, dismissAfter)
       }
     }
   })

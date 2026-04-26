@@ -112,22 +112,36 @@ export default function Indicator() {
   // on any desktop. Drop-shadow on the parent (not box-shadow) follows
   // the rounded outline — box-shadow on a rounded element inside an
   // Electron transparent window leaves a rectangular halo on macOS.
+  // Liquid Glass: more saturated and slightly more opaque than before,
+  // so the dark base stays consistent and lifts the foreground text.
+  // The blur dial is high (32px) for a strong depth-of-field feel
+  // without going opaque.
   const pillStyle = {
     background:
-      'linear-gradient(180deg, rgba(22,24,32,0.6) 0%, rgba(22,24,32,0.5) 100%)',
-    backdropFilter: 'blur(28px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-    border: '1px solid rgba(255,255,255,0.16)',
+      'linear-gradient(180deg, rgba(20,22,30,0.68) 0%, rgba(20,22,30,0.58) 100%)',
+    backdropFilter: 'blur(32px) saturate(200%)',
+    WebkitBackdropFilter: 'blur(32px) saturate(200%)',
+    border: '1px solid rgba(255,255,255,0.18)',
     boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.32), ' +
-      'inset 0 -1px 0 rgba(255,255,255,0.05)',
+      'inset 0 1px 0 rgba(255,255,255,0.36), ' +
+      'inset 0 -1px 0 rgba(255,255,255,0.06)',
   }
 
-  // Refined cobalt that reads premium against the cool dark glass —
-  // the brighter electric blue used elsewhere in the app feels neon
-  // here. This sits closer to iOS system blue.
-  const accent = '#7BA3F0'
-  const accentGlow = 'rgba(123,163,240,0.55)'
+  // Refined cobalt — sits between iOS system blue and lavender, reads
+  // premium against the cool dark glass. A touch brighter than before
+  // for legibility.
+  const accent = '#8BB4F2'
+  const accentGlow = 'rgba(139,180,242,0.6)'
+
+  // Shared text style for italic state labels — semi-bold weight + a
+  // soft text-shadow so the serif glyphs don't get lost against the
+  // glass at small size.
+  const labelStyle = {
+    fontStyle: 'italic',
+    fontFamily: '"Cormorant Garamond", Georgia, serif',
+    fontWeight: 600,
+    textShadow: '0 1px 2px rgba(0,0,0,0.35)',
+  } as const
 
   return (
     <div
@@ -158,8 +172,8 @@ export default function Indicator() {
               ))}
             </div>
             <span
-              className="text-[11px] text-white/55 ml-1 tracking-tight"
-              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
+              className="text-[12px] ml-1 tracking-tight text-white/85"
+              style={labelStyle}
             >
               listening
             </span>
@@ -174,33 +188,26 @@ export default function Indicator() {
                 filter: `drop-shadow(0 0 3px ${accentGlow})`,
               }}
             />
-            <span
-              className="text-[12px] tracking-tight"
-              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
-            >
+            <span className="text-[13px] tracking-tight text-white" style={labelStyle}>
               transcribing
             </span>
           </>
         )}
         {(state === 'done' || state === 'clipboard') && (
           <>
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ filter: `drop-shadow(0 0 3px ${accentGlow})` }}>
+            <svg width="12" height="12" viewBox="0 0 11 11" fill="none" style={{ filter: `drop-shadow(0 0 3px ${accentGlow})` }}>
               <path
                 d="M2 5.5 L4.5 8 L9 3"
                 stroke={accent}
-                strokeWidth="1.6"
+                strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 fill="none"
               />
             </svg>
             <span
-              className="text-[12px] tracking-tight"
-              style={{
-                color: accent,
-                fontStyle: 'italic',
-                fontFamily: '"Cormorant Garamond", Georgia, serif',
-              }}
+              className="text-[13px] tracking-tight"
+              style={{ ...labelStyle, color: accent }}
             >
               {state === 'clipboard' ? 'copied — ⌘V to paste' : 'pasted'}
             </span>
@@ -212,10 +219,7 @@ export default function Indicator() {
               className="w-1.5 h-1.5 rounded-full bg-danger shrink-0"
               style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }}
             />
-            <span
-              className="text-[12px] tracking-tight"
-              style={{ fontStyle: 'italic', fontFamily: '"Cormorant Garamond", Georgia, serif' }}
-            >
+            <span className="text-[13px] tracking-tight text-white" style={labelStyle}>
               {errorMsg || 'transcription failed'}
             </span>
           </>

@@ -1,12 +1,25 @@
 export type UserError = {
-  code: 'NO_KEY' | 'NETWORK' | 'AUTH' | 'TRANSCRIBE_FAILED'
+  code: 'NO_KEY' | 'NETWORK' | 'AUTH' | 'TRANSCRIBE_FAILED' | 'NO_SPEECH'
   userMessage: string
+}
+
+// Sentinel error thrown by the pipeline when Whisper returns an empty
+// (or near-empty / hallucinated) transcript. Caught by the indicator
+// flow so we surface a friendly message instead of pasting nothing.
+export class NoSpeechError extends Error {
+  constructor() {
+    super('No speech detected')
+    this.name = 'NoSpeechError'
+  }
 }
 
 const NETWORK_HINTS = ['fetch failed', 'ENOTFOUND', 'ECONNREFUSED', 'getaddrinfo', 'ETIMEDOUT']
 const AUTH_HINTS = ['401', 'Invalid API Key', 'invalid_api_key', 'Incorrect API key']
 
 export function toUserError(err: unknown): UserError {
+  if (err instanceof NoSpeechError) {
+    return { code: 'NO_SPEECH', userMessage: "couldn't hear you — try again" }
+  }
   const raw = err instanceof Error ? err.message : String(err)
 
   if (!raw || raw.toLowerCase().includes('no api key')) {

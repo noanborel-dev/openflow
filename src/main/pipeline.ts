@@ -14,6 +14,44 @@ import { createAnthropicCleanupProvider } from './providers/anthropic'
 import { getFocusedApp } from './focused-app'
 import { pasteText } from './paste'
 import { logInfo, logError } from './log'
+import { NoSpeechError } from './errors'
+
+// Whisper hallucinates these on silent / near-silent audio. If the
+// transcript is exactly one of these (case-insensitive, trimmed of
+// punctuation), treat it as no speech.
+const HALLUCINATIONS = new Set([
+  '',
+  '.',
+  '...',
+  'thanks for watching',
+  'thanks for watching!',
+  'thank you',
+  'thank you.',
+  'thanks',
+  'you',
+  'bye',
+  'bye.',
+  'okay',
+  'ok',
+  'mm',
+  'mhm',
+  'uh',
+  'um',
+  '[blank_audio]',
+  '[silence]',
+  '[music]',
+  '[no audio]',
+])
+
+function isLikelySilence(transcript: string): boolean {
+  const cleaned = transcript.trim().toLowerCase().replace(/[.!?,]+$/g, '')
+  if (cleaned.length === 0) return true
+  if (HALLUCINATIONS.has(cleaned)) return true
+  // Very short outputs (< 2 chars after trimming punctuation) are almost
+  // always silence-induced. Real dictation is at least a word.
+  if (cleaned.length < 2) return true
+  return false
+}
 
 function buildProviders(
   settings: Settings
@@ -97,7 +135,15 @@ export async function runDictationPipeline(
   const tStart = Date.now()
   const transcript = await withRetry('Transcription', () =>
     transcription.transcribe(audioBuffer, { dictionary }))
-  logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length })
+  logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length, preview: transcript.slice(0, 60) })
+
+  // Bail out before cleanup + paste if Whisper returned nothing or a
+  // known silence-hallucination. The indicator catches NoSpeechError
+  // and shows a friendly "couldn't hear you" message.
+  if (isLikelySilence(transcript)) {
+    logInfo('No speech detected — skipping paste', { transcript })
+    throw new NoSpeechError()
+  }
 
   const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
   const effectiveCategory = rule?.category ?? category
