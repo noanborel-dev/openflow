@@ -13,6 +13,7 @@ import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
+import { captureFocusedApp } from './focused-app'
 import { pasteText } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
@@ -210,6 +211,9 @@ function setupHotkeys(): void {
     onStart: () => {
       sessionId++
       audioChunks.length = 0
+      // Warm the focused-app cache while the user is speaking. The
+      // pipeline reads it synchronously when AUDIO_DONE arrives.
+      captureFocusedApp()
       positionIndicatorOnActiveDisplay()
       indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
       indicatorWindow?.showInactive()

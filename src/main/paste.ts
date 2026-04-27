@@ -15,7 +15,9 @@ export async function pasteText(text: string): Promise<{ method: 'paste' | 'clip
 
   if (process.platform === 'darwin') {
     try {
-      await new Promise(r => setTimeout(r, 80))
+      // 30ms is enough on modern macOS for clipboard propagation;
+      // 80ms was conservative legacy padding.
+      await new Promise(r => setTimeout(r, 30))
       await exec('osascript', ['-e', PASTE_APPLESCRIPT])
       return { method: 'paste' }
     } catch {

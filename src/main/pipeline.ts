@@ -112,6 +112,24 @@ function buildDictionary(settings: Settings): string[] {
   return out
 }
 
+// Heuristic: is the transcript clean enough to skip the LLM cleanup pass?
+// Cleanup typically takes 300–500ms even on Llama 8B-instant, so dodging
+// it for trivially-clean text is a big latency win. We're conservative:
+// skip only when the text is short, has no filler-word markers, and no
+// obvious self-correction language.
+const FILLER_RE = /\b(um+|uh+|er+|hm+|like|you know|i mean|kind of|sort of)\b/i
+const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean|i mean,?)\b/i
+
+function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {
+  // Code mode never skips — punctuation/formatting matters too much.
+  if (category === 'code') return false
+  // Long text often benefits from punctuation tightening; play safe.
+  if (transcript.length > 80) return false
+  if (FILLER_RE.test(transcript)) return false
+  if (CORRECTION_RE.test(transcript)) return false
+  return true
+}
+
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
@@ -121,7 +139,8 @@ export async function runDictationPipeline(
   onState('processing')
   logInfo('Pipeline start', { audioBytes: audioBuffer.length, provider: settings.provider.provider })
 
-  const focusedApp = await getFocusedApp()
+  // Cheap synchronous read — cache populated when the hotkey fired.
+  const focusedApp = getFocusedApp()
   logInfo('Focused app', { name: focusedApp.name, bundleId: focusedApp.bundleId })
 
   const { transcription, cleanup } = buildProviders(settings)
@@ -133,8 +152,8 @@ export async function runDictationPipeline(
   const dictionary = buildDictionary(settings)
 
   const tStart = Date.now()
-  const transcript = await withRetry('Transcription', () =>
-    transcription.transcribe(audioBuffer, { dictionary }))
+  const transcript = (await withRetry('Transcription', () =>
+    transcription.transcribe(audioBuffer, { dictionary }))).trim()
   logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length, preview: transcript.slice(0, 60) })
 
   // Bail out before cleanup + paste if Whisper returned nothing or a
@@ -147,17 +166,23 @@ export async function runDictationPipeline(
 
   const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
   const effectiveCategory = rule?.category ?? category
-  const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
-    .replace('{text}', transcript)
 
-  const cStart = Date.now()
-  const cleaned = await withRetry('Cleanup', () =>
-    cleanup.cleanup(transcript, {
-      appName: focusedApp.name,
-      appCategory: effectiveCategory,
-      systemPrompt,
-    }))
-  logInfo('Cleaned', { ms: Date.now() - cStart, chars: cleaned.length })
+  // Fast path: short, clean text skips the LLM cleanup pass entirely.
+  let cleaned = transcript
+  if (canSkipCleanup(transcript, effectiveCategory)) {
+    logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
+  } else {
+    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
+      .replace('{text}', transcript)
+    const cStart = Date.now()
+    cleaned = await withRetry('Cleanup', () =>
+      cleanup.cleanup(transcript, {
+        appName: focusedApp.name,
+        appCategory: effectiveCategory,
+        systemPrompt,
+      }))
+    logInfo('Cleaned', { ms: Date.now() - cStart, chars: cleaned.length })
+  }
 
   const { method: pasteMethod } = await pasteText(cleaned)
   logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
@@ -181,7 +206,7 @@ export async function runCommandPipeline(
   settings: Settings
 ): Promise<string> {
   const { transcription, cleanup } = buildProviders(settings)
-  const focusedApp = await getFocusedApp()
+  const focusedApp = getFocusedApp()
   const dictionary = buildDictionary(settings)
 
   const command = await withRetry('Transcription', () =>

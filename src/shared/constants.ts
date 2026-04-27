@@ -43,7 +43,10 @@ export const DEFAULT_DEV_MODE_APPS = [
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
     transcription: 'whisper-large-v3-turbo',
-    cleanup: 'llama-3.3-70b-versatile',
+    // 8B-instant runs roughly 3× faster than 70B-versatile on Groq;
+    // for "remove fillers + fix capitalization" tasks the quality
+    // delta is negligible while the latency win is large.
+    cleanup: 'llama-3.1-8b-instant',
   },
   openai: {
     transcription: 'whisper-1',
