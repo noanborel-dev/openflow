@@ -68,8 +68,10 @@ export const HISTORY_LIMIT = 10
 // as the transcription `prompt` so Whisper biases toward these spellings.
 // Keep this short — Whisper's prompt has a 224-token cap.
 export const BUILTIN_DICTIONARY: string[] = [
-  // AI labs / products
-  'Claude', 'Anthropic', 'OpenAI', 'ChatGPT', 'GPT-4', 'GPT-5', 'Sonnet', 'Opus', 'Haiku',
+  // AI labs / products. Multi-word phrases bias Whisper toward the bigram,
+  // which helps it pick "Claude Code" instead of "cloud code" etc.
+  'Claude', 'Claude Code', 'Claude Sonnet', 'Claude Opus', 'Claude Haiku',
+  'Anthropic', 'OpenAI', 'ChatGPT', 'GPT-4', 'GPT-5', 'Sonnet', 'Opus', 'Haiku',
   'Gemini', 'Llama', 'Mistral', 'DeepSeek', 'Grok', 'Perplexity', 'Cursor', 'Copilot',
   'Whisper', 'Groq', 'Hugging Face', 'LangChain',
   // Dev tools

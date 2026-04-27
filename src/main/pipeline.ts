@@ -117,21 +117,51 @@ function buildDictionary(settings: Settings): string[] {
 }
 
 // Heuristic: is the transcript clean enough to skip the LLM cleanup pass?
-// Cleanup typically takes 300–500ms even on Llama 8B-instant, so dodging
-// it for trivially-clean text is a big latency win. We're conservative:
-// skip only when the text is short, has no filler-word markers, and no
-// obvious self-correction language.
-const FILLER_RE = /\b(um+|uh+|er+|hm+|like|you know|i mean|kind of|sort of)\b/i
+// We've tightened this since users reported the 8B-instant cleanup model
+// over-editing — paraphrasing, dropping legitimate words. Now we skip
+// cleanup whenever there are no filler/correction markers, regardless
+// of length. Better to pass through raw Whisper output (which is usually
+// good) than risk the model mangling substantive content.
+const FILLER_RE = /\b(um+|uh+|er+|erm+|hmm*|uhh+|umm+)\b/i
+const STUTTER_RE = /\b(\w+)[, ]+\1\b/i  // "the the", "I, I"
 const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean|i mean,?)\b/i
 
 function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {
-  // Code mode never skips — punctuation/formatting matters too much.
+  // Code mode never skips — capitalization, file paths, and dev jargon need normalization.
   if (category === 'code') return false
-  // Long text often benefits from punctuation tightening; play safe.
-  if (transcript.length > 80) return false
   if (FILLER_RE.test(transcript)) return false
+  if (STUTTER_RE.test(transcript)) return false
   if (CORRECTION_RE.test(transcript)) return false
   return true
+}
+
+// Deterministic regex pass for the most common Whisper mishearings of
+// tech brand names. Applied to EVERY transcript (even fast-path skips)
+// so brand names come out right regardless of whether the LLM cleanup
+// runs. Context-aware: each replacement requires a tech-y neighbour
+// to avoid clobbering legitimate uses ("cloud computing" stays).
+const QUICK_FIXES: Array<[RegExp, string]> = [
+  // "cloud" → "Claude" only when followed by Claude-y context
+  [/\bcloud(?=\s+(?:code|opus|sonnet|haiku|api|agent|sdk|desktop|model|terminal|3\.\d|4\.\d))/gi, 'Claude'],
+  // "Cloud Code" capitalization
+  [/\bClaude\s+code\b/g, 'Claude Code'],
+  // common bigrams
+  [/\bchat\s*-?\s*gpt\b/gi, 'ChatGPT'],
+  [/\bopen\s+ai\b/gi, 'OpenAI'],
+  [/\bnext\s+js\b/gi, 'Next.js'],
+  [/\btype\s+script\b/gi, 'TypeScript'],
+  [/\bjava\s+script\b/gi, 'JavaScript'],
+  [/\bgit\s+hub\b/gi, 'GitHub'],
+  [/\bvs\s+code\b/gi, 'VS Code'],
+  [/\bco\s*-?\s*pilot\b/gi, 'Copilot'],
+]
+
+function applyQuickFixes(text: string): string {
+  let out = text
+  for (const [re, replacement] of QUICK_FIXES) {
+    out = out.replace(re, replacement)
+  }
+  return out
 }
 
 export async function runDictationPipeline(
@@ -171,7 +201,10 @@ export async function runDictationPipeline(
   const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
   const effectiveCategory = rule?.category ?? category
 
-  // Fast path: short, clean text skips the LLM cleanup pass entirely.
+  // Fast path: skip the LLM cleanup pass when there are no filler / stutter /
+  // correction markers. The 8B-instant model over-edits when given long
+  // clean text, so we prefer raw Whisper output (already excellent for
+  // most English / Spanish / French dictation) unless cleanup is needed.
   let cleaned = transcript
   if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
@@ -187,6 +220,11 @@ export async function runDictationPipeline(
       }))
     logInfo('Cleaned', { ms: Date.now() - cStart, chars: cleaned.length })
   }
+
+  // Always apply deterministic brand-name fixes — runs after the LLM
+  // cleanup (which usually catches them) AND on fast-path output where
+  // the LLM never ran.
+  cleaned = applyQuickFixes(cleaned)
 
   const { method: pasteMethod } = await pasteText(cleaned)
   logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
