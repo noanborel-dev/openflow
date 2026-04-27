@@ -14,7 +14,7 @@ import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
 import { captureFocusedApp } from './focused-app'
-import { pasteText } from './paste'
+import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -358,6 +358,9 @@ app.whenReady().then(() => {
   indicatorWindow = createIndicatorWindow()
   setupTray()
   setupHotkeys()
+  // Pre-spawn the AppleScript helper so the first paste doesn't pay
+  // the ~120ms process-spawn tax.
+  prewarmPasteHelper()
 
   const settings = getSettings()
   if (settings.firstRun) {
@@ -367,4 +370,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   // Intentionally empty — app lives in tray
+})
+
+app.on('before-quit', () => {
+  shutdownPasteHelper()
 })

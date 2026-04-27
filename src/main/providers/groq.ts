@@ -1,14 +1,28 @@
 import Groq, { toFile } from 'groq-sdk'
 import type { TranscriptionProvider, CleanupProvider } from './types'
 
+// Cache the Groq SDK instance so the underlying HTTP agent (and its
+// keep-alive connection pool) is reused across pipeline runs. Rebuilding
+// per-call paid TLS handshake on every dictation. Keyed by API key so
+// rotating the key triggers a fresh client.
+let cachedClient: Groq | null = null
+let cachedKey = ''
+function getClient(apiKey: string): Groq {
+  if (!cachedClient || cachedKey !== apiKey) {
+    cachedClient = new Groq({ apiKey })
+    cachedKey = apiKey
+  }
+  return cachedClient
+}
+
 export function createGroqTranscriptionProvider(
   apiKey: string,
   model: string
 ): TranscriptionProvider {
-  const client = new Groq({ apiKey })
   return {
     name: 'Groq',
     async transcribe(audio, options = {}) {
+      const client = getClient(apiKey)
       // toFile is the SDK's supported helper for Node Buffers; wrapping in
       // DOM File/Blob produced malformed multipart bodies that Groq rejected.
       const file = await toFile(audio, 'audio.webm', { type: 'audio/webm' })
@@ -31,10 +45,10 @@ export function createGroqCleanupProvider(
   apiKey: string,
   model: string
 ): CleanupProvider {
-  const client = new Groq({ apiKey })
   return {
     name: 'Groq',
     async cleanup(text, { systemPrompt }) {
+      const client = getClient(apiKey)
       const response = await client.chat.completions.create({
         model,
         messages: [
@@ -50,6 +64,6 @@ export function createGroqCleanupProvider(
 }
 
 export async function testGroqKey(apiKey: string): Promise<void> {
-  const client = new Groq({ apiKey })
+  const client = getClient(apiKey)
   await client.models.list()
 }
