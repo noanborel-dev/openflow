@@ -32,6 +32,7 @@ let pressedAt = 0      // timestamp of current keydown, 0 if not pressed
 let lastTapAt = 0      // timestamp of last tap-toggle release (for double-tap detection)
 let locked = false     // true while a tap-toggle session is in progress (after a tap)
 let active = false     // true while a recording session is live (start fired, stop not yet)
+let pendingPasteLast = false  // double-tap detected on this DOWN; fire onPasteLast on the matching UP
 
 // Map the user-facing key name to the set of node-global-key-listener key names
 // that should match. "CTRL" matches either LEFT or RIGHT control.
@@ -74,6 +75,7 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
   lastTapAt = 0
   locked = false
   active = false
+  pendingPasteLast = false
 
   listener = new GlobalKeyboardListener()
 
@@ -92,6 +94,13 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       // since the prior tap. Abort whatever just started (and the locked
       // tap-toggle session if there was one) and paste the last
       // transcription instead.
+      //
+      // We DO NOT fire onPasteLast here yet — when the hotkey is a
+      // modifier (Option, Ctrl, etc.), the modifier is physically held
+      // at this moment, and injecting ⌘V on top of it produces
+      // ⌥⌘V / ⌃⌘V which most apps don't bind (or worse: bind to
+      // "paste and match style"). We defer to the matching UP so the
+      // modifier is fully released before pasteText fires.
       if (lastTapAt !== 0 && now - lastTapAt <= HOTKEY_TIMING.dblTapWindowMs) {
         lastTapAt = 0
         const wasLocked = locked
@@ -101,9 +110,7 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
           // live from that earlier session — abort it; user wants paste.
           fireAbort()
         }
-        // We also haven't fired anything for THIS press yet (the early
-        // return above prevents us from also calling fireStart). Good.
-        callbacks.onPasteLast()
+        pendingPasteLast = true
         return
       }
 
@@ -122,6 +129,13 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       if (pressedAt === 0) return
       const held = now - pressedAt
       pressedAt = 0
+
+      if (pendingPasteLast) {
+        // Hotkey now released — safe to inject ⌘V.
+        pendingPasteLast = false
+        callbacks.onPasteLast()
+        return
+      }
 
       if (locked) {
         // UP during an already-locked tap-toggle session is irrelevant.
@@ -154,6 +168,7 @@ export function unregisterHotkey(): void {
   lastTapAt = 0
   locked = false
   active = false
+  pendingPasteLast = false
 }
 
 export function unregisterAll(): void {
