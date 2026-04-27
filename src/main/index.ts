@@ -225,22 +225,23 @@ function setupHotkeys(): void {
     },
     onAbort: () => {
       // Double-tap arrived while a recording was live — discard the
-      // session entirely. Bumping sessionId makes the AUDIO_DONE handler
-      // (when it eventually arrives) skip its work via stillLatest().
+      // pending audio. Bumping sessionId makes the eventual AUDIO_DONE
+      // skip its work via stillLatest().
+      //
+      // We DO broadcast 'stopping' so the renderer stops its MediaRecorder
+      // (otherwise it'd keep capturing forever). We do NOT schedule a hide;
+      // onPasteLast — which fires immediately after — owns the visible
+      // state transition. Scheduling a hide here caused a race where the
+      // 'done' pill from paste-last appeared and then got hidden 100ms
+      // later, leaving the user thinking nothing happened.
       sessionId++
       audioChunks.length = 0
       broadcastState('stopping')
-      // Hide the indicator immediately; pasteLast will show its own pill.
-      setTimeout(() => {
-        broadcastState('idle')
-        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-        indicatorWindow?.hide()
-      }, 100)
     },
     onPasteLast: () => {
       const last = getHistory()[0]
+      logInfo('Paste-last triggered', { hasHistory: Boolean(last) })
       if (!last) {
-        logInfo('Paste-last pressed with empty history')
         broadcastState('error:nothing to paste')
         positionIndicatorOnActiveDisplay()
         indicatorWindow?.showInactive()

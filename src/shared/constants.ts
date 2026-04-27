@@ -5,10 +5,12 @@ export const DEFAULT_HOTKEYS = {
   pushToTalk: 'CTRL',
 }
 
-// Thresholds for hold-to-talk + double-tap-lock interaction.
+// Thresholds for hold-to-talk + double-tap interaction.
+// dblTapWindowMs widened to 500ms — natural double-clicks frequently
+// span 350–450ms, and the snappier window made paste-last feel broken.
 export const HOTKEY_TIMING = {
   holdThresholdMs: 150,
-  dblTapWindowMs: 350,
+  dblTapWindowMs: 500,
 }
 
 export const APP_CATEGORY_MAP: Record<string, AppCategory> = {

@@ -13,8 +13,8 @@ function getClient(apiKey: string): OpenAI {
   return cachedClient
 }
 
-const NO_SPEECH_PROB_THRESHOLD = 0.6
-const AVG_LOGPROB_THRESHOLD = -1.0
+const NO_SPEECH_PROB_THRESHOLD = 0.55
+const AVG_LOGPROB_THRESHOLD = -1.2
 const COMPRESSION_RATIO_THRESHOLD = 2.4
 
 interface VerboseSegment {
@@ -52,22 +52,26 @@ export function createOpenAITranscriptionProvider(
 
       const segs = response.segments ?? []
       if (segs.length > 0) {
-        const avgNoSpeech =
-          segs.reduce((s, x) => s + (x.no_speech_prob ?? 0), 0) / segs.length
-        const avgLogprob =
-          segs.reduce((s, x) => s + (x.avg_logprob ?? 0), 0) / segs.length
+        const maxNoSpeech = segs.reduce(
+          (m, x) => Math.max(m, x.no_speech_prob ?? 0),
+          0
+        )
+        const minLogprob = segs.reduce(
+          (m, x) => Math.min(m, x.avg_logprob ?? 0),
+          0
+        )
         const maxCompression = segs.reduce(
           (m, x) => Math.max(m, x.compression_ratio ?? 0),
           0
         )
         if (
-          avgNoSpeech > NO_SPEECH_PROB_THRESHOLD ||
-          avgLogprob < AVG_LOGPROB_THRESHOLD ||
+          maxNoSpeech > NO_SPEECH_PROB_THRESHOLD ||
+          minLogprob < AVG_LOGPROB_THRESHOLD ||
           maxCompression > COMPRESSION_RATIO_THRESHOLD
         ) {
           logInfo('Whisper hallucination rejected', {
-            avgNoSpeech: Number(avgNoSpeech.toFixed(3)),
-            avgLogprob: Number(avgLogprob.toFixed(3)),
+            maxNoSpeech: Number(maxNoSpeech.toFixed(3)),
+            minLogprob: Number(minLogprob.toFixed(3)),
             maxCompression: Number(maxCompression.toFixed(3)),
             language: response.language,
             preview: response.text.slice(0, 60),

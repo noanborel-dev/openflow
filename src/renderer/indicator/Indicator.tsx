@@ -24,10 +24,42 @@ export default function Indicator() {
   const [errorMsg, setErrorMsg] = useState('')
   const [waveform, setWaveform] = useState<number[]>(Array(6).fill(0))
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  // Persistent audio pipeline — set up once at mount, kept warm for the
+  // lifetime of the indicator window. Spinning up getUserMedia +
+  // AudioContext per recording cost ~50–200ms and cut off the first
+  // word of dictation. With the warm pipeline, recorder.start() begins
+  // capturing within ~5ms of the hotkey press.
+  const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
   const animFrameRef = useRef<number>(0)
 
   useEffect(() => {
+    let cancelled = false
+
+    async function prewarm() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop())
+          return
+        }
+        const ctx = new AudioContext()
+        const source = ctx.createMediaStreamSource(stream)
+        const analyser = ctx.createAnalyser()
+        analyser.fftSize = 64
+        source.connect(analyser)
+        streamRef.current = stream
+        audioContextRef.current = ctx
+        analyserRef.current = analyser
+      } catch (err) {
+        // Permission not yet granted, or mic unavailable. startRecording
+        // will retry on demand.
+        console.warn('[Indicator] Mic prewarm deferred:', err)
+      }
+    }
+    prewarm()
+
     const unsub = window.indicator.onStateChange((s) => {
       if (s.startsWith('error:')) {
         setErrorMsg(s.slice(6))
@@ -39,62 +71,79 @@ export default function Indicator() {
       if (next === 'recording') startRecording()
       else if (next === 'stopping') stopRecording()
     })
-    return unsub
+
+    return () => {
+      cancelled = true
+      unsub()
+      cancelAnimationFrame(animFrameRef.current)
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      audioContextRef.current?.close()
+      streamRef.current = null
+      audioContextRef.current = null
+      analyserRef.current = null
+    }
   }, [])
 
-  async function startRecording() {
+  async function ensurePipeline(): Promise<{ stream: MediaStream; analyser: AnalyserNode } | null> {
+    if (streamRef.current && analyserRef.current && audioContextRef.current) {
+      return { stream: streamRef.current, analyser: analyserRef.current }
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const ctx = new AudioContext()
-      audioContextRef.current = ctx
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 64
       source.connect(analyser)
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
-      const recorder = new MediaRecorder(stream, { mimeType })
-      mediaRecorderRef.current = recorder
-
-      // Collect every dataavailable blob locally and emit as a single WebM
-      // on stop. Streaming chunks (timeslice=100ms) produced corrupted
-      // containers ~80% of the time on Groq's side because only the first
-      // chunk had the EBML header and races during teardown sometimes
-      // dropped the trailing cluster — yielding "could not process file".
-      const blobs: Blob[] = []
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) blobs.push(e.data)
-      }
-
-      recorder.onstop = async () => {
-        const full = new Blob(blobs, { type: mimeType })
-        const buf = await full.arrayBuffer()
-        window.indicator.sendAudioChunk(buf)
-        window.indicator.sendAudioDone()
-        stream.getTracks().forEach((t) => t.stop())
-        audioContextRef.current?.close()
-        audioContextRef.current = null
-      }
-
-      // No timeslice — one complete, self-contained WebM blob on stop.
-      recorder.start()
-
-      const tick = () => {
-        const data = new Uint8Array(analyser.frequencyBinCount)
-        analyser.getByteFrequencyData(data)
-        const bars = Array.from({ length: 6 }, (_, i) => {
-          const idx = Math.floor((i / 6) * data.length)
-          return Math.round((data[idx] / 255) * 100)
-        })
-        setWaveform(bars)
-        animFrameRef.current = requestAnimationFrame(tick)
-      }
-      tick()
+      streamRef.current = stream
+      audioContextRef.current = ctx
+      analyserRef.current = analyser
+      return { stream, analyser }
     } catch (err) {
       console.error('[Indicator] Mic error:', err)
+      return null
     }
+  }
+
+  async function startRecording() {
+    const pipeline = await ensurePipeline()
+    if (!pipeline) return
+    const { stream, analyser } = pipeline
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm'
+    const recorder = new MediaRecorder(stream, { mimeType })
+    mediaRecorderRef.current = recorder
+
+    // One self-contained WebM blob emitted on stop. Streaming chunks
+    // (timeslice=100ms) produced corrupted containers because only the
+    // first chunk had the EBML header.
+    const blobs: Blob[] = []
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) blobs.push(e.data)
+    }
+    recorder.onstop = async () => {
+      const full = new Blob(blobs, { type: mimeType })
+      const buf = await full.arrayBuffer()
+      window.indicator.sendAudioChunk(buf)
+      window.indicator.sendAudioDone()
+      // Intentionally NOT tearing down the stream/context — kept warm
+      // for the next session.
+    }
+    recorder.start()
+
+    const tick = () => {
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      analyser.getByteFrequencyData(data)
+      const bars = Array.from({ length: 6 }, (_, i) => {
+        const idx = Math.floor((i / 6) * data.length)
+        return Math.round((data[idx] / 255) * 100)
+      })
+      setWaveform(bars)
+      animFrameRef.current = requestAnimationFrame(tick)
+    }
+    tick()
   }
 
   function stopRecording() {

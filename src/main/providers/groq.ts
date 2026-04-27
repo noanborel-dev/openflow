@@ -20,9 +20,12 @@ function getClient(apiKey: string): Groq {
 // Whisper exposes three per-segment confidence signals when called with
 // response_format='verbose_json'. We use them to detect hallucinations
 // (Whisper outputting multilingual word-salad on near-silent audio).
-// Thresholds mirror the original Whisper paper's recommendations.
-const NO_SPEECH_PROB_THRESHOLD = 0.6
-const AVG_LOGPROB_THRESHOLD = -1.0
+// We check the *max* no_speech_prob and *min* avg_logprob across
+// segments rather than averages — averages wash out a clearly-silent
+// segment in the middle of a longer clip, letting the hallucination
+// pass.
+const NO_SPEECH_PROB_THRESHOLD = 0.55
+const AVG_LOGPROB_THRESHOLD = -1.2
 const COMPRESSION_RATIO_THRESHOLD = 2.4
 
 interface VerboseSegment {
@@ -69,24 +72,28 @@ export function createGroqTranscriptionProvider(
 
       const segs = response.segments ?? []
       if (segs.length > 0) {
-        const avgNoSpeech =
-          segs.reduce((s, x) => s + (x.no_speech_prob ?? 0), 0) / segs.length
-        const avgLogprob =
-          segs.reduce((s, x) => s + (x.avg_logprob ?? 0), 0) / segs.length
+        const maxNoSpeech = segs.reduce(
+          (m, x) => Math.max(m, x.no_speech_prob ?? 0),
+          0
+        )
+        const minLogprob = segs.reduce(
+          (m, x) => Math.min(m, x.avg_logprob ?? 0),
+          0
+        )
         const maxCompression = segs.reduce(
           (m, x) => Math.max(m, x.compression_ratio ?? 0),
           0
         )
 
         const looksLikeHallucination =
-          avgNoSpeech > NO_SPEECH_PROB_THRESHOLD ||
-          avgLogprob < AVG_LOGPROB_THRESHOLD ||
+          maxNoSpeech > NO_SPEECH_PROB_THRESHOLD ||
+          minLogprob < AVG_LOGPROB_THRESHOLD ||
           maxCompression > COMPRESSION_RATIO_THRESHOLD
 
         if (looksLikeHallucination) {
           logInfo('Whisper hallucination rejected', {
-            avgNoSpeech: Number(avgNoSpeech.toFixed(3)),
-            avgLogprob: Number(avgLogprob.toFixed(3)),
+            maxNoSpeech: Number(maxNoSpeech.toFixed(3)),
+            minLogprob: Number(minLogprob.toFixed(3)),
             maxCompression: Number(maxCompression.toFixed(3)),
             language: response.language,
             preview: response.text.slice(0, 60),
