@@ -1,12 +1,33 @@
 import type { AppCategory } from './types'
+import type { IdeEditor } from './constants'
 
 export function buildCleanupPrompt(
   category: AppCategory,
   appName: string,
-  customPrompt?: string
+  customPrompt?: string,
+  editor?: IdeEditor
 ): string {
   if (customPrompt) return customPrompt.replace('{app_name}', appName)
-  return PROMPTS[category].replace('{app_name}', appName)
+  let prompt = PROMPTS[category].replace('{app_name}', appName)
+  if (category === 'code' && editor) {
+    prompt += '\n\n' + buildIdeAddendum(editor)
+  }
+  return prompt
+}
+
+// Per-IDE formatting guidance appended to the code-category cleanup
+// prompt. Cursor/Windsurf chats render `@filename.ext` as a file chip;
+// VS Code does not, so it gets backtick formatting instead.
+function buildIdeAddendum(editor: IdeEditor): string {
+  const tagSyntax = editor === 'vscode' ? '`<filename.ext>`' : '@<filename.ext>'
+  const editorName =
+    editor === 'cursor' ? 'Cursor' : editor === 'windsurf' ? 'Windsurf' : 'VS Code'
+  return `IDE-AWARE FORMATTING (${editorName}):
+- Wrap obvious code identifiers in backticks when the user clearly references one. Examples: "set user ID to null" → "set \`userId\` to null"; "call get user data" → "call \`getUserData()\`"; "the User Model class" → "the \`UserModel\` class". Only do this when the spoken phrase plausibly matches a camelCase/PascalCase/snake_case identifier; otherwise leave it alone.
+- When the user references a file, output ${tagSyntax}. Trigger phrases include: "at <name>" (e.g. "fix at package dot json"), "<name> dot <ext>" (e.g. "open index dot tsx"), or naming a well-known file directly (e.g. "update package.json" or "edit the dockerfile"). Use your knowledge of common project conventions to fix obvious mistranscriptions: "jason"→"json", "yamel"→"yaml", "type script"→"tsx" or "ts" by context, "dot env"→".env".
+- Recognized extensions: .ts .tsx .js .jsx .json .md .mdx .py .rs .go .java .swift .kt .c .h .cpp .css .scss .html .yml .yaml .toml .sh .sql .env (and Dockerfile, Makefile, Procfile as extensionless special-cases).
+- Be conservative — only tag when the user's intent to reference a file is clear. If you're unsure, leave the text unchanged.
+- Do not double-tag: if the transcript already contains "@" or backticks around the name, leave it.`
 }
 
 // FAITHFUL mode: used for code/terminal contexts where every word matters.

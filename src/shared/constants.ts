@@ -22,6 +22,7 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
   'com.microsoft.Outlook': 'email',
   'com.readdle.smartemail': 'email',
   'com.todesktop.230313mzl4w4u92': 'code',
+  'com.exafunction.windsurf': 'code',
   'com.microsoft.VSCode': 'code',
   'dev.zed.zed': 'code',
   'com.apple.dt.Xcode': 'code',
@@ -35,12 +36,24 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
 
 export const DEFAULT_DEV_MODE_APPS = [
   'com.todesktop.230313mzl4w4u92',
+  'com.exafunction.windsurf',
   'com.microsoft.VSCode',
   'dev.zed.zed',
   'com.apple.dt.Xcode',
   'com.apple.Terminal',
   'com.googlecode.iterm2',
 ]
+
+// IDEs with @-mention chip support in their AI chat panes. Used to
+// switch the cleanup prompt into IDE-aware formatting mode (variable
+// backticks + file tagging).
+export type IdeEditor = 'cursor' | 'windsurf' | 'vscode'
+
+export const IDE_EDITORS: Record<string, IdeEditor> = {
+  'com.todesktop.230313mzl4w4u92': 'cursor',
+  'com.exafunction.windsurf': 'windsurf',
+  'com.microsoft.VSCode': 'vscode',
+}
 
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
