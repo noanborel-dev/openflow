@@ -14,8 +14,11 @@ export interface ProviderSettings {
 }
 
 export interface HotkeySettings {
-  pushToTalk: string   // single-key name matching node-global-key-listener (e.g. "LEFT CTRL")
-  pasteLast: string    // chord name, e.g. "CTRL+SHIFT+V" — empty string disables
+  pushToTalk: string   // single-key name matching node-global-key-listener (e.g. "CTRL").
+                       // Behaviors on this one key:
+                       //   tap        => toggle recording on (next tap stops)
+                       //   hold       => record while held; release stops
+                       //   double-tap => paste last transcription
 }
 
 export interface PerAppRule {

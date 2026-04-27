@@ -10,7 +10,7 @@ import {
 } from 'electron'
 import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
-import { registerHotkey, registerPasteLastHotkey, unregisterAll } from './hotkeys'
+import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runDictationPipeline } from './pipeline'
 import { pasteText } from './paste'
@@ -219,18 +219,46 @@ function setupHotkeys(): void {
       // Renderer transitions recording → stopping → (flush) → sends AUDIO_DONE
       broadcastState('stopping')
     },
-  })
-
-  if (settings.hotkeys.pasteLast) {
-    registerPasteLastHotkey(settings.hotkeys.pasteLast, () => {
+    onAbort: () => {
+      // Double-tap arrived while a recording was live — discard the
+      // session entirely. Bumping sessionId makes the AUDIO_DONE handler
+      // (when it eventually arrives) skip its work via stillLatest().
+      sessionId++
+      audioChunks.length = 0
+      broadcastState('stopping')
+      // Hide the indicator immediately; pasteLast will show its own pill.
+      setTimeout(() => {
+        broadcastState('idle')
+        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
+        indicatorWindow?.hide()
+      }, 100)
+    },
+    onPasteLast: () => {
       const last = getHistory()[0]
       if (!last) {
         logInfo('Paste-last pressed with empty history')
+        broadcastState('error:nothing to paste')
+        positionIndicatorOnActiveDisplay()
+        indicatorWindow?.showInactive()
+        setTimeout(() => {
+          broadcastState('idle')
+          indicatorWindow?.hide()
+        }, 1800)
         return
       }
-      pasteText(last.cleaned).catch(err => logError('Paste-last failed', err))
-    })
-  }
+      pasteText(last.cleaned)
+        .then(({ method }) => {
+          positionIndicatorOnActiveDisplay()
+          indicatorWindow?.showInactive()
+          broadcastState(method === 'clipboard' ? 'clipboard' : 'done')
+          setTimeout(() => {
+            broadcastState('idle')
+            indicatorWindow?.hide()
+          }, method === 'clipboard' ? 6000 : 1500)
+        })
+        .catch(err => logError('Paste-last failed', err))
+    },
+  })
 }
 
 function setupAudioIpc(): void {
