@@ -1,5 +1,5 @@
 import { buildCleanupPrompt } from '../shared/prompts'
-import { MODELS, BUILTIN_DICTIONARY } from '../shared/constants'
+import { MODELS, BUILTIN_DICTIONARY, IDE_EDITORS } from '../shared/constants'
 import type { DictationResult, Settings } from '../shared/types'
 import type { TranscriptionProvider, CleanupProvider } from './providers/types'
 import {
@@ -172,7 +172,8 @@ export async function runDictationPipeline(
   if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
   } else {
-    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt)
+    const editor = IDE_EDITORS[focusedApp.bundleId]
+    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt, editor)
       .replace('{text}', transcript)
     const cStart = Date.now()
     cleaned = await withRetry('Cleanup', () =>
