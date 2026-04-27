@@ -83,10 +83,14 @@ function buildProviders(
 // Run the given async fn; if it rejects, retry once after a short delay.
 // Used for transcription + cleanup since both are network calls that can
 // transiently fail (cold-start timeouts, dropped connections).
+//
+// NoSpeechError is treated as terminal — re-running the same audio
+// always produces the same hallucination, so retry is wasted latency.
 async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn()
   } catch (err) {
+    if (err instanceof NoSpeechError) throw err
     logError(`${label} failed (attempt 1) — retrying`, err)
     await new Promise(r => setTimeout(r, 250))
     try {

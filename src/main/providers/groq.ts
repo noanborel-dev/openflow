@@ -1,5 +1,7 @@
 import Groq, { toFile } from 'groq-sdk'
 import type { TranscriptionProvider, CleanupProvider } from './types'
+import { NoSpeechError } from '../errors'
+import { logInfo } from '../log'
 
 // Cache the Groq SDK instance so the underlying HTTP agent (and its
 // keep-alive connection pool) is reused across pipeline runs. Rebuilding
@@ -13,6 +15,27 @@ function getClient(apiKey: string): Groq {
     cachedKey = apiKey
   }
   return cachedClient
+}
+
+// Whisper exposes three per-segment confidence signals when called with
+// response_format='verbose_json'. We use them to detect hallucinations
+// (Whisper outputting multilingual word-salad on near-silent audio).
+// Thresholds mirror the original Whisper paper's recommendations.
+const NO_SPEECH_PROB_THRESHOLD = 0.6
+const AVG_LOGPROB_THRESHOLD = -1.0
+const COMPRESSION_RATIO_THRESHOLD = 2.4
+
+interface VerboseSegment {
+  avg_logprob?: number
+  compression_ratio?: number
+  no_speech_prob?: number
+  text?: string
+}
+interface VerboseTranscription {
+  text: string
+  language?: string
+  duration?: number
+  segments?: VerboseSegment[]
 }
 
 export function createGroqTranscriptionProvider(
@@ -30,12 +53,48 @@ export function createGroqTranscriptionProvider(
       // Whisper's prompt has a 224-token cap; comma-separated terms is the
       // canonical way to bias the model toward specific spellings.
       const prompt = dict.length > 0 ? dict.join(', ') : undefined
-      const response = await client.audio.transcriptions.create({
+      // verbose_json gives us per-segment confidence so we can reject
+      // hallucinations. Plain 'json' returns only text.
+      const raw = await client.audio.transcriptions.create({
         file,
         model,
-        language: options.language ?? 'en',
+        response_format: 'verbose_json',
+        // Only set language when explicitly requested. Whisper auto-detects
+        // per clip otherwise — important for users who dictate in multiple
+        // languages (forcing 'en' produced phonetic garbage on Spanish).
+        ...(options.language ? { language: options.language } : {}),
         ...(prompt ? { prompt } : {}),
       })
+      const response = raw as unknown as VerboseTranscription
+
+      const segs = response.segments ?? []
+      if (segs.length > 0) {
+        const avgNoSpeech =
+          segs.reduce((s, x) => s + (x.no_speech_prob ?? 0), 0) / segs.length
+        const avgLogprob =
+          segs.reduce((s, x) => s + (x.avg_logprob ?? 0), 0) / segs.length
+        const maxCompression = segs.reduce(
+          (m, x) => Math.max(m, x.compression_ratio ?? 0),
+          0
+        )
+
+        const looksLikeHallucination =
+          avgNoSpeech > NO_SPEECH_PROB_THRESHOLD ||
+          avgLogprob < AVG_LOGPROB_THRESHOLD ||
+          maxCompression > COMPRESSION_RATIO_THRESHOLD
+
+        if (looksLikeHallucination) {
+          logInfo('Whisper hallucination rejected', {
+            avgNoSpeech: Number(avgNoSpeech.toFixed(3)),
+            avgLogprob: Number(avgLogprob.toFixed(3)),
+            maxCompression: Number(maxCompression.toFixed(3)),
+            language: response.language,
+            preview: response.text.slice(0, 60),
+          })
+          throw new NoSpeechError()
+        }
+      }
+
       return response.text
     },
   }
