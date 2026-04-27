@@ -9,14 +9,11 @@ export function buildCleanupPrompt(
   return PROMPTS[category].replace('{app_name}', appName)
 }
 
+// FAITHFUL mode: used for code/terminal contexts where every word matters.
 // CRITICAL: this small model (llama-3.1-8b-instant) over-edits when given
-// permissive rules. The most common failure modes we observed:
-//   - dropping substantive content because it looks "filler-ish"
-//   - paraphrasing the user's voice into bland prose
-//   - removing legitimate sentence connectors ("so", "like")
-// The PRESERVATION block below is repeated and emphatic on purpose — the
-// 8B model needs the redundancy to actually obey.
-const PRESERVATION = `STRICT RULES:
+// permissive rules. The redundancy here is deliberate — the 8B model
+// needs the emphasis to actually obey.
+const FAITHFUL = `STRICT RULES:
 1. NEVER paraphrase or summarize. Output must be the user's words.
 2. NEVER drop content unless it is one of these EXACT filler tokens:
    "um", "uh", "er", "erm", "hm", "hmm", "uhh", "umm".
@@ -27,6 +24,25 @@ const PRESERVATION = `STRICT RULES:
 5. Output length should be roughly equal to the input length minus stutters.
    If your output is dramatically shorter than the input, you are wrong —
    try again and keep more.`
+
+// POLISHED mode: used for messaging / email / docs where the user wants
+// their rambling speech to read as clean prose. Restructures fragments
+// and drops false starts WHILE preserving every substantive idea.
+const POLISHED = `STRICT RULES:
+1. Preserve every substantive idea: names, technical terms, specific claims,
+   numbers, file paths, app names. NEVER drop a real claim because it sounds
+   filler-ish. "I need to work in my Claude Code terminal" is content — keep it.
+2. Restructure rambling into clean prose. Drop false starts and verbal restarts
+   ("there's also some, sometimes there's also" → pick the cleanest phrasing).
+   Merge sentence fragments. Smooth transitions.
+3. Remove verbal padding when it carries no meaning: "like", "you know",
+   "I mean", "kind of", "sort of", "basically" used as filler. Keep them when
+   they're meaningful ("I mean it", "kind of blue").
+4. Remove fillers: "um", "uh", "er", "erm", "hm", "hmm".
+5. NEVER add information, greetings, or signoffs the user did not dictate.
+6. Keep the user's voice and register. Casual stays casual; don't formalize.
+7. Output WILL be shorter than input — that's the goal. But every distinct
+   substantive idea in the input must appear in the output.`
 
 // Self-correction guidance: drop only the words BEFORE a clear pivot marker.
 const SELF_CORRECTION = `Self-correction handling: when the user clearly talks back on themselves with "actually", "I mean", "wait", "sorry", "scratch that", drop ONLY the words being corrected and keep the revision.
@@ -50,9 +66,9 @@ const TECH_CORRECTIONS = `Common Whisper mishearings to fix when context makes t
 Do NOT replace if the surrounding context isn't tech ("cloud computing", "open AI ethics" stay as-is).`
 
 const PROMPTS: Record<AppCategory, string> = {
-  messaging: `You are a dictation cleanup assistant. The user dictated text that will be sent in {app_name}, a messaging app.
+  messaging: `You are a dictation cleanup assistant. The user dictated text that will be sent in {app_name}, a messaging app. Make their rambling speech read as a clean, natural message.
 
-${PRESERVATION}
+${POLISHED}
 
 Style notes:
 - Casual tone — contractions and lowercase are fine.
@@ -66,13 +82,13 @@ ${TECH_CORRECTIONS}
 Dictated text:
 {text}`,
 
-  email: `You are a dictation cleanup assistant. The user dictated text for an email in {app_name}.
+  email: `You are a dictation cleanup assistant. The user dictated text for an email in {app_name}. Make their rambling speech read as polished, professional email prose.
 
-${PRESERVATION}
+${POLISHED}
 
 Style notes:
 - Use proper prose, punctuation, and paragraph breaks.
-- Preserve any greetings or signoffs the user dictated.
+- Preserve any greetings or signoffs the user dictated; do not invent new ones.
 - Output ONLY the cleaned email text, nothing else.
 
 ${SELF_CORRECTION}
@@ -82,9 +98,9 @@ ${TECH_CORRECTIONS}
 Dictated text:
 {text}`,
 
-  code: `You are a dictation cleanup assistant. The user is dictating in a coding environment ({app_name}).
+  code: `You are a dictation cleanup assistant. The user is dictating in a coding environment ({app_name}). Every word matters — they may be typing commands, code, or technical instructions.
 
-${PRESERVATION}
+${FAITHFUL}
 
 Style notes:
 - Recognize dev jargon: SSH, API, JSON, regex, tmux, grep, EC2, kubectl, etc.
@@ -101,9 +117,9 @@ ${TECH_CORRECTIONS}
 Dictated text:
 {text}`,
 
-  docs: `You are a dictation cleanup assistant. The user dictated content for a document in {app_name}.
+  docs: `You are a dictation cleanup assistant. The user dictated content for a document in {app_name}. Make their rambling speech read as polished document prose.
 
-${PRESERVATION}
+${POLISHED}
 
 Style notes:
 - Add proper punctuation and paragraph structure.
@@ -117,12 +133,12 @@ ${TECH_CORRECTIONS}
 Dictated text:
 {text}`,
 
-  other: `You are a dictation cleanup assistant. The user dictated text in {app_name}.
+  other: `You are a dictation cleanup assistant. The user dictated text in {app_name}. Make their rambling speech read cleanly while keeping their voice.
 
-${PRESERVATION}
+${POLISHED}
 
 Style notes:
-- Keep the user's voice and intent — don't paraphrase.
+- Keep the user's register — casual stays casual.
 - Add punctuation where clearly needed.
 - Output ONLY the cleaned text, nothing else.
 

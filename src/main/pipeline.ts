@@ -116,23 +116,29 @@ function buildDictionary(settings: Settings): string[] {
   return out
 }
 
-// Heuristic: is the transcript clean enough to skip the LLM cleanup pass?
-// We've tightened this since users reported the 8B-instant cleanup model
-// over-editing — paraphrasing, dropping legitimate words. Now we skip
-// cleanup whenever there are no filler/correction markers, regardless
-// of length. Better to pass through raw Whisper output (which is usually
-// good) than risk the model mangling substantive content.
+// Heuristic: can we skip the LLM cleanup pass entirely?
+//
+// Two cleanup modes (see prompts.ts):
+//   - FAITHFUL (code): only used to normalize jargon/paths/casing. If the
+//     transcript has no filler/stutter/correction markers, raw Whisper
+//     output is good enough — skip.
+//   - POLISHED (messaging/email/docs/other): restructures rambling into
+//     clean prose even when there are no obvious filler markers, so we
+//     can't skip based on absence of fillers alone. Only skip very short
+//     inputs where there's nothing meaningful to polish.
 const FILLER_RE = /\b(um+|uh+|er+|erm+|hmm*|uhh+|umm+)\b/i
 const STUTTER_RE = /\b(\w+)[, ]+\1\b/i  // "the the", "I, I"
 const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean|i mean,?)\b/i
 
 function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {
-  // Code mode never skips — capitalization, file paths, and dev jargon need normalization.
-  if (category === 'code') return false
   if (FILLER_RE.test(transcript)) return false
   if (STUTTER_RE.test(transcript)) return false
   if (CORRECTION_RE.test(transcript)) return false
-  return true
+  if (category === 'code') return true
+  // Polished categories: only skip very short inputs (one short phrase has
+  // nothing to restructure). Anything longer goes through cleanup so
+  // rambling gets polished into prose.
+  return transcript.length < 30
 }
 
 // Deterministic regex pass for the most common Whisper mishearings of
