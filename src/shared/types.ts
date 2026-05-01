@@ -2,7 +2,7 @@ export type AppCategory = 'messaging' | 'email' | 'code' | 'docs' | 'other'
 
 export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
 
-export type Provider = 'groq' | 'openai' | 'anthropic'
+export type Provider = 'groq' | 'openai' | 'anthropic' | 'local'
 
 export interface ProviderSettings {
   provider: Provider
