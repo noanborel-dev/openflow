@@ -28,6 +28,12 @@ export interface PerAppRule {
   customPrompt?: string
 }
 
+// Cleanup strictness chosen during onboarding. Acts as a global default
+// that per-app biases (email +, iMessage -) shift up or down at prompt
+// build time. 1 = light (only fillers stripped), 2 = balanced (filler +
+// polish), 3 = strict (full restructure).
+export type Strictness = 1 | 2 | 3
+
 export interface Settings {
   firstRun: boolean
   provider: ProviderSettings
@@ -36,6 +42,8 @@ export interface Settings {
   devModeApps: string[]   // bundle IDs that force dev/code mode
   indicatorPosition: { x: number; y: number } | null
   userDictionary: string[]   // user-added terms biased into Whisper transcription
+  strictness: Strictness
+  voiceEnrolled: boolean   // whether the user has completed voice enrollment
 }
 
 export interface DictationResult {

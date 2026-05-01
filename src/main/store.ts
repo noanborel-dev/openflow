@@ -17,6 +17,8 @@ const defaults: Settings = {
   devModeApps: DEFAULT_DEV_MODE_APPS,
   indicatorPosition: null,
   userDictionary: [],
+  strictness: 2,
+  voiceEnrolled: false,
 }
 
 export const store = new ElectronStore<Settings>({ defaults, name: 'openflow-settings' })
