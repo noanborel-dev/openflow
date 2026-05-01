@@ -3,6 +3,7 @@ import type { CategoryStrictness, Settings, Strictness } from '../../shared/type
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
+import { siGmail, siImessage, siNotion } from 'simple-icons'
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
@@ -743,37 +744,34 @@ function StepHotkey({
 
 // ─── Step 5: Strictness — per-category ─────────────────────────────
 
-// Each category gets a list of app chips so users see *which* apps the
-// row covers at a glance — much faster than reading "iMessage, Slack,
-// Discord". Color is each app's brand mark, dimmed slightly to fit
-// the paper aesthetic.
-interface AppChip {
-  letter: string
-  bg: string
-  fg?: string
+// One representative brand icon per category — minimal, immediately
+// recognizable, brand-correct color. SVG paths come from simple-icons
+// (CC0). For categories with no clean canonical brand (e.g. "other"),
+// we fall back to a generic monogram.
+interface BrandRef { title: string; hex: string; path: string }
+
+const CATEGORY_ICON: Record<keyof CategoryStrictness, BrandRef | null> = {
+  messaging: siImessage as BrandRef,
+  email: siGmail as BrandRef,
+  docs: siNotion as BrandRef,
+  other: null,
 }
 
-const CATEGORY_APPS: Record<keyof CategoryStrictness, AppChip[]> = {
-  messaging: [
-    { letter: 'M', bg: '#0b93f6' },           // iMessage blue
-    { letter: 'S', bg: '#4a154b' },           // Slack aubergine
-    { letter: 'D', bg: '#5865f2' },           // Discord
-    { letter: 'W', bg: '#25d366' },           // WhatsApp
-  ],
-  email: [
-    { letter: 'G', bg: '#ea4335' },           // Gmail red
-    { letter: 'O', bg: '#0078d4' },           // Outlook
-    { letter: 'M', bg: '#1d1d1f', fg: '#fff' }, // Apple Mail
-  ],
-  docs: [
-    { letter: 'N', bg: '#000', fg: '#fff' },  // Notion
-    { letter: 'D', bg: '#4285f4' },           // Google Docs
-    { letter: 'O', bg: '#7c3aed' },           // Obsidian
-    { letter: 'W', bg: '#185abd' },           // Word
-  ],
-  other: [
-    { letter: '?', bg: '#9ca3af', fg: '#fff' }, // generic fallback chip
-  ],
+function BrandIcon({ icon, size = 22 }: { icon: BrandRef; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-label={icon.title}>
+      <path d={icon.path} fill={`#${icon.hex}`} />
+    </svg>
+  )
+}
+
+function GenericIcon({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" className="text-ink-45">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M9 10c0-1.5 1.2-2.5 3-2.5s3 1 3 2.5c0 1.7-2.7 2-2.7 4M12 17v.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 // Per-category sample dictation + per-level cleaned output. Hard-coded
@@ -844,21 +842,6 @@ function useTypewriter(text: string, msPerChar = 14): string {
   return shown
 }
 
-function AppChipRow({ chips }: { chips: AppChip[] }) {
-  return (
-    <div className="flex -space-x-1.5">
-      {chips.map((c, i) => (
-        <div
-          key={i}
-          className="w-6 h-6 rounded-full ring-2 ring-card flex items-center justify-center text-[10px] font-bold shadow-sm"
-          style={{ backgroundColor: c.bg, color: c.fg ?? '#fff', zIndex: chips.length - i }}
-        >
-          {c.letter}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 'Strict' }
 
@@ -892,42 +875,43 @@ function StepStrictness({
         Pick a polish level per use case.
       </p>
 
-      {/* Live preview — updates as user picks levels per category. */}
-      <div className="max-w-[640px] bg-card border border-ink-08 rounded-card overflow-hidden mb-6">
-        <div className="px-5 py-3.5 border-b border-ink-08 bg-paper/60">
-          <div className="text-[9.5px] font-mono uppercase tracking-wider text-ink-45 mb-1">You said</div>
-          <div className="text-[13px] text-ink-60 italic leading-relaxed">"{sample.raw}"</div>
+      {/* Compact live preview — single line of "you said", single line of
+          output. The output morphs as the user picks levels per category. */}
+      <div className="max-w-[640px] mb-7">
+        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1">You said</div>
+        <div className="text-[13px] text-ink-45 italic leading-relaxed mb-4">"{sample.raw}"</div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1">
+          {sample.label} · {LEVEL_LABEL[level]}
         </div>
-        <div className="px-5 py-4">
-          <div className="text-[9.5px] font-mono uppercase tracking-wider text-ink-45 mb-1.5 flex items-center gap-2">
-            <span>{sample.label} · L{level} {LEVEL_LABEL[level]}</span>
-          </div>
-          <div className="text-[17px] text-ink leading-snug font-medium min-h-[26px]">
-            {typed}
-            <span className="inline-block w-[2px] h-[18px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
-          </div>
+        <div className="text-[18px] text-ink leading-snug font-medium min-h-[28px]">
+          {typed}
+          <span className="inline-block w-[2px] h-[18px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
         </div>
       </div>
 
-      {/* Per-category rows. Each row has its own L1/L2/L3 picker. */}
-      <div className="max-w-[640px] space-y-2 mb-6">
+      {/* Per-category rows. Tighter layout — single brand icon, label,
+          three small level pills. Hover focuses the preview pane. */}
+      <div className="max-w-[640px] divide-y divide-ink-08 border-t border-b border-ink-08 mb-7">
         {categories.map((cat) => {
           const info = STRICTNESS_SAMPLES[cat]
           const current = value[cat]
           const isActive = active === cat
+          const icon = CATEGORY_ICON[cat]
           return (
             <div
               key={cat}
               onMouseEnter={() => setActive(cat)}
               className={[
-                'flex items-center gap-4 px-4 py-2.5 rounded-card border transition-colors',
-                isActive ? 'bg-card border-ink-45' : 'bg-card border-ink-08',
+                'flex items-center gap-4 px-2 py-3 transition-colors',
+                isActive ? 'bg-card/60' : '',
               ].join(' ')}
             >
-              <AppChipRow chips={CATEGORY_APPS[cat]} />
+              <div className="w-7 flex justify-center shrink-0">
+                {icon ? <BrandIcon icon={icon} /> : <GenericIcon />}
+              </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold">{info.label}</div>
-                <div className="text-[10.5px] text-ink-45">{info.sub}</div>
+                <div className="text-[13.5px] font-semibold leading-tight">{info.label}</div>
+                <div className="text-[11px] text-ink-45 mt-0.5">{info.sub}</div>
               </div>
               <div className="flex gap-1">
                 {([1, 2, 3] as Strictness[]).map((lvl) => {
@@ -937,10 +921,10 @@ function StepStrictness({
                       key={lvl}
                       onClick={() => setLevel(cat, lvl)}
                       className={[
-                        'px-3 py-1.5 rounded-pill text-[11.5px] font-medium transition-all duration-150',
+                        'px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all duration-150',
                         selected
                           ? 'bg-ink text-paper'
-                          : 'bg-paper text-ink-60 border border-ink-08 hover:border-ink-45',
+                          : 'text-ink-60 hover:text-ink',
                       ].join(' ')}
                     >
                       {LEVEL_LABEL[lvl]}
