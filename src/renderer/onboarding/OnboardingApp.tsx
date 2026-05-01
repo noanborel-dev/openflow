@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Settings, Strictness } from '../../shared/types'
+import type { CategoryStrictness, Settings, Strictness } from '../../shared/types'
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
@@ -34,7 +34,12 @@ export default function OnboardingApp() {
   const [hotkey, setHotkey] = useState<string>('CTRL')
   const [listening, setListening] = useState(false)
   const [providerChoice, setProviderChoice] = useState<'cloud' | 'local'>('cloud')
-  const [strictness, setStrictness] = useState<Strictness>(2)
+  const [strictness, setStrictness] = useState<CategoryStrictness>({
+    messaging: 1,
+    email: 3,
+    docs: 2,
+    other: 2,
+  })
   const [micGranted, setMicGranted] = useState(false)
   const [accessibilityGranted, setAccessibilityGranted] = useState(false)
 
@@ -573,28 +578,30 @@ function StepHotkey({
         Try your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">key.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-5">
-        One key. Three behaviors. Try each one — your hotkey is{' '}
-        <button
-          onClick={onToggleListen}
-          className="font-mono text-[12.5px] bg-card border border-ink-08 px-2 py-0.5 rounded hover:border-ink-45 transition-colors"
-        >
-          {listening ? 'press any key…' : prettifyKey(hotkey)}
-        </button>
-        {!listening && '. Click to change.'}
+        One key. Three behaviors. Try each.
       </p>
 
-      {/* Live key visualization. Pulses while pressed, fills the bar to
-          show how long you've held. */}
+      {/* Live key visualization — also the rebind target. Click to
+          listen for a new key, otherwise it just shows your current
+          hotkey and pulses while you press it. */}
       <div className="max-w-[460px] mb-6">
-        <div
+        <button
+          type="button"
+          onClick={onToggleListen}
           className={[
-            'relative h-[88px] bg-card border-2 rounded-card flex items-center justify-center transition-all duration-150',
-            pressing ? 'border-volt scale-[1.015]' : 'border-ink-08',
+            'w-full relative h-[100px] bg-card border-2 rounded-card flex items-center justify-center transition-all duration-150',
+            listening ? 'border-volt' :
+            pressing ? 'border-volt scale-[1.015]' : 'border-ink-08 hover:border-ink-45',
           ].join(' ')}
         >
-          <div className="font-display italic text-[28px] text-ink select-none">
-            {prettifyKey(hotkey)}
+          <div className="font-display italic text-[32px] text-ink select-none">
+            {listening ? 'press any key…' : prettifyKey(hotkey)}
           </div>
+          {!listening && (
+            <div className="absolute top-2 right-3 text-[10px] font-mono uppercase tracking-wider text-ink-45">
+              click to change
+            </div>
+          )}
           {/* Hold-progress fill */}
           <div
             className="absolute inset-x-0 bottom-0 h-1 bg-volt rounded-b-card transition-[width] duration-75"
@@ -603,7 +610,7 @@ function StepHotkey({
           {pressing && (
             <div className="absolute inset-0 rounded-card pointer-events-none animate-voltPulse" />
           )}
-        </div>
+        </button>
       </div>
 
       {/* Three challenge cards. Active one highlighted; completed ones
@@ -660,104 +667,144 @@ function StepHotkey({
   )
 }
 
-// ─── Step 5: Strictness — visual preview ───────────────────────────
+// ─── Step 5: Strictness — per-category ─────────────────────────────
 
-const STRICTNESS_RAW =
-  "um so I was thinking that maybe like we should you know set up a meeting tomorrow or something to go over the launch stuff"
-
-const STRICTNESS_PREVIEW: Record<Strictness, { name: string; blurb: string; output: string }> = {
-  1: {
-    name: 'Light',
-    blurb: 'Strip filler. Keep your voice.',
-    output:
-      "so I was thinking that maybe like we should set up a meeting tomorrow or something to go over the launch stuff",
+// Per-category sample dictation + per-level cleaned output. Hard-coded
+// so the preview is instant and predictable; not a real LLM call.
+const STRICTNESS_SAMPLES: Record<keyof CategoryStrictness, {
+  label: string
+  sub: string
+  raw: string
+  outputs: Record<Strictness, string>
+}> = {
+  messaging: {
+    label: 'Chat',
+    sub: 'iMessage, Slack, Discord',
+    raw: "yo um so are we still on for tomorrow or like did that move",
+    outputs: {
+      1: "yo so are we still on for tomorrow or like did that move",
+      2: "are we still on for tomorrow or did that move",
+      3: "Are we still on for tomorrow, or has it moved?",
+    },
   },
-  2: {
-    name: 'Balanced',
-    blurb: 'Polish wording. Drop verbal padding.',
-    output:
-      "I was thinking maybe we should set up a meeting tomorrow to go over the launch stuff.",
+  email: {
+    label: 'Email',
+    sub: 'Gmail, Outlook, Mail',
+    raw: "hey just wanted to follow up on the proposal um can you let me know if you got a chance to look at it",
+    outputs: {
+      1: "hey just wanted to follow up on the proposal can you let me know if you got a chance to look at it",
+      2: "Just following up on the proposal — can you let me know if you've had a chance to look?",
+      3: "Hi — following up on the proposal. Could you let me know once you've had a chance to review it?",
+    },
   },
-  3: {
-    name: 'Strict',
-    blurb: 'Restructure into clean prose.',
-    output:
-      "Let's set up a meeting tomorrow to review the launch.",
+  docs: {
+    label: 'Writing',
+    sub: 'Notion, Docs, Obsidian',
+    raw: "so the main idea is that um we want users to feel like the app is responding to them and like adapting",
+    outputs: {
+      1: "so the main idea is that we want users to feel like the app is responding to them and like adapting",
+      2: "The main idea is that we want users to feel the app is responding to them and adapting.",
+      3: "The core idea: users should feel the app responds and adapts to them.",
+    },
+  },
+  other: {
+    label: 'Everything else',
+    sub: "Anywhere we don't recognize",
+    raw: "uh just a quick note here so we can come back to it later",
+    outputs: {
+      1: "just a quick note here so we can come back to it later",
+      2: "Just a quick note so we can come back to it later.",
+      3: "Quick note for later.",
+    },
   },
 }
+
+const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 'Strict' }
 
 function StepStrictness({
   value,
   onChange,
   onContinue,
 }: {
-  value: Strictness
-  onChange: (v: Strictness) => void
+  value: CategoryStrictness
+  onChange: (v: CategoryStrictness) => void
   onContinue: () => void
 }) {
-  const preview = STRICTNESS_PREVIEW[value]
+  const categories: (keyof CategoryStrictness)[] = ['messaging', 'email', 'docs', 'other']
+  // Active row drives the big preview pane. Defaults to messaging.
+  const [active, setActive] = useState<keyof CategoryStrictness>('messaging')
+  const sample = STRICTNESS_SAMPLES[active]
+  const level = value[active]
+
+  function setLevel(category: keyof CategoryStrictness, lvl: Strictness) {
+    onChange({ ...value, [category]: lvl })
+    setActive(category)
+  }
+
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
         How <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">polished?</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[460px] mb-6">
-        Your default cleanup level. Email and docs lean stricter automatically; iMessage and Slack lean looser. Click a level to see what you'd actually get.
+        Pick a polish level per use case.
       </p>
 
-      {/* Big before/after preview. The only thing that changes between
-          levels is the "after" line — the input stays put as the anchor. */}
+      {/* Live preview — updates as user picks levels per category. */}
       <div className="max-w-[640px] bg-card border border-ink-08 rounded-card overflow-hidden mb-6">
-        <div className="px-5 py-4 border-b border-ink-08 bg-paper/60">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">
-            You said
-          </div>
-          <div className="text-[14px] text-ink-60 leading-relaxed italic">
-            "{STRICTNESS_RAW}"
-          </div>
+        <div className="px-5 py-3.5 border-b border-ink-08 bg-paper/60">
+          <div className="text-[9.5px] font-mono uppercase tracking-wider text-ink-45 mb-1">You said</div>
+          <div className="text-[13px] text-ink-60 italic leading-relaxed">"{sample.raw}"</div>
         </div>
-        <div className="px-5 py-5">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5 flex items-center gap-2">
-            <span>OpenFlow types</span>
-            <span className="font-mono text-[9.5px] text-ink-45 bg-paper px-1.5 py-0.5 rounded">
-              L{value} · {preview.name}
-            </span>
+        <div className="px-5 py-4">
+          <div className="text-[9.5px] font-mono uppercase tracking-wider text-ink-45 mb-1.5 flex items-center gap-2">
+            <span>{sample.label} · L{level} {LEVEL_LABEL[level]}</span>
           </div>
-          <div
-            key={value}
-            className="text-[17px] text-ink leading-snug font-medium animate-stepIn"
-          >
-            {preview.output}
+          <div key={`${active}-${level}`} className="text-[17px] text-ink leading-snug font-medium animate-stepIn">
+            {sample.outputs[level]}
           </div>
         </div>
       </div>
 
-      {/* Three pill-style level pickers under the preview. */}
-      <div className="flex items-center gap-2 max-w-[640px] mb-6">
-        {([1, 2, 3] as Strictness[]).map((level) => {
-          const opt = STRICTNESS_PREVIEW[level]
-          const selected = value === level
+      {/* Per-category rows. Each row has its own L1/L2/L3 picker. */}
+      <div className="max-w-[640px] space-y-2 mb-6">
+        {categories.map((cat) => {
+          const info = STRICTNESS_SAMPLES[cat]
+          const current = value[cat]
+          const isActive = active === cat
           return (
-            <button
-              key={level}
-              onClick={() => onChange(level)}
+            <div
+              key={cat}
+              onMouseEnter={() => setActive(cat)}
               className={[
-                'flex-1 text-left rounded-card px-4 py-3 border transition-all duration-200 cursor-pointer',
-                selected
-                  ? 'bg-ink text-paper border-ink -translate-y-0.5'
-                  : 'bg-card text-ink border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
+                'flex items-center gap-4 px-4 py-2.5 rounded-card border transition-colors',
+                isActive ? 'bg-card border-ink-45' : 'bg-card border-ink-08',
               ].join(' ')}
             >
-              <div className="flex items-baseline justify-between mb-0.5">
-                <div className="text-[13.5px] font-semibold">{opt.name}</div>
-                <span className={['font-mono text-[10px]', selected ? 'text-paper/60' : 'text-ink-45'].join(' ')}>
-                  L{level}
-                </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold">{info.label}</div>
+                <div className="text-[10.5px] text-ink-45">{info.sub}</div>
               </div>
-              <div className={['text-[11px] leading-snug', selected ? 'text-paper/70' : 'text-ink-60'].join(' ')}>
-                {opt.blurb}
+              <div className="flex gap-1">
+                {([1, 2, 3] as Strictness[]).map((lvl) => {
+                  const selected = current === lvl
+                  return (
+                    <button
+                      key={lvl}
+                      onClick={() => setLevel(cat, lvl)}
+                      className={[
+                        'px-3 py-1.5 rounded-pill text-[11.5px] font-medium transition-all duration-150',
+                        selected
+                          ? 'bg-ink text-paper'
+                          : 'bg-paper text-ink-60 border border-ink-08 hover:border-ink-45',
+                      ].join(' ')}
+                    >
+                      {LEVEL_LABEL[lvl]}
+                    </button>
+                  )
+                })}
               </div>
-            </button>
+            </div>
           )
         })}
       </div>

@@ -1,5 +1,5 @@
 import ElectronStore from 'electron-store'
-import type { Settings } from '../shared/types'
+import type { Settings, Strictness } from '../shared/types'
 import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS, MODELS } from '../shared/constants'
 
 const defaults: Settings = {
@@ -17,7 +17,14 @@ const defaults: Settings = {
   devModeApps: DEFAULT_DEV_MODE_APPS,
   indicatorPosition: null,
   userDictionary: [],
-  strictness: 2,
+  // Defaults reflect what most users actually want: messaging stays
+  // loose, emails get fully polished, docs get balanced cleanup.
+  strictness: {
+    messaging: 1,
+    email: 3,
+    docs: 2,
+    other: 2,
+  },
   voiceEnrolled: false,
 }
 
@@ -34,11 +41,26 @@ export function getSettings(): Settings {
   // Backfill missing fields for users upgrading from older versions whose
   // persisted store predates these defaults.
   const raw = store.store as Settings
+  // Old persisted shape: strictness was a single number. Spread it into
+  // the per-category object so users upgrading get sensible defaults
+  // shifted toward their old preference.
+  const persistedStrictness = (raw as unknown as { strictness?: unknown }).strictness
+  const strictness: Settings['strictness'] =
+    typeof persistedStrictness === 'number'
+      ? {
+          messaging: defaults.strictness.messaging,
+          email: defaults.strictness.email,
+          docs: defaults.strictness.docs,
+          other: persistedStrictness as Strictness,
+        }
+      : { ...defaults.strictness, ...((persistedStrictness as Settings['strictness']) ?? {}) }
+
   const merged: Settings = {
     ...defaults,
     ...raw,
     hotkeys: { ...defaults.hotkeys, ...raw.hotkeys },
     provider: { ...defaults.provider, ...raw.provider },
+    strictness,
   }
 
   // Migrate stale cleanup model. Persist the new value so the next

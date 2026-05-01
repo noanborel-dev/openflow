@@ -28,11 +28,21 @@ export interface PerAppRule {
   customPrompt?: string
 }
 
-// Cleanup strictness chosen during onboarding. Acts as a global default
-// that per-app biases (email +, iMessage -) shift up or down at prompt
-// build time. 1 = light (only fillers stripped), 2 = balanced (filler +
-// polish), 3 = strict (full restructure).
+// Cleanup strictness per app category. 1 = light (only fillers stripped),
+// 2 = balanced (filler + polish), 3 = strict (full restructure into clean
+// prose). Asked per-use-case in onboarding because users want different
+// polish for chat vs email vs docs — a single global default would push
+// everyone to L3 even when they want their iMessages to stay loose.
+// 'code' is intentionally not user-adjustable; it's always faithful so
+// dictating commands / identifiers can't have words dropped.
 export type Strictness = 1 | 2 | 3
+
+export interface CategoryStrictness {
+  messaging: Strictness
+  email: Strictness
+  docs: Strictness
+  other: Strictness
+}
 
 export interface Settings {
   firstRun: boolean
@@ -42,7 +52,7 @@ export interface Settings {
   devModeApps: string[]   // bundle IDs that force dev/code mode
   indicatorPosition: { x: number; y: number } | null
   userDictionary: string[]   // user-added terms biased into Whisper transcription
-  strictness: Strictness
+  strictness: CategoryStrictness
   voiceEnrolled: boolean   // whether the user has completed voice enrollment
 }
 
