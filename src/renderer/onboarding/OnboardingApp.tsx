@@ -266,6 +266,7 @@ function StepPermissions({
           granted={micGranted}
           onAction={onRequestMic}
           actionLabel="Allow"
+          showLiveMic
         />
         <PermissionRow
           label="Accessibility"
@@ -289,19 +290,24 @@ function PermissionRow({
   granted,
   onAction,
   actionLabel,
+  showLiveMic,
 }: {
   label: string
   hint: string
   granted: boolean
   onAction: () => void
   actionLabel: string
+  showLiveMic?: boolean
 }) {
   return (
     <Card>
       <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <div>
-          <div className="text-[13px] font-medium">{label}</div>
-          <div className="text-[11.5px] text-ink-45 mt-0.5">{hint}</div>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div>
+            <div className="text-[13px] font-medium">{label}</div>
+            <div className="text-[11.5px] text-ink-45 mt-0.5">{hint}</div>
+          </div>
+          {granted && showLiveMic && <LiveMicMeter />}
         </div>
         {granted ? (
           <span className="text-[12px] font-medium text-ok inline-flex items-center gap-1.5 animate-checkPop">
@@ -319,6 +325,74 @@ function PermissionRow({
         )}
       </div>
     </Card>
+  )
+}
+
+// Live mic level meter — proves to the user that we can actually hear
+// them. Pure visual, doesn't store anything. Stops when unmounted.
+function LiveMicMeter() {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    let stream: MediaStream | null = null
+    let ctx: AudioContext | null = null
+    let raf = 0
+    let cancelled = false
+
+    async function start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        if (cancelled) return
+        ctx = new AudioContext()
+        const source = ctx.createMediaStreamSource(stream)
+        const analyser = ctx.createAnalyser()
+        analyser.fftSize = 256
+        source.connect(analyser)
+        const data = new Uint8Array(analyser.frequencyBinCount)
+        const c = canvasRef.current
+        if (!c) return
+        const draw = () => {
+          if (cancelled) return
+          analyser.getByteFrequencyData(data)
+          const dpr = window.devicePixelRatio || 1
+          const W = c.width = c.clientWidth * dpr
+          const H = c.height = c.clientHeight * dpr
+          const g = c.getContext('2d')
+          if (!g) return
+          g.clearRect(0, 0, W, H)
+          const bars = 12
+          const gap = 2 * dpr
+          const barW = (W - gap * (bars - 1)) / bars
+          for (let i = 0; i < bars; i++) {
+            // Sample evenly across the freq spectrum we care about.
+            const idx = Math.floor((i / bars) * (data.length * 0.6))
+            const v = data[idx] / 255   // 0..1
+            const h = Math.max(2 * dpr, v * H)
+            const x = i * (barW + gap)
+            const y = (H - h) / 2
+            g.fillStyle = '#2B7FFF'
+            g.fillRect(x, y, barW, h)
+          }
+          raf = requestAnimationFrame(draw)
+        }
+        draw()
+      } catch {
+        // user rejected permission or device unavailable — silently no-op
+      }
+    }
+    start()
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(raf)
+      if (stream) stream.getTracks().forEach((t) => t.stop())
+      if (ctx) ctx.close().catch(() => {})
+    }
+  }, [])
+  return (
+    <canvas
+      ref={canvasRef}
+      className="w-[88px] h-6 rounded"
+      aria-label="live microphone level"
+    />
   )
 }
 
@@ -669,6 +743,39 @@ function StepHotkey({
 
 // ─── Step 5: Strictness — per-category ─────────────────────────────
 
+// Each category gets a list of app chips so users see *which* apps the
+// row covers at a glance — much faster than reading "iMessage, Slack,
+// Discord". Color is each app's brand mark, dimmed slightly to fit
+// the paper aesthetic.
+interface AppChip {
+  letter: string
+  bg: string
+  fg?: string
+}
+
+const CATEGORY_APPS: Record<keyof CategoryStrictness, AppChip[]> = {
+  messaging: [
+    { letter: 'M', bg: '#0b93f6' },           // iMessage blue
+    { letter: 'S', bg: '#4a154b' },           // Slack aubergine
+    { letter: 'D', bg: '#5865f2' },           // Discord
+    { letter: 'W', bg: '#25d366' },           // WhatsApp
+  ],
+  email: [
+    { letter: 'G', bg: '#ea4335' },           // Gmail red
+    { letter: 'O', bg: '#0078d4' },           // Outlook
+    { letter: 'M', bg: '#1d1d1f', fg: '#fff' }, // Apple Mail
+  ],
+  docs: [
+    { letter: 'N', bg: '#000', fg: '#fff' },  // Notion
+    { letter: 'D', bg: '#4285f4' },           // Google Docs
+    { letter: 'O', bg: '#7c3aed' },           // Obsidian
+    { letter: 'W', bg: '#185abd' },           // Word
+  ],
+  other: [
+    { letter: '?', bg: '#9ca3af', fg: '#fff' }, // generic fallback chip
+  ],
+}
+
 // Per-category sample dictation + per-level cleaned output. Hard-coded
 // so the preview is instant and predictable; not a real LLM call.
 const STRICTNESS_SAMPLES: Record<keyof CategoryStrictness, {
@@ -719,6 +826,40 @@ const STRICTNESS_SAMPLES: Record<keyof CategoryStrictness, {
   },
 }
 
+// Char-by-char reveal hook. Plays a "the AI is typing" effect on the
+// preview output whenever the source text changes (level change or
+// category change). Tunable speed via msPerChar.
+function useTypewriter(text: string, msPerChar = 14): string {
+  const [shown, setShown] = useState('')
+  useEffect(() => {
+    setShown('')
+    let i = 0
+    const id = window.setInterval(() => {
+      i++
+      setShown(text.slice(0, i))
+      if (i >= text.length) window.clearInterval(id)
+    }, msPerChar)
+    return () => window.clearInterval(id)
+  }, [text, msPerChar])
+  return shown
+}
+
+function AppChipRow({ chips }: { chips: AppChip[] }) {
+  return (
+    <div className="flex -space-x-1.5">
+      {chips.map((c, i) => (
+        <div
+          key={i}
+          className="w-6 h-6 rounded-full ring-2 ring-card flex items-center justify-center text-[10px] font-bold shadow-sm"
+          style={{ backgroundColor: c.bg, color: c.fg ?? '#fff', zIndex: chips.length - i }}
+        >
+          {c.letter}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 'Strict' }
 
 function StepStrictness({
@@ -735,6 +876,7 @@ function StepStrictness({
   const [active, setActive] = useState<keyof CategoryStrictness>('messaging')
   const sample = STRICTNESS_SAMPLES[active]
   const level = value[active]
+  const typed = useTypewriter(sample.outputs[level])
 
   function setLevel(category: keyof CategoryStrictness, lvl: Strictness) {
     onChange({ ...value, [category]: lvl })
@@ -760,8 +902,9 @@ function StepStrictness({
           <div className="text-[9.5px] font-mono uppercase tracking-wider text-ink-45 mb-1.5 flex items-center gap-2">
             <span>{sample.label} · L{level} {LEVEL_LABEL[level]}</span>
           </div>
-          <div key={`${active}-${level}`} className="text-[17px] text-ink leading-snug font-medium animate-stepIn">
-            {sample.outputs[level]}
+          <div className="text-[17px] text-ink leading-snug font-medium min-h-[26px]">
+            {typed}
+            <span className="inline-block w-[2px] h-[18px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
           </div>
         </div>
       </div>
@@ -781,6 +924,7 @@ function StepStrictness({
                 isActive ? 'bg-card border-ink-45' : 'bg-card border-ink-08',
               ].join(' ')}
             >
+              <AppChipRow chips={CATEGORY_APPS[cat]} />
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold">{info.label}</div>
                 <div className="text-[10.5px] text-ink-45">{info.sub}</div>
