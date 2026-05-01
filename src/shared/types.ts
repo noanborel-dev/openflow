@@ -68,7 +68,9 @@ export const IPC = {
   OPEN_SETTINGS: 'open-settings',
   OPEN_ONBOARDING: 'open-onboarding',
   MIC_PERMISSION: 'mic:permission',
+  MIC_PERMISSION_STATUS: 'mic:permission:status',
   ACCESSIBILITY_OPEN: 'accessibility:open',
+  ACCESSIBILITY_CHECK: 'accessibility:check',
   HOTKEYS_RELOAD: 'hotkeys:reload',
   REVEAL_LOG: 'reveal:log',
 } as const

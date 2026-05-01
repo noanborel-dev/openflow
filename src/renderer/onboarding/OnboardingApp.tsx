@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Settings, Strictness } from '../../shared/types'
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
@@ -36,7 +36,29 @@ export default function OnboardingApp() {
   const [providerChoice, setProviderChoice] = useState<'cloud' | 'local'>('cloud')
   const [strictness, setStrictness] = useState<Strictness>(2)
   const [micGranted, setMicGranted] = useState(false)
-  const [accessibilityRequested, setAccessibilityRequested] = useState(false)
+  const [accessibilityGranted, setAccessibilityGranted] = useState(false)
+
+  // Poll real OS permission state while on the permissions step. Stops as
+  // soon as both are granted or the user moves on.
+  useEffect(() => {
+    if (step !== 2) return
+    let cancelled = false
+    async function tick() {
+      const [mic, acc] = await Promise.all([
+        window.openflow.getMicPermissionStatus(),
+        window.openflow.isAccessibilityTrusted(),
+      ])
+      if (cancelled) return
+      setMicGranted(mic === 'granted')
+      setAccessibilityGranted(acc)
+    }
+    tick()
+    const id = window.setInterval(tick, 750)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [step])
 
   // Capture-key listener for the hotkey step.
   useEffect(() => {
@@ -65,8 +87,9 @@ export default function OnboardingApp() {
   }
 
   async function handleOpenAccessibility() {
+    // This triggers the macOS prompt; the polling effect above will pick
+    // up the actual grant once the user toggles it in System Settings.
     await window.openflow.openAccessibilitySettings()
-    setAccessibilityRequested(true)
   }
 
   async function handleSaveKey() {
@@ -134,7 +157,7 @@ export default function OnboardingApp() {
         {step === 2 && (
           <StepPermissions
             micGranted={micGranted}
-            accessibilityRequested={accessibilityRequested}
+            accessibilityGranted={accessibilityGranted}
             onRequestMic={handleRequestMic}
             onOpenAccessibility={handleOpenAccessibility}
             onContinue={next}
@@ -210,17 +233,18 @@ function StepWelcome({ onContinue }: { onContinue: () => void }) {
 
 function StepPermissions({
   micGranted,
-  accessibilityRequested,
+  accessibilityGranted,
   onRequestMic,
   onOpenAccessibility,
   onContinue,
 }: {
   micGranted: boolean
-  accessibilityRequested: boolean
+  accessibilityGranted: boolean
   onRequestMic: () => void
   onOpenAccessibility: () => void
   onContinue: () => void
 }) {
+  const allGranted = micGranted && accessibilityGranted
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
@@ -241,14 +265,14 @@ function StepPermissions({
         <PermissionRow
           label="Accessibility"
           hint="Paste into the focused app."
-          granted={accessibilityRequested}
+          granted={accessibilityGranted}
           onAction={onOpenAccessibility}
           actionLabel="Open Settings"
         />
       </div>
 
-      <Pill variant="primary" onClick={onContinue}>
-        Continue <span>→</span>
+      <Pill variant="primary" onClick={onContinue} disabled={!allGranted}>
+        {allGranted ? 'Continue →' : 'Waiting for permissions…'}
       </Pill>
     </>
   )
@@ -416,7 +440,25 @@ function ProviderCard({
   )
 }
 
-// ─── Step 4: Hotkey ─────────────────────────────────────────────────
+// ─── Step 4: Hotkey — interactive trainer ──────────────────────────
+
+type Challenge = 'tap' | 'hold' | 'doubletap'
+const CHALLENGE_ORDER: Challenge[] = ['tap', 'hold', 'doubletap']
+
+const CHALLENGE_INFO: Record<Challenge, { title: string; hint: string; icon: string }> = {
+  tap:       { title: 'Try a single tap', hint: 'Quick press, then release.', icon: '·' },
+  hold:      { title: 'Now hold it down', hint: 'Press and hold for a moment, then release.', icon: '━' },
+  doubletap: { title: 'Now double-tap', hint: 'Two quick presses in a row.', icon: '··' },
+}
+
+function keyCodeMatches(savedKey: string, e: KeyboardEvent): boolean {
+  const code = e.code
+  if (savedKey === 'CTRL') return code === 'ControlLeft' || code === 'ControlRight'
+  if (savedKey === 'ALT') return code === 'AltLeft' || code === 'AltRight'
+  if (savedKey === 'SHIFT') return code === 'ShiftLeft' || code === 'ShiftRight'
+  if (savedKey === 'META') return code === 'MetaLeft' || code === 'MetaRight'
+  return e.key.toUpperCase() === savedKey
+}
 
 function StepHotkey({
   hotkey,
@@ -429,78 +471,220 @@ function StepHotkey({
   onToggleListen: () => void
   onContinue: () => void
 }) {
+  const [completed, setCompleted] = useState<Set<Challenge>>(new Set())
+  const [active, setActive] = useState<Challenge>('tap')
+  const [pressing, setPressing] = useState(false)
+  const [holdProgress, setHoldProgress] = useState(0)  // 0..1, drives hold-bar fill
+  const stateRef = useRef({ pressedAt: 0, lastTapAt: 0, holdRaf: 0 })
+
+  // Listen for the hotkey while this step is mounted. Renderer-only;
+  // captures only when the onboarding window has focus, which is exactly
+  // what we want for a tutorial.
+  useEffect(() => {
+    if (listening) return  // pause trainer while user is rebinding
+    function tickHold() {
+      const elapsed = Date.now() - stateRef.current.pressedAt
+      // Visual fill maxes at ~600ms — feels satisfying, generous beyond
+      // the 150ms hold threshold so users don't accidentally land in the
+      // tap bucket while watching the bar.
+      setHoldProgress(Math.min(1, elapsed / 600))
+      if (stateRef.current.pressedAt > 0) {
+        stateRef.current.holdRaf = requestAnimationFrame(tickHold)
+      }
+    }
+
+    function onDown(e: KeyboardEvent) {
+      if (!keyCodeMatches(hotkey, e)) return
+      e.preventDefault()
+      // OS auto-repeat fires DOWN repeatedly while held; ignore.
+      if (stateRef.current.pressedAt !== 0) return
+      const now = Date.now()
+
+      // Double-tap: second DOWN within 500ms of the prior tap UP.
+      if (stateRef.current.lastTapAt && now - stateRef.current.lastTapAt < 500) {
+        stateRef.current.lastTapAt = 0
+        if (active === 'doubletap') {
+          markComplete('doubletap')
+        }
+        return
+      }
+
+      stateRef.current.pressedAt = now
+      setPressing(true)
+      setHoldProgress(0)
+      cancelAnimationFrame(stateRef.current.holdRaf)
+      stateRef.current.holdRaf = requestAnimationFrame(tickHold)
+    }
+
+    function onUp(e: KeyboardEvent) {
+      if (!keyCodeMatches(hotkey, e)) return
+      if (stateRef.current.pressedAt === 0) return
+      const held = Date.now() - stateRef.current.pressedAt
+      stateRef.current.pressedAt = 0
+      cancelAnimationFrame(stateRef.current.holdRaf)
+      setPressing(false)
+      setHoldProgress(0)
+
+      if (held >= 200) {
+        // True hold.
+        if (active === 'hold') {
+          markComplete('hold')
+        }
+        stateRef.current.lastTapAt = 0
+      } else {
+        // Tap. Mark for double-tap window.
+        stateRef.current.lastTapAt = Date.now()
+        if (active === 'tap') {
+          markComplete('tap')
+        }
+      }
+    }
+
+    function markComplete(c: Challenge) {
+      setCompleted((prev) => {
+        const next = new Set(prev)
+        next.add(c)
+        return next
+      })
+      // Auto-advance to the next not-yet-completed challenge.
+      setTimeout(() => {
+        setActive((current) => {
+          const remaining = CHALLENGE_ORDER.filter((x) => x !== c && !completed.has(x))
+          return remaining[0] ?? current
+        })
+      }, 600)
+    }
+
+    window.addEventListener('keydown', onDown, true)
+    window.addEventListener('keyup', onUp, true)
+    return () => {
+      window.removeEventListener('keydown', onDown, true)
+      window.removeEventListener('keyup', onUp, true)
+      cancelAnimationFrame(stateRef.current.holdRaf)
+    }
+  }, [hotkey, active, completed, listening])
+
+  // Once all three are complete, surface the Continue CTA prominently.
+  const allDone = completed.size === 3
+
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Pick your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">key.</span>
+        Try your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">key.</span>
       </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[400px] mb-5">
-        One key, three behaviors. Click the pill below and press whatever feels natural — Ctrl is the default.
+      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-5">
+        One key. Three behaviors. Try each one — your hotkey is{' '}
+        <button
+          onClick={onToggleListen}
+          className="font-mono text-[12.5px] bg-card border border-ink-08 px-2 py-0.5 rounded hover:border-ink-45 transition-colors"
+        >
+          {listening ? 'press any key…' : prettifyKey(hotkey)}
+        </button>
+        {!listening && '. Click to change.'}
       </p>
 
-      <div className="mb-6">
-        <Pill variant={listening ? 'volt' : 'secondary'} onClick={onToggleListen}>
-          <span className="font-mono text-[12px]">
-            {listening ? 'Press any key…' : prettifyKey(hotkey)}
-          </span>
-        </Pill>
+      {/* Live key visualization. Pulses while pressed, fills the bar to
+          show how long you've held. */}
+      <div className="max-w-[460px] mb-6">
+        <div
+          className={[
+            'relative h-[88px] bg-card border-2 rounded-card flex items-center justify-center transition-all duration-150',
+            pressing ? 'border-volt scale-[1.015]' : 'border-ink-08',
+          ].join(' ')}
+        >
+          <div className="font-display italic text-[28px] text-ink select-none">
+            {prettifyKey(hotkey)}
+          </div>
+          {/* Hold-progress fill */}
+          <div
+            className="absolute inset-x-0 bottom-0 h-1 bg-volt rounded-b-card transition-[width] duration-75"
+            style={{ width: `${holdProgress * 100}%` }}
+          />
+          {pressing && (
+            <div className="absolute inset-0 rounded-card pointer-events-none animate-voltPulse" />
+          )}
+        </div>
       </div>
 
-      <Card>
-        <div className="px-4 py-4 max-w-[460px] space-y-2.5 text-[12.5px] text-ink-60">
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[10.5px] text-ink-45 uppercase tracking-wider w-[78px] shrink-0">tap</span>
-            <span>Toggle recording on. Tap again to stop.</span>
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[10.5px] text-ink-45 uppercase tracking-wider w-[78px] shrink-0">hold</span>
-            <span>Record while held. Release to stop.</span>
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[10.5px] text-ink-45 uppercase tracking-wider w-[78px] shrink-0">double-tap</span>
-            <span>Paste your most recent dictation again.</span>
-          </div>
-        </div>
-      </Card>
+      {/* Three challenge cards. Active one highlighted; completed ones
+          collapse to a checkmark row. */}
+      <div className="max-w-[460px] space-y-2 mb-6">
+        {CHALLENGE_ORDER.map((c) => {
+          const info = CHALLENGE_INFO[c]
+          const isDone = completed.has(c)
+          const isActive = active === c && !isDone
+          return (
+            <div
+              key={c}
+              className={[
+                'flex items-center gap-3 px-4 py-3 rounded-card border transition-all duration-200',
+                isDone ? 'bg-card border-ok/30' :
+                isActive ? 'bg-card border-ink shadow-sm' :
+                'bg-paper border-ink-08 opacity-50',
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'font-mono text-[15px] w-8 text-center transition-colors',
+                  isDone ? 'text-ok' : isActive ? 'text-ink' : 'text-ink-45',
+                ].join(' ')}
+              >
+                {isDone ? '✓' : info.icon}
+              </span>
+              <div className="flex-1">
+                <div className={['text-[13px] font-medium', isDone ? 'text-ink-45 line-through decoration-ink-08' : 'text-ink'].join(' ')}>
+                  {info.title}
+                </div>
+                {isActive && (
+                  <div className="text-[11.5px] text-ink-45 mt-0.5 animate-stepIn">
+                    {info.hint}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-      <div className="mt-6">
+      <div className="flex items-center gap-3">
         <Pill variant="primary" onClick={onContinue}>
-          Continue →
+          {allDone ? "Nice — let's continue →" : 'Skip for now →'}
         </Pill>
+        {!allDone && (
+          <span className="text-[11px] text-ink-45 tabular-nums">
+            {completed.size} / 3 done
+          </span>
+        )}
       </div>
     </>
   )
 }
 
-// ─── Step 5: Strictness ─────────────────────────────────────────────
+// ─── Step 5: Strictness — visual preview ───────────────────────────
 
-interface StrictnessOption {
-  level: Strictness
-  name: string
-  blurb: string
-  example: string
-}
+const STRICTNESS_RAW =
+  "um so I was thinking that maybe like we should you know set up a meeting tomorrow or something to go over the launch stuff"
 
-const STRICTNESS_OPTIONS: StrictnessOption[] = [
-  {
-    level: 1,
+const STRICTNESS_PREVIEW: Record<Strictness, { name: string; blurb: string; output: string }> = {
+  1: {
     name: 'Light',
-    blurb: 'Strip filler only.',
-    example: '"so the thing is" stays as is.',
+    blurb: 'Strip filler. Keep your voice.',
+    output:
+      "so I was thinking that maybe like we should set up a meeting tomorrow or something to go over the launch stuff",
   },
-  {
-    level: 2,
+  2: {
     name: 'Balanced',
-    blurb: 'Polish + tech-term fixes.',
-    example: '"so the thing is" → "the thing is".',
+    blurb: 'Polish wording. Drop verbal padding.',
+    output:
+      "I was thinking maybe we should set up a meeting tomorrow to go over the launch stuff.",
   },
-  {
-    level: 3,
+  3: {
     name: 'Strict',
     blurb: 'Restructure into clean prose.',
-    example: '"so the thing is" → fully rewritten.',
+    output:
+      "Let's set up a meeting tomorrow to review the launch.",
   },
-]
+}
 
 function StepStrictness({
   value,
@@ -511,57 +695,77 @@ function StepStrictness({
   onChange: (v: Strictness) => void
   onContinue: () => void
 }) {
+  const preview = STRICTNESS_PREVIEW[value]
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        How <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">strict?</span>
+        How <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">polished?</span>
       </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
-        Your default polish level. Email and docs will skew stricter; iMessage and Slack will skew looser. You can override per app later.
+      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[460px] mb-6">
+        Your default cleanup level. Email and docs lean stricter automatically; iMessage and Slack lean looser. Click a level to see what you'd actually get.
       </p>
 
-      <div className="grid grid-cols-3 gap-3 max-w-[640px] mb-6">
-        {STRICTNESS_OPTIONS.map((opt) => (
-          <StrictnessCard
-            key={opt.level}
-            opt={opt}
-            selected={value === opt.level}
-            onClick={() => onChange(opt.level)}
-          />
-        ))}
+      {/* Big before/after preview. The only thing that changes between
+          levels is the "after" line — the input stays put as the anchor. */}
+      <div className="max-w-[640px] bg-card border border-ink-08 rounded-card overflow-hidden mb-6">
+        <div className="px-5 py-4 border-b border-ink-08 bg-paper/60">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">
+            You said
+          </div>
+          <div className="text-[14px] text-ink-60 leading-relaxed italic">
+            "{STRICTNESS_RAW}"
+          </div>
+        </div>
+        <div className="px-5 py-5">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5 flex items-center gap-2">
+            <span>OpenFlow types</span>
+            <span className="font-mono text-[9.5px] text-ink-45 bg-paper px-1.5 py-0.5 rounded">
+              L{value} · {preview.name}
+            </span>
+          </div>
+          <div
+            key={value}
+            className="text-[17px] text-ink leading-snug font-medium animate-stepIn"
+          >
+            {preview.output}
+          </div>
+        </div>
+      </div>
+
+      {/* Three pill-style level pickers under the preview. */}
+      <div className="flex items-center gap-2 max-w-[640px] mb-6">
+        {([1, 2, 3] as Strictness[]).map((level) => {
+          const opt = STRICTNESS_PREVIEW[level]
+          const selected = value === level
+          return (
+            <button
+              key={level}
+              onClick={() => onChange(level)}
+              className={[
+                'flex-1 text-left rounded-card px-4 py-3 border transition-all duration-200 cursor-pointer',
+                selected
+                  ? 'bg-ink text-paper border-ink -translate-y-0.5'
+                  : 'bg-card text-ink border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
+              ].join(' ')}
+            >
+              <div className="flex items-baseline justify-between mb-0.5">
+                <div className="text-[13.5px] font-semibold">{opt.name}</div>
+                <span className={['font-mono text-[10px]', selected ? 'text-paper/60' : 'text-ink-45'].join(' ')}>
+                  L{level}
+                </span>
+              </div>
+              <div className={['text-[11px] leading-snug', selected ? 'text-paper/70' : 'text-ink-60'].join(' ')}>
+                {opt.blurb}
+              </div>
+            </button>
+          )
+        })}
       </div>
 
       <Pill variant="primary" onClick={onContinue}>
         Continue →
       </Pill>
     </>
-  )
-}
-
-function StrictnessCard({
-  opt,
-  selected,
-  onClick,
-}: {
-  opt: StrictnessOption
-  selected: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        'text-left bg-card border rounded-card px-4 py-4 transition-all duration-200 cursor-pointer',
-        selected ? 'border-ink ring-2 ring-volt-muted animate-voltPulse -translate-y-0.5' : 'border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
-      ].join(' ')}
-    >
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-[14px] font-semibold">{opt.name}</div>
-        <span className="font-mono text-[10px] text-ink-45">L{opt.level}</span>
-      </div>
-      <div className="text-[11.5px] text-ink-60 mb-2">{opt.blurb}</div>
-      <div className="text-[11px] text-ink-45 italic leading-snug">{opt.example}</div>
-    </button>
   )
 }
 

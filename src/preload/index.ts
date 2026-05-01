@@ -14,7 +14,11 @@ contextBridge.exposeInMainWorld('openflow', {
     ipcRenderer.invoke(IPC.PROVIDER_TEST, { provider, key }),
   getHistory: () => ipcRenderer.invoke(IPC.HISTORY_GET),
   requestMicPermission: () => ipcRenderer.invoke(IPC.MIC_PERMISSION),
+  getMicPermissionStatus: (): Promise<'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'> =>
+    ipcRenderer.invoke(IPC.MIC_PERMISSION_STATUS),
   openAccessibilitySettings: () => ipcRenderer.invoke(IPC.ACCESSIBILITY_OPEN),
+  isAccessibilityTrusted: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.ACCESSIBILITY_CHECK),
   revealLog: () => ipcRenderer.invoke(IPC.REVEAL_LOG),
   reloadHotkeys: () => ipcRenderer.send(IPC.HOTKEYS_RELOAD),
   onStateChange: (cb: (state: string) => void) => {

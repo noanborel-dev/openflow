@@ -54,4 +54,19 @@ export function registerIpcHandlers(): void {
       systemPreferences.isTrustedAccessibilityClient(true)
     }
   })
+
+  // Status checks for the onboarding UI. Mic returns 'granted' | 'denied'
+  // | 'not-determined' so we can decide whether to show "Allow" vs
+  // "Open Settings". Accessibility just returns trusted-or-not — the
+  // onboarding polls this every ~750ms to detect when the user actually
+  // flips the toggle in System Settings.
+  ipcMain.handle(IPC.MIC_PERMISSION_STATUS, () => {
+    if (process.platform !== 'darwin') return 'granted'
+    return systemPreferences.getMediaAccessStatus('microphone')
+  })
+
+  ipcMain.handle(IPC.ACCESSIBILITY_CHECK, () => {
+    if (process.platform !== 'darwin') return true
+    return systemPreferences.isTrustedAccessibilityClient(false)
+  })
 }
