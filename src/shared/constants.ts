@@ -72,12 +72,6 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
     transcription: 'whisper-large-v3-turbo',
     cleanup: 'claude-3-haiku-20240307',
   },
-  local: {
-    // whisper.cpp model file name; cleanup field unused for now (local
-    // provider delegates cleanup to a cloud key until the local-LLM PR).
-    transcription: 'ggml-large-v3-turbo-q5_0',
-    cleanup: '',
-  },
 }
 
 export const HISTORY_LIMIT = 10
