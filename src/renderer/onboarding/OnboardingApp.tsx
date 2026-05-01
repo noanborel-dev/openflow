@@ -36,10 +36,9 @@ export default function OnboardingApp() {
   const [listening, setListening] = useState(false)
   const [providerChoice, setProviderChoice] = useState<'cloud' | 'local'>('cloud')
   const [strictness, setStrictness] = useState<CategoryStrictness>({
-    messaging: 1,
-    email: 3,
-    docs: 2,
-    other: 2,
+    personal: 1,
+    work: 3,
+    writing: 2,
   })
   const [micGranted, setMicGranted] = useState(false)
   const [accessibilityGranted, setAccessibilityGranted] = useState(false)
@@ -742,20 +741,9 @@ function StepHotkey({
   )
 }
 
-// ─── Step 5: Strictness — per-category ─────────────────────────────
+// ─── Step 5: Strictness — 3-substep side-by-side flow ──────────────
 
-// One representative brand icon per category — minimal, immediately
-// recognizable, brand-correct color. SVG paths come from simple-icons
-// (CC0). For categories with no clean canonical brand (e.g. "other"),
-// we fall back to a generic monogram.
 interface BrandRef { title: string; hex: string; path: string }
-
-const CATEGORY_ICON: Record<keyof CategoryStrictness, BrandRef | null> = {
-  messaging: siImessage as BrandRef,
-  email: siGmail as BrandRef,
-  docs: siNotion as BrandRef,
-  other: null,
-}
 
 function BrandIcon({ icon, size = 22 }: { icon: BrandRef; size?: number }) {
   return (
@@ -765,62 +753,55 @@ function BrandIcon({ icon, size = 22 }: { icon: BrandRef; size?: number }) {
   )
 }
 
-function GenericIcon({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" className="text-ink-45">
-      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M9 10c0-1.5 1.2-2.5 3-2.5s3 1 3 2.5c0 1.7-2.7 2-2.7 4M12 17v.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-    </svg>
-  )
-}
+type StrictCat = keyof CategoryStrictness
+const SUBSTEP_ORDER: StrictCat[] = ['personal', 'work', 'writing']
 
-// Per-category sample dictation + per-level cleaned output. Hard-coded
-// so the preview is instant and predictable; not a real LLM call.
-const STRICTNESS_SAMPLES: Record<keyof CategoryStrictness, {
-  label: string
-  sub: string
+// Per-bucket meta + sample dictation + per-level cleaned output.
+// Hard-coded; not a real LLM call. Each bucket's preview pane mocks
+// the canvas the user would actually be writing into.
+const CAT_META: Record<StrictCat, {
+  title: string
+  blurb: string
+  apps: string
   raw: string
   outputs: Record<Strictness, string>
+  visual: 'imessage' | 'email' | 'doc'
 }> = {
-  messaging: {
-    label: 'Chat',
-    sub: 'iMessage, Slack, Discord',
+  personal: {
+    title: 'Personal messaging',
+    blurb: 'Friends, family, group chats. Most people want this loose.',
+    apps: 'iMessage · WhatsApp · Telegram',
     raw: "yo um so are we still on for tomorrow or like did that move",
     outputs: {
       1: "yo so are we still on for tomorrow or like did that move",
       2: "are we still on for tomorrow or did that move",
       3: "Are we still on for tomorrow, or has it moved?",
     },
+    visual: 'imessage',
   },
-  email: {
-    label: 'Email',
-    sub: 'Gmail, Outlook, Mail',
+  work: {
+    title: 'Work messaging',
+    blurb: 'Colleagues — chat and email. Polished by default.',
+    apps: 'Slack · Discord · Gmail · Outlook',
     raw: "hey just wanted to follow up on the proposal um can you let me know if you got a chance to look at it",
     outputs: {
       1: "hey just wanted to follow up on the proposal can you let me know if you got a chance to look at it",
       2: "Just following up on the proposal — can you let me know if you've had a chance to look?",
       3: "Hi — following up on the proposal. Could you let me know once you've had a chance to review it?",
     },
+    visual: 'email',
   },
-  docs: {
-    label: 'Writing',
-    sub: 'Notion, Docs, Obsidian',
+  writing: {
+    title: 'Writing & AI',
+    blurb: 'Longform docs and AI prompts. Balanced tends to feel right.',
+    apps: 'Notion · Google Docs · Claude · ChatGPT',
     raw: "so the main idea is that um we want users to feel like the app is responding to them and like adapting",
     outputs: {
       1: "so the main idea is that we want users to feel like the app is responding to them and like adapting",
       2: "The main idea is that we want users to feel the app is responding to them and adapting.",
       3: "The core idea: users should feel the app responds and adapts to them.",
     },
-  },
-  other: {
-    label: 'Everything else',
-    sub: "Anywhere we don't recognize",
-    raw: "uh just a quick note here so we can come back to it later",
-    outputs: {
-      1: "just a quick note here so we can come back to it later",
-      2: "Just a quick note so we can come back to it later.",
-      3: "Quick note for later.",
-    },
+    visual: 'doc',
   },
 }
 
@@ -854,93 +835,190 @@ function StepStrictness({
   onChange: (v: CategoryStrictness) => void
   onContinue: () => void
 }) {
-  const categories: (keyof CategoryStrictness)[] = ['messaging', 'email', 'docs', 'other']
-  // Active row drives the big preview pane. Defaults to messaging.
-  const [active, setActive] = useState<keyof CategoryStrictness>('messaging')
-  const sample = STRICTNESS_SAMPLES[active]
-  const level = value[active]
-  const typed = useTypewriter(sample.outputs[level])
+  const [substep, setSubstep] = useState<StrictCat>('personal')
+  const idx = SUBSTEP_ORDER.indexOf(substep)
+  const meta = CAT_META[substep]
+  const level = value[substep]
 
-  function setLevel(category: keyof CategoryStrictness, lvl: Strictness) {
-    onChange({ ...value, [category]: lvl })
-    setActive(category)
+  function setLevel(lvl: Strictness) {
+    onChange({ ...value, [substep]: lvl })
   }
+  function handleNext() {
+    const nextIdx = idx + 1
+    if (nextIdx < SUBSTEP_ORDER.length) setSubstep(SUBSTEP_ORDER[nextIdx])
+    else onContinue()
+  }
+  function handleSubBack() {
+    if (idx > 0) setSubstep(SUBSTEP_ORDER[idx - 1])
+  }
+
+  const isLast = idx === SUBSTEP_ORDER.length - 1
 
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
         How <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">polished?</span>
       </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[460px] mb-6">
-        Pick a polish level per use case.
-      </p>
 
-      {/* Compact live preview — single line of "you said", single line of
-          output. The output morphs as the user picks levels per category. */}
-      <div className="max-w-[640px] mb-7">
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1">You said</div>
-        <div className="text-[13px] text-ink-45 italic leading-relaxed mb-4">"{sample.raw}"</div>
-        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1">
-          {sample.label} · {LEVEL_LABEL[level]}
+      {/* Sub-step pips — show progress through personal → work → writing. */}
+      <div className="flex items-center gap-2 mb-7">
+        {SUBSTEP_ORDER.map((s, i) => (
+          <div
+            key={s}
+            className={[
+              'h-1 rounded-full transition-all duration-300',
+              i === idx ? 'bg-ink w-10' : i < idx ? 'bg-ink/60 w-6' : 'bg-ink-08 w-6',
+            ].join(' ')}
+          />
+        ))}
+        <span className="text-[10.5px] font-mono uppercase tracking-wider text-ink-45 ml-2">
+          {idx + 1} / {SUBSTEP_ORDER.length}
+        </span>
+      </div>
+
+      {/* Side-by-side: picker on the left, app-shaped preview on the right. */}
+      <div className="grid grid-cols-2 gap-8 max-w-[760px] mb-7">
+        <div key={substep} className="animate-stepIn">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">
+            Context {idx + 1}
+          </div>
+          <div className="text-[22px] font-semibold leading-tight mb-2">{meta.title}</div>
+          <div className="text-[12.5px] text-ink-60 mb-1">{meta.blurb}</div>
+          <div className="text-[11px] text-ink-45 mb-6">{meta.apps}</div>
+
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-2">
+            Polish level
+          </div>
+          <div className="flex gap-2">
+            {([1, 2, 3] as Strictness[]).map((lvl) => {
+              const selected = level === lvl
+              return (
+                <button
+                  key={lvl}
+                  onClick={() => setLevel(lvl)}
+                  className={[
+                    'flex-1 px-3 py-2.5 rounded-card text-left border transition-all duration-150',
+                    selected
+                      ? 'bg-ink text-paper border-ink -translate-y-0.5'
+                      : 'bg-card text-ink border-ink-08 hover:border-ink-45',
+                  ].join(' ')}
+                >
+                  <div className="text-[12.5px] font-semibold">{LEVEL_LABEL[lvl]}</div>
+                  <div className={['text-[10.5px] mt-0.5', selected ? 'text-paper/70' : 'text-ink-45'].join(' ')}>
+                    L{lvl}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
-        <div className="text-[18px] text-ink leading-snug font-medium min-h-[28px]">
-          {typed}
-          <span className="inline-block w-[2px] h-[18px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
+
+        <div key={`${substep}-${level}`} className="animate-stepIn">
+          {meta.visual === 'imessage' && (
+            <IMessageMock raw={meta.raw} cleaned={meta.outputs[level]} />
+          )}
+          {meta.visual === 'email' && (
+            <EmailMock raw={meta.raw} cleaned={meta.outputs[level]} />
+          )}
+          {meta.visual === 'doc' && (
+            <DocMock raw={meta.raw} cleaned={meta.outputs[level]} />
+          )}
         </div>
       </div>
 
-      {/* Per-category rows. Tighter layout — single brand icon, label,
-          three small level pills. Hover focuses the preview pane. */}
-      <div className="max-w-[640px] divide-y divide-ink-08 border-t border-b border-ink-08 mb-7">
-        {categories.map((cat) => {
-          const info = STRICTNESS_SAMPLES[cat]
-          const current = value[cat]
-          const isActive = active === cat
-          const icon = CATEGORY_ICON[cat]
-          return (
-            <div
-              key={cat}
-              onMouseEnter={() => setActive(cat)}
-              className={[
-                'flex items-center gap-4 px-2 py-3 transition-colors',
-                isActive ? 'bg-card/60' : '',
-              ].join(' ')}
-            >
-              <div className="w-7 flex justify-center shrink-0">
-                {icon ? <BrandIcon icon={icon} /> : <GenericIcon />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[13.5px] font-semibold leading-tight">{info.label}</div>
-                <div className="text-[11px] text-ink-45 mt-0.5">{info.sub}</div>
-              </div>
-              <div className="flex gap-1">
-                {([1, 2, 3] as Strictness[]).map((lvl) => {
-                  const selected = current === lvl
-                  return (
-                    <button
-                      key={lvl}
-                      onClick={() => setLevel(cat, lvl)}
-                      className={[
-                        'px-2.5 py-1 rounded-pill text-[11px] font-medium transition-all duration-150',
-                        selected
-                          ? 'bg-ink text-paper'
-                          : 'text-ink-60 hover:text-ink',
-                      ].join(' ')}
-                    >
-                      {LEVEL_LABEL[lvl]}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+      <div className="flex items-center gap-3">
+        {idx > 0 && (
+          <button onClick={handleSubBack} className="text-[12px] text-ink-45 hover:text-ink">
+            ← previous
+          </button>
+        )}
+        <Pill variant="primary" onClick={handleNext}>
+          {isLast ? 'Continue →' : 'Next →'}
+        </Pill>
       </div>
-
-      <Pill variant="primary" onClick={onContinue}>
-        Continue →
-      </Pill>
     </>
+  )
+}
+
+// ─── Step 5 visual mocks ───────────────────────────────────────────
+
+function MockHeader({ icon, label }: { icon?: BrandRef; label: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-2.5 px-1">
+      {icon && <BrandIcon icon={icon} size={14} />}
+      <div className="text-[10.5px] font-mono uppercase tracking-wider text-ink-45">{label}</div>
+    </div>
+  )
+}
+
+function IMessageMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <div>
+      <MockHeader icon={siImessage as BrandRef} label="iMessage" />
+      <div className="bg-card rounded-card border border-ink-08 px-3 py-3 shadow-sm">
+        <div className="text-center text-[10px] text-ink-45 mb-3 font-mono">Today 2:14 PM</div>
+        {/* Received bubble — what you said, gray */}
+        <div className="flex justify-start mb-2">
+          <div className="bg-[#e9e9eb] text-ink text-[12.5px] px-3 py-1.5 rounded-[16px] rounded-bl-[4px] max-w-[78%] leading-snug">
+            {raw}
+          </div>
+        </div>
+        {/* Sent bubble — what OpenFlow types, iMessage blue */}
+        <div className="flex justify-end">
+          <div className="bg-[#0b93f6] text-white text-[12.5px] px-3 py-1.5 rounded-[16px] rounded-br-[4px] max-w-[78%] leading-snug">
+            {typed}
+            <span className="inline-block w-[2px] h-[12px] bg-white/80 ml-0.5 align-text-bottom animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <div>
+      <MockHeader icon={siGmail as BrandRef} label="Gmail · Compose" />
+      <div className="bg-card rounded-card border border-ink-08 shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-ink-08 bg-paper/40">
+          <div className="text-[11px] text-ink-45">To: <span className="text-ink">alex@company.com</span></div>
+          <div className="text-[11px] text-ink-45 mt-1">Subject: <span className="text-ink">Quick follow-up</span></div>
+        </div>
+        <div className="px-4 py-3 min-h-[110px]">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">You said</div>
+          <div className="text-[11.5px] text-ink-45 italic mb-3 leading-snug">"{raw}"</div>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">OpenFlow types</div>
+          <div className="text-[13px] text-ink leading-snug">
+            {typed}
+            <span className="inline-block w-[2px] h-[14px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DocMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <div>
+      <MockHeader icon={siNotion as BrandRef} label="Notion · Page" />
+      <div className="bg-card rounded-card border border-ink-08 shadow-sm overflow-hidden">
+        <div className="px-5 pt-4 pb-2 border-b border-ink-08">
+          <div className="text-[15px] font-semibold leading-tight">Untitled</div>
+        </div>
+        <div className="px-5 py-4 min-h-[110px]">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">You said</div>
+          <div className="text-[11.5px] text-ink-45 italic mb-3 leading-snug">"{raw}"</div>
+          <div className="text-[13px] text-ink leading-snug">
+            {typed}
+            <span className="inline-block w-[2px] h-[14px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -37,11 +37,15 @@ export interface PerAppRule {
 // dictating commands / identifiers can't have words dropped.
 export type Strictness = 1 | 2 | 3
 
+// Three contextual buckets the user configures during onboarding. The
+// runtime maps focused apps into these buckets: iMessage / WhatsApp →
+// personal; Slack / Discord / Gmail / Outlook → work; Notion / Docs /
+// Cursor / Claude / ChatGPT → writing. 'code' (Terminal, IDE editor
+// view) bypasses strictness entirely — code is always faithful.
 export interface CategoryStrictness {
-  messaging: Strictness
-  email: Strictness
-  docs: Strictness
-  other: Strictness
+  personal: Strictness   // casual chat with friends/family
+  work: Strictness       // colleagues — chat AND email
+  writing: Strictness    // longform docs + AI prompts
 }
 
 export interface Settings {

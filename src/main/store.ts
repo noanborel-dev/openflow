@@ -17,13 +17,12 @@ const defaults: Settings = {
   devModeApps: DEFAULT_DEV_MODE_APPS,
   indicatorPosition: null,
   userDictionary: [],
-  // Defaults reflect what most users actually want: messaging stays
-  // loose, emails get fully polished, docs get balanced cleanup.
+  // Defaults reflect what most users actually want: personal stays
+  // loose, work gets polished, writing leans balanced.
   strictness: {
-    messaging: 1,
-    email: 3,
-    docs: 2,
-    other: 2,
+    personal: 1,
+    work: 3,
+    writing: 2,
   },
   voiceEnrolled: false,
 }
@@ -41,19 +40,28 @@ export function getSettings(): Settings {
   // Backfill missing fields for users upgrading from older versions whose
   // persisted store predates these defaults.
   const raw = store.store as Settings
-  // Old persisted shape: strictness was a single number. Spread it into
-  // the per-category object so users upgrading get sensible defaults
-  // shifted toward their old preference.
+  // Strictness has gone through two prior shapes: a flat number, then
+  // a 4-bucket object (messaging/email/docs/other). Migrate both into
+  // the current 3-bucket shape (personal/work/writing).
   const persistedStrictness = (raw as unknown as { strictness?: unknown }).strictness
-  const strictness: Settings['strictness'] =
-    typeof persistedStrictness === 'number'
-      ? {
-          messaging: defaults.strictness.messaging,
-          email: defaults.strictness.email,
-          docs: defaults.strictness.docs,
-          other: persistedStrictness as Strictness,
-        }
-      : { ...defaults.strictness, ...((persistedStrictness as Settings['strictness']) ?? {}) }
+  const strictness: Settings['strictness'] = (() => {
+    if (typeof persistedStrictness === 'number') {
+      // Flat number: apply to all buckets.
+      const lvl = persistedStrictness as Strictness
+      return { personal: lvl, work: lvl, writing: lvl }
+    }
+    if (persistedStrictness && typeof persistedStrictness === 'object') {
+      const p = persistedStrictness as Record<string, Strictness | undefined>
+      // If the new keys exist, take them. Otherwise map old buckets:
+      //   messaging → personal; email → work; docs → writing.
+      return {
+        personal: p.personal ?? p.messaging ?? defaults.strictness.personal,
+        work: p.work ?? p.email ?? defaults.strictness.work,
+        writing: p.writing ?? p.docs ?? defaults.strictness.writing,
+      }
+    }
+    return defaults.strictness
+  })()
 
   const merged: Settings = {
     ...defaults,
