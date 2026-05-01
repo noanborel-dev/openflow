@@ -878,17 +878,10 @@ function StepStrictness({
 
       {/* Side-by-side: picker on the left, app-shaped preview on the right. */}
       <div className="grid grid-cols-2 gap-8 max-w-[760px] mb-7">
-        <div key={substep} className="animate-stepIn">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-1.5">
-            Context {idx + 1}
-          </div>
-          <div className="text-[22px] font-semibold leading-tight mb-2">{meta.title}</div>
-          <div className="text-[12.5px] text-ink-60 mb-1">{meta.blurb}</div>
-          <div className="text-[11px] text-ink-45 mb-6">{meta.apps}</div>
+        <div key={substep} className="animate-stepIn flex flex-col justify-center">
+          <div className="text-[24px] font-semibold leading-tight mb-1.5">{meta.title}</div>
+          <div className="text-[11.5px] text-ink-45 mb-7">{meta.apps}</div>
 
-          <div className="text-[10px] font-mono uppercase tracking-wider text-ink-45 mb-2">
-            Polish level
-          </div>
           <div className="flex gap-2">
             {([1, 2, 3] as Strictness[]).map((lvl) => {
               const selected = level === lvl
@@ -897,16 +890,13 @@ function StepStrictness({
                   key={lvl}
                   onClick={() => setLevel(lvl)}
                   className={[
-                    'flex-1 px-3 py-2.5 rounded-card text-left border transition-all duration-150',
+                    'flex-1 px-3 py-2.5 rounded-pill text-[13px] font-medium border transition-all duration-150',
                     selected
                       ? 'bg-ink text-paper border-ink -translate-y-0.5'
                       : 'bg-card text-ink border-ink-08 hover:border-ink-45',
                   ].join(' ')}
                 >
-                  <div className="text-[12.5px] font-semibold">{LEVEL_LABEL[lvl]}</div>
-                  <div className={['text-[10.5px] mt-0.5', selected ? 'text-paper/70' : 'text-ink-45'].join(' ')}>
-                    L{lvl}
-                  </div>
+                  {LEVEL_LABEL[lvl]}
                 </button>
               )
             })}
