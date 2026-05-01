@@ -44,6 +44,65 @@ export const DEFAULT_DEV_MODE_APPS = [
   'com.googlecode.iterm2',
 ]
 
+// Browser bundle IDs — when the focused app is one of these, we look at
+// the window title to detect web apps (Gmail in Chrome, Slack in Arc,
+// Notion in Safari) so they get routed to the right cleanup category.
+export const BROWSER_BUNDLE_IDS = new Set<string>([
+  'com.google.Chrome',
+  'com.google.Chrome.canary',
+  'com.apple.Safari',
+  'com.apple.SafariTechnologyPreview',
+  'com.microsoft.edgemac',
+  'org.mozilla.firefox',
+  'company.thebrowser.Browser',  // Arc
+  'com.brave.Browser',
+  'com.vivaldi.Vivaldi',
+  'com.operasoftware.Opera',
+])
+
+// Window-title routing for browser-based web apps. Order matters —
+// first match wins. Patterns are intentionally lenient because browser
+// title formatting varies ("Gmail" alone, "Inbox – Gmail", "(3) Inbox -
+// user@gmail.com - Gmail"). Keep tokens specific enough to avoid false
+// positives (e.g. "GitHub" stays out of email even though some pages
+// say "user@github.com").
+export interface BrowserTitleRoute {
+  pattern: RegExp
+  category: AppCategory
+  appName: string
+}
+
+export const BROWSER_TITLE_ROUTES: BrowserTitleRoute[] = [
+  // Email clients
+  { pattern: /\bGmail\b/, category: 'email', appName: 'Gmail' },
+  { pattern: /\bOutlook\b/i, category: 'email', appName: 'Outlook' },
+  { pattern: /\bFastmail\b/i, category: 'email', appName: 'Fastmail' },
+  { pattern: /\bProton ?Mail\b/i, category: 'email', appName: 'ProtonMail' },
+  { pattern: /\bHEY\.com\b/i, category: 'email', appName: 'HEY' },
+  // Team chat
+  { pattern: /\bSlack\b/, category: 'messaging', appName: 'Slack' },
+  { pattern: /\bDiscord\b/, category: 'messaging', appName: 'Discord' },
+  { pattern: /\b(Microsoft Teams|MS Teams)\b/i, category: 'messaging', appName: 'Microsoft Teams' },
+  { pattern: /\bWhatsApp\b/, category: 'messaging', appName: 'WhatsApp' },
+  { pattern: /\bMessenger\b/, category: 'messaging', appName: 'Messenger' },
+  // Docs / project mgmt
+  { pattern: /\bGoogle Docs\b/, category: 'docs', appName: 'Google Docs' },
+  { pattern: /\bNotion\b/, category: 'docs', appName: 'Notion' },
+  { pattern: /\bConfluence\b/i, category: 'docs', appName: 'Confluence' },
+  { pattern: /\bLinear\b/, category: 'docs', appName: 'Linear' },
+  { pattern: /\bAsana\b/i, category: 'docs', appName: 'Asana' },
+  { pattern: /\bClickUp\b/i, category: 'docs', appName: 'ClickUp' },
+  { pattern: /\bMonday\.com\b/i, category: 'docs', appName: 'Monday' },
+  { pattern: /\bCoda\b/, category: 'docs', appName: 'Coda' },
+  // AI chat surfaces — treated as 'code' for now since dictation there
+  // is usually prompts/instructions that benefit from list formatting
+  // and tech-term preservation. Revisit when we add an 'ai_prompt' category.
+  { pattern: /\bClaude\b/, category: 'code', appName: 'Claude' },
+  { pattern: /\bChatGPT\b/, category: 'code', appName: 'ChatGPT' },
+  { pattern: /\bGemini\b/, category: 'code', appName: 'Gemini' },
+  { pattern: /\bPerplexity\b/i, category: 'code', appName: 'Perplexity' },
+]
+
 // IDEs with @-mention chip support in their AI chat panes. Used to
 // switch the cleanup prompt into IDE-aware formatting mode (variable
 // backticks + file tagging).
