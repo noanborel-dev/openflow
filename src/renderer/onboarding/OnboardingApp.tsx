@@ -97,23 +97,36 @@ export default function OnboardingApp() {
   }
 
   return (
-    <div className="min-h-screen bg-paper text-ink font-sans flex flex-col">
+    <div className="min-h-screen bg-paper text-ink font-sans flex flex-col relative overflow-hidden">
+      {/* Drifting volt blob — soft, slow, decorative. Adds depth without
+          stealing focus. Sits behind everything via -z-10. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-40 -right-40 w-[520px] h-[520px] rounded-full bg-volt opacity-[0.07] blur-3xl animate-bgDrift -z-10"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-40 -left-32 w-[420px] h-[420px] rounded-full bg-volt opacity-[0.05] blur-3xl animate-bgDrift -z-10"
+        style={{ animationDelay: '-11s' }}
+      />
+
       <header className="px-5 pt-5 flex items-center justify-between">
         <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-pill bg-card border border-ink-08 shadow-sm">
           <div className="w-5 h-5 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[10px] font-bold">O</div>
           <span className="text-[13px] font-semibold tracking-tight">OpenFlow</span>
-          <span className="font-mono text-[10.5px] text-ink-45 ml-2">
+          <span className="font-mono text-[10.5px] text-ink-45 ml-2 tabular-nums">
             {String(step).padStart(2, '0')} / {String(TOTAL_STEPS).padStart(2, '0')}
           </span>
         </div>
         {step > 1 && (
-          <button onClick={back} className="text-[11.5px] text-ink-45 hover:text-ink">
+          <button onClick={back} className="text-[11.5px] text-ink-45 hover:text-ink transition-colors">
             ← back
           </button>
         )}
       </header>
 
-      <main className="flex-1 flex flex-col justify-center px-10 pb-10">
+      {/* Re-key on step change so the stepIn animation replays each step. */}
+      <main key={step} className="flex-1 flex flex-col justify-center px-10 pb-10 animate-stepIn">
         {step === 1 && (
           <StepWelcome onContinue={next} />
         )}
@@ -181,7 +194,7 @@ function StepWelcome({ onContinue }: { onContinue: () => void }) {
   return (
     <>
       <h1 className="text-[56px] leading-[0.95] tracking-tight mb-5">
-        Meet <span className="font-display italic font-medium">OpenFlow.</span>
+        Meet <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">OpenFlow.</span>
       </h1>
       <p className="text-[14.5px] text-ink-60 leading-relaxed max-w-[420px] mb-8">
         Press a key. Say what you mean. We type it for you, formatted to match the app you're in.
@@ -211,7 +224,7 @@ function StepPermissions({
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Grant <span className="font-display italic font-medium">access.</span>
+        Grant <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">access.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[360px] mb-7">
         OpenFlow needs your microphone to hear you, and Accessibility so it can paste text into the focused app.
@@ -262,7 +275,14 @@ function PermissionRow({
           <div className="text-[11.5px] text-ink-45 mt-0.5">{hint}</div>
         </div>
         {granted ? (
-          <span className="text-[12px] font-medium text-ok">✓ Granted</span>
+          <span className="text-[12px] font-medium text-ok inline-flex items-center gap-1.5 animate-checkPop">
+            <span className="inline-flex w-4 h-4 rounded-full bg-ok/15 items-center justify-center">
+              <svg width="10" height="10" viewBox="0 0 10 10" className="text-ok">
+                <path d="M1.5 5.2 L4 7.5 L8.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            Granted
+          </span>
         ) : (
           <Pill variant="secondary" onClick={onAction}>
             {actionLabel}
@@ -296,7 +316,7 @@ function StepProvider({
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Pick your <span className="font-display italic font-medium">engine.</span>
+        Pick your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">engine.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
         Cloud is fastest to set up and works on day one. Local runs offline on your machine — bigger download, no API costs.
@@ -378,8 +398,8 @@ function ProviderCard({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       className={[
-        'text-left bg-card border rounded-card px-4 py-4 transition',
-        selected ? 'border-ink ring-2 ring-volt-muted' : 'border-ink-08 hover:border-ink-45',
+        'text-left bg-card border rounded-card px-4 py-4 transition-all duration-200',
+        selected ? 'border-ink ring-2 ring-volt-muted animate-voltPulse -translate-y-0.5' : 'border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
         disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
       ].join(' ')}
     >
@@ -412,7 +432,7 @@ function StepHotkey({
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Pick your <span className="font-display italic font-medium">key.</span>
+        Pick your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">key.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[400px] mb-5">
         One key, three behaviors. Click the pill below and press whatever feels natural — Ctrl is the default.
@@ -494,7 +514,7 @@ function StepStrictness({
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        How <span className="font-display italic font-medium">strict?</span>
+        How <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">strict?</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
         Your default polish level. Email and docs will skew stricter; iMessage and Slack will skew looser. You can override per app later.
@@ -531,8 +551,8 @@ function StrictnessCard({
     <button
       onClick={onClick}
       className={[
-        'text-left bg-card border rounded-card px-4 py-4 transition cursor-pointer',
-        selected ? 'border-ink ring-2 ring-volt-muted' : 'border-ink-08 hover:border-ink-45',
+        'text-left bg-card border rounded-card px-4 py-4 transition-all duration-200 cursor-pointer',
+        selected ? 'border-ink ring-2 ring-volt-muted animate-voltPulse -translate-y-0.5' : 'border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
       ].join(' ')}
     >
       <div className="flex items-center justify-between mb-1">
@@ -551,7 +571,7 @@ function StepVoice({ onContinue, onSkip }: { onContinue: () => void; onSkip: () 
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Hear <span className="font-display italic font-medium">you.</span>
+        Hear <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">you.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
         Optional: record ~15 seconds of your voice. OpenFlow learns your voiceprint and tunes out coworkers, TVs, and crowds.
@@ -584,7 +604,7 @@ function StepTryIt({ onFinish }: { onFinish: () => void }) {
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        You're <span className="font-display italic font-medium">ready.</span>
+        You're <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">ready.</span>
       </h1>
       <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
         Press <span className="font-mono text-ink">{hotkeyHint}</span> anywhere on your Mac and start talking. The indicator pill will show up where you left it.
