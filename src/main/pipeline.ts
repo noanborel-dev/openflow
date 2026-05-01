@@ -130,10 +130,22 @@ const FILLER_RE = /\b(um+|uh+|er+|erm+|hmm*|uhh+|umm+)\b/i
 const STUTTER_RE = /\b(\w+)[, ]+\1\b/i  // "the the", "I, I"
 const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean|i mean,?)\b/i
 
+// Enumeration markers — when ≥2 of these appear in the transcript, the
+// user is dictating a list-shaped thought and cleanup should run so
+// list-formatting can apply, even when there are no fillers/stutters.
+const ENUM_RE = /\b(first|second|third|fourth|fifth|next|then|finally|lastly|one|two|three|four|five)\b/gi
+
+function looksEnumerated(transcript: string): boolean {
+  const matches = transcript.match(ENUM_RE)
+  return (matches?.length ?? 0) >= 2
+}
+
 function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {
   if (FILLER_RE.test(transcript)) return false
   if (STUTTER_RE.test(transcript)) return false
   if (CORRECTION_RE.test(transcript)) return false
+  // List-shaped content needs cleanup so LIST_FORMATTING can apply.
+  if (looksEnumerated(transcript)) return false
   if (category === 'code') return true
   // Polished categories: only skip very short inputs (one short phrase has
   // nothing to restructure). Anything longer goes through cleanup so

@@ -57,7 +57,10 @@ export const IDE_EDITORS: Record<string, IdeEditor> = {
 
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
-    transcription: 'whisper-large-v3-turbo',
+    // Non-turbo large-v3 — slower than turbo by ~30% but meaningfully
+    // more accurate on noisy / accented audio. We accept the latency
+    // hit for fewer mistranscriptions.
+    transcription: 'whisper-large-v3',
     // 8B-instant runs roughly 3× faster than 70B-versatile on Groq;
     // for "remove fillers + fix capitalization" tasks the quality
     // delta is negligible while the latency win is large.
@@ -69,7 +72,7 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
   },
   anthropic: {
     // No Anthropic transcription model — callers use Groq for transcription
-    transcription: 'whisper-large-v3-turbo',
+    transcription: 'whisper-large-v3',
     cleanup: 'claude-3-haiku-20240307',
   },
 }
