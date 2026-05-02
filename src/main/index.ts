@@ -173,6 +173,7 @@ function updateTrayMenu(): void {
     { label: 'OpenFlow', enabled: false },
     { type: 'separator' },
     { label: 'Settings…', click: () => createSettingsWindow() },
+    { label: 'Reopen Onboarding…', click: () => createOnboardingWindow() },
     { type: 'separator' },
     ...(historyItems.length > 0
       ? [{ label: 'Recent Dictations', enabled: false } as Electron.MenuItemConstructorOptions, ...historyItems]

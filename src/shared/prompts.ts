@@ -1,14 +1,19 @@
-import type { AppCategory } from './types'
+import type { AppCategory, Strictness } from './types'
 import type { IdeEditor } from './constants'
 
 export function buildCleanupPrompt(
   category: AppCategory,
   appName: string,
   customPrompt?: string,
-  editor?: IdeEditor
+  editor?: IdeEditor,
+  // Strictness only applies to non-code categories. Code is always
+  // FAITHFUL — every word matters when you might be dictating commands.
+  strictness: Strictness = 2
 ): string {
   if (customPrompt) return customPrompt.replace('{app_name}', appName)
-  let prompt = PROMPTS[category].replace('{app_name}', appName)
+  let prompt = PROMPTS[category]
+    .replace('{app_name}', appName)
+    .replace('{strictness_block}', STRICTNESS_BLOCK[strictness])
   if (category === 'code' && editor) {
     prompt += '\n\n' + buildIdeAddendum(editor)
   }
@@ -46,10 +51,21 @@ const FAITHFUL = `STRICT RULES:
    If your output is dramatically shorter than the input, you are wrong —
    try again and keep more.`
 
-// POLISHED mode: used for messaging / email / docs where the user wants
-// their rambling speech to read as clean prose. Restructures fragments
-// and drops false starts WHILE preserving every substantive idea.
-const POLISHED = `STRICT RULES:
+// LIGHT (L1) — "just remove fillers, keep my voice." Used when the user
+// trusts their own phrasing and wants minimum LLM intervention.
+const LIGHT = `STRICT RULES (Light):
+1. Remove ONLY exact filler tokens: "um", "uh", "er", "erm", "hm", "hmm", "uhh", "umm".
+2. NEVER paraphrase, restructure, reorder, merge, or split sentences.
+3. Keep ALL other words including "like", "you know", "I mean", "so", "kind of",
+   "basically". They're part of natural speech.
+4. Add sentence-end punctuation if clearly missing, but otherwise leave the
+   user's words alone.
+5. Output should be the user's words minus filler tokens. Length should be
+   nearly identical to input.`
+
+// BALANCED (L2) — clean up rambling without changing voice. The current
+// default. Drops verbal padding, smooths fragments, keeps the substance.
+const BALANCED = `STRICT RULES (Balanced):
 1. Preserve every substantive idea: names, technical terms, specific claims,
    numbers, file paths, app names. NEVER drop a real claim because it sounds
    filler-ish. "I need to work in my Claude Code terminal" is content — keep it.
@@ -64,6 +80,26 @@ const POLISHED = `STRICT RULES:
 6. Keep the user's voice and register. Casual stays casual; don't formalize.
 7. Output WILL be shorter than input — that's the goal. But every distinct
    substantive idea in the input must appear in the output.`
+
+// STRICT (L3) — fully restructure into polished prose. Aggressively rewrites
+// rambling speech into tight sentences while preserving every substantive idea.
+const STRICT_LEVEL = `STRICT RULES (Strict):
+1. Restructure rambling into polished, professional prose. Drop verbal padding
+   ("like", "you know", "kind of", "sort of", "basically", "I mean") in nearly
+   all uses. Tighten sentences. Remove redundant phrasing and false starts.
+2. Use complete sentences with proper capitalization and end punctuation.
+3. Preserve every distinct substantive idea: names, numbers, technical terms,
+   specific claims, file paths, app names. Never drop content for being
+   filler-ish.
+4. NEVER add information, greetings, or signoffs the user did not dictate.
+5. Output may be substantially shorter than input — that is the goal — but
+   every distinct idea the user expressed must appear in the output.`
+
+const STRICTNESS_BLOCK: Record<Strictness, string> = {
+  1: LIGHT,
+  2: BALANCED,
+  3: STRICT_LEVEL,
+}
 
 // Self-correction guidance: drop only the words BEFORE a clear pivot marker.
 const SELF_CORRECTION = `Self-correction handling: when the user clearly talks back on themselves with "actually", "I mean", "wait", "sorry", "scratch that", drop ONLY the words being corrected and keep the revision.
@@ -102,7 +138,7 @@ const PROMPTS: Record<AppCategory, string> = {
 - Slack / Discord / Microsoft Teams → casual-professional. Sentence case, contractions OK, usually full sentences but no signoffs. Single-line messages are fine.
 - Default to the casual register if unsure.
 
-${POLISHED}
+{strictness_block}
 
 ${LIST_FORMATTING}
 
@@ -120,7 +156,7 @@ Dictated text:
 
   email: `You are a dictation cleanup assistant. The user dictated an email in {app_name}. Format it as actual email prose — formal register, complete sentences, paragraph structure.
 
-${POLISHED}
+{strictness_block}
 
 ${LIST_FORMATTING}
 
@@ -163,7 +199,7 @@ Dictated text:
 
   docs: `You are a dictation cleanup assistant. The user dictated content for a document in {app_name}. Make their speech read as polished document prose.
 
-${POLISHED}
+{strictness_block}
 
 ${LIST_FORMATTING}
 
@@ -181,7 +217,7 @@ Dictated text:
 
   other: `You are a dictation cleanup assistant. The user dictated text in {app_name}. Make their rambling speech read cleanly while keeping their voice.
 
-${POLISHED}
+{strictness_block}
 
 ${LIST_FORMATTING}
 

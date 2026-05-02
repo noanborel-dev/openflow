@@ -1,6 +1,7 @@
 import { buildCleanupPrompt } from '../shared/prompts'
 import { MODELS, BUILTIN_DICTIONARY, IDE_EDITORS } from '../shared/constants'
-import type { DictationResult, Settings } from '../shared/types'
+import type { DictationResult, Settings, Strictness } from '../shared/types'
+import type { FocusedApp } from './focused-app'
 import type { TranscriptionProvider, CleanupProvider } from './providers/types'
 import {
   createGroqTranscriptionProvider,
@@ -174,6 +175,53 @@ const QUICK_FIXES: Array<[RegExp, string]> = [
   [/\bco\s*-?\s*pilot\b/gi, 'Copilot'],
 ]
 
+// Map the focused app to a strictness bucket so we know which level
+// (settings.strictness.personal | .work | .writing) to apply.
+//   - code → null (always FAITHFUL, no level)
+//   - email → 'work'
+//   - docs → 'writing'
+//   - other → 'writing' (conservative default)
+//   - messaging → split: iMessage/WhatsApp/Telegram → personal,
+//                        Slack/Discord/Teams → work
+const PERSONAL_MESSAGING_BUNDLES = new Set([
+  'com.apple.MobileSMS',
+  'net.whatsapp.WhatsApp',
+  'ru.keepcoder.Telegram',
+  'org.telegram.desktop',
+  'com.facebook.archon',  // Messenger
+])
+const WORK_MESSAGING_BUNDLES = new Set([
+  'com.tinyspeck.slackmacgap',
+  'com.discord',
+  'com.microsoft.teams',
+  'com.microsoft.teams2',
+])
+
+function strictnessBucket(focused: FocusedApp): 'personal' | 'work' | 'writing' | null {
+  switch (focused.category) {
+    case 'code': return null
+    case 'email': return 'work'
+    case 'docs': return 'writing'
+    case 'other': return 'writing'
+    case 'messaging': {
+      if (PERSONAL_MESSAGING_BUNDLES.has(focused.bundleId)) return 'personal'
+      if (WORK_MESSAGING_BUNDLES.has(focused.bundleId)) return 'work'
+      // Browser-routed messaging (e.g. Slack-in-Arc) keeps the browser's
+      // bundleId — fall back to the resolved app name.
+      const n = focused.name.toLowerCase()
+      if (['slack', 'discord', 'microsoft teams'].includes(n)) return 'work'
+      if (['imessage', 'whatsapp', 'telegram', 'messenger'].includes(n)) return 'personal'
+      return 'personal'
+    }
+  }
+}
+
+function strictnessFor(focused: FocusedApp, settings: Settings): Strictness {
+  const bucket = strictnessBucket(focused)
+  if (!bucket) return 2  // unused for code (FAITHFUL ignores level)
+  return settings.strictness[bucket]
+}
+
 function applyQuickFixes(text: string): string {
   let out = text
   for (const [re, replacement] of QUICK_FIXES) {
@@ -228,8 +276,19 @@ export async function runDictationPipeline(
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
   } else {
     const editor = IDE_EDITORS[focusedApp.bundleId]
-    const systemPrompt = buildCleanupPrompt(effectiveCategory, focusedApp.name, rule?.customPrompt, editor)
-      .replace('{text}', transcript)
+    const strictness = strictnessFor(focusedApp, settings)
+    const systemPrompt = buildCleanupPrompt(
+      effectiveCategory,
+      focusedApp.name,
+      rule?.customPrompt,
+      editor,
+      strictness,
+    ).replace('{text}', transcript)
+    logInfo('Cleanup prompt built', {
+      category: effectiveCategory,
+      bucket: strictnessBucket(focusedApp),
+      strictness,
+    })
     const cStart = Date.now()
     cleaned = await withRetry('Cleanup', () =>
       cleanup.cleanup(transcript, {
