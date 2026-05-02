@@ -136,9 +136,23 @@ const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,
 // list-formatting can apply, even when there are no fillers/stutters.
 const ENUM_RE = /\b(first|second|third|fourth|fifth|next|then|finally|lastly|one|two|three|four|five)\b/gi
 
+// Explicit list intent: user says "list of", "make a list", "items",
+// "bullets", "numbered", etc. Always run cleanup so LIST_FORMATTING fires.
+const LIST_KEYWORD_RE = /\b(list of|a list|in a list|the list|bullets?|numbered|items?:|to-?dos?:?)\b/i
+
+// Comma-series lists: "X, Y, Z" or "X, Y, and Z" with at least 3 items.
+// We look for two short tokens separated by commas in close succession,
+// optionally followed by "and <token>". Avoids over-triggering on
+// "Hi, I think, well, you know, this..." by requiring tokens to be
+// short content words (≤14 chars, no spaces).
+const COMMA_SERIES_RE = /\b\w{1,14},\s*\w{1,14},\s*(?:and\s+|or\s+)?\w{1,14}\b/i
+
 function looksEnumerated(transcript: string): boolean {
   const matches = transcript.match(ENUM_RE)
-  return (matches?.length ?? 0) >= 2
+  if ((matches?.length ?? 0) >= 2) return true
+  if (LIST_KEYWORD_RE.test(transcript)) return true
+  if (COMMA_SERIES_RE.test(transcript)) return true
+  return false
 }
 
 function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {

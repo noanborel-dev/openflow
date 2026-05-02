@@ -116,7 +116,24 @@ const LIST_FORMATTING = `List formatting:
 - If the user lists distinct items connected by "and" / "and then" / commas where order doesn't matter ("we need bread, eggs, and milk"), output a bulleted list (- item).
 - If the user explicitly says "list", "bullets", "numbered", honour it.
 - Do NOT force a list onto a single idea or a continuous sentence. Prose stays prose unless the structure clearly calls for items.
-- When you do output a list, each item gets its own line; do not collapse back into prose.`
+- When you do output a list, each item gets its own line; do not collapse back into prose.
+
+CRITICAL — keep the intro as prose; do NOT redistribute the verb to each list item:
+Input:  "I need to pick up eggs, milk, honey, flour, and beans"
+GOOD output:
+I need to pick up:
+- eggs
+- milk
+- honey
+- flour
+- beans
+BAD output (do NOT do this):
+- picking up eggs
+- picking up milk
+- picking up honey
+- picking up flour
+- picking up beans
+The intro phrase ("I need to pick up", "the things to do are", "we should bring") stays as a single prose sentence ending with a colon, and ONLY the items themselves go into the bullets. Never repeat the verb across items.`
 
 // Common Whisper mishearings of tech brand names. The cleanup pass can fix
 // these contextually (the regex pass in pipeline.ts handles the most
