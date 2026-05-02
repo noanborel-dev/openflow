@@ -13,6 +13,9 @@ declare global {
       isAccessibilityTrusted: () => Promise<boolean>
       revealLog: () => Promise<void>
       reloadHotkeys: () => void
+      openOnboarding: () => void
+      getLaunchAtLogin: () => Promise<boolean>
+      setLaunchAtLogin: (enabled: boolean) => Promise<void>
       onStateChange: (cb: (state: string) => void) => () => void
     }
   }

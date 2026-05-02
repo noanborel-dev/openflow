@@ -21,6 +21,10 @@ contextBridge.exposeInMainWorld('openflow', {
     ipcRenderer.invoke(IPC.ACCESSIBILITY_CHECK),
   revealLog: () => ipcRenderer.invoke(IPC.REVEAL_LOG),
   reloadHotkeys: () => ipcRenderer.send(IPC.HOTKEYS_RELOAD),
+  openOnboarding: () => ipcRenderer.send(IPC.OPEN_ONBOARDING),
+  getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke(IPC.LAUNCH_AT_LOGIN_GET),
+  setLaunchAtLogin: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.LAUNCH_AT_LOGIN_SET, enabled),
   onStateChange: (cb: (state: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, state: string) => cb(state)
     ipcRenderer.on(IPC.STATE_CHANGE, handler)

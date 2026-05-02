@@ -1,4 +1,4 @@
-import { ipcMain, systemPreferences, shell } from 'electron'
+import { app, ipcMain, systemPreferences, shell } from 'electron'
 import { IPC } from '../shared/types'
 import type { DictationResult } from '../shared/types'
 import { getSettings, setSettings } from './store'
@@ -68,5 +68,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ACCESSIBILITY_CHECK, () => {
     if (process.platform !== 'darwin') return true
     return systemPreferences.isTrustedAccessibilityClient(false)
+  })
+
+  // Launch at login. setLoginItemSettings is a no-op on Linux but works
+  // on macOS + Windows. We expose both get + set so the UI can render
+  // the current state without persisting it ourselves — the OS is the
+  // source of truth.
+  ipcMain.handle(IPC.LAUNCH_AT_LOGIN_GET, () => {
+    return app.getLoginItemSettings().openAtLogin
+  })
+  ipcMain.handle(IPC.LAUNCH_AT_LOGIN_SET, (_e, enabled: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true })
   })
 }

@@ -87,4 +87,6 @@ export const IPC = {
   ACCESSIBILITY_CHECK: 'accessibility:check',
   HOTKEYS_RELOAD: 'hotkeys:reload',
   REVEAL_LOG: 'reveal:log',
+  LAUNCH_AT_LOGIN_GET: 'app:launch-at-login:get',
+  LAUNCH_AT_LOGIN_SET: 'app:launch-at-login:set',
 } as const
