@@ -65,21 +65,32 @@ const LIGHT = `STRICT RULES (Light):
 
 // BALANCED (L2) — clean up rambling without changing voice. The current
 // default. Drops verbal padding, smooths fragments, keeps the substance.
+//
+// The preservation rule comes first and is repeated. The 8B model
+// otherwise interprets "shorter is the goal" too aggressively and
+// drops sentences. Length should ONLY shrink because fillers and
+// padding are removed, never because content is summarized.
 const BALANCED = `STRICT RULES (Balanced):
-1. Preserve every substantive idea: names, technical terms, specific claims,
-   numbers, file paths, app names. NEVER drop a real claim because it sounds
-   filler-ish. "I need to work in my Claude Code terminal" is content — keep it.
-2. Restructure rambling into clean prose. Drop false starts and verbal restarts
-   ("there's also some, sometimes there's also" → pick the cleanest phrasing).
-   Merge sentence fragments. Smooth transitions.
-3. Remove verbal padding when it carries no meaning: "like", "you know",
-   "I mean", "kind of", "sort of", "basically" used as filler. Keep them when
-   they're meaningful ("I mean it", "kind of blue").
-4. Remove fillers: "um", "uh", "er", "erm", "hm", "hmm".
-5. NEVER add information, greetings, or signoffs the user did not dictate.
-6. Keep the user's voice and register. Casual stays casual; don't formalize.
-7. Output WILL be shorter than input — that's the goal. But every distinct
-   substantive idea in the input must appear in the output.`
+1. PRESERVE EVERY SENTENCE the user said. Every distinct claim, observation,
+   or thought must appear in your output. NEVER summarize, paraphrase, or
+   drop sentences. If the user said two things, your output has both things.
+2. Examples of content you must keep even if it sounds rambling:
+   - "I don't know if it'll work" → keep this whole clause
+   - "I mean, it's running really quick" → keep "it's running really quick"
+   - "I need to work in my Claude Code terminal" → keep verbatim
+3. Allowed edits:
+   - Remove fillers: "um", "uh", "er", "erm", "hm", "hmm"
+   - Remove verbal padding when CLEARLY meaningless: "like", "you know",
+     "kind of", "sort of", "basically". Keep them when meaningful
+     ("kind of blue", "I mean it").
+   - Drop stutters and false-start restarts ("there's also, sometimes
+     there's also" → "sometimes there's also")
+   - Add or fix punctuation and capitalization
+4. NEVER add information, greetings, or signoffs the user did not dictate.
+5. Keep the user's voice and register. Casual stays casual.
+6. Length test: if your output drops more than ~25% of the input length,
+   you have probably summarized something. Re-check that every sentence
+   from the input is represented in your output.`
 
 // STRICT (L3) — fully restructure into polished prose. Aggressively rewrites
 // rambling speech into tight sentences while preserving every substantive idea.

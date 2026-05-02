@@ -129,7 +129,10 @@ function buildDictionary(settings: Settings): string[] {
 //     inputs where there's nothing meaningful to polish.
 const FILLER_RE = /\b(um+|uh+|er+|erm+|hmm*|uhh+|umm+)\b/i
 const STUTTER_RE = /\b(\w+)[, ]+\1\b/i  // "the the", "I, I"
-const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean|i mean,?)\b/i
+// "i mean" intentionally NOT in this list — it's too often a softener
+// ("I mean, it's fast") rather than a real correction. Letting it
+// trigger cleanup caused the LLM to over-edit clean transcripts.
+const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean)\b/i
 
 // Enumeration markers — when ≥2 of these appear in the transcript, the
 // user is dictating a list-shaped thought and cleanup should run so
@@ -159,12 +162,8 @@ function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'c
   if (FILLER_RE.test(transcript)) return false
   if (STUTTER_RE.test(transcript)) return false
   if (CORRECTION_RE.test(transcript)) return false
-  // List-shaped content needs cleanup so LIST_FORMATTING can apply.
   if (looksEnumerated(transcript)) return false
   if (category === 'code') return true
-  // Polished categories: only skip very short inputs (one short phrase has
-  // nothing to restructure). Anything longer goes through cleanup so
-  // rambling gets polished into prose.
   return transcript.length < 30
 }
 
