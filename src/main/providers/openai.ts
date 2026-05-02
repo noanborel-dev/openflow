@@ -45,9 +45,6 @@ export function createOpenAITranscriptionProvider(
         file,
         model,
         response_format: 'verbose_json',
-        // Greedy decoding — deterministic, fewer creative hallucinations
-        // on borderline clips. See providers/groq.ts for rationale.
-        temperature: 0,
         ...(options.language ? { language: options.language } : {}),
         ...(prompt ? { prompt } : {}),
       })

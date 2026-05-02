@@ -24,12 +24,8 @@ function getClient(apiKey: string): Groq {
 // segments rather than averages — averages wash out a clearly-silent
 // segment in the middle of a longer clip, letting the hallucination
 // pass.
-//
-// Tuned slightly tighter than the large-v3 thresholds because turbo is
-// more prone to short-clip hallucinations: we'd rather reject a marginal
-// clip and show "couldn't hear you" than paste garbage.
-const NO_SPEECH_PROB_THRESHOLD = 0.5
-const AVG_LOGPROB_THRESHOLD = -1.0
+const NO_SPEECH_PROB_THRESHOLD = 0.55
+const AVG_LOGPROB_THRESHOLD = -1.2
 const COMPRESSION_RATIO_THRESHOLD = 2.4
 
 interface VerboseSegment {
@@ -66,12 +62,6 @@ export function createGroqTranscriptionProvider(
         file,
         model,
         response_format: 'verbose_json',
-        // temperature=0 gives deterministic greedy decoding. Whisper's
-        // default uses temperature fallback (retries with random sampling
-        // when the first pass looks bad), which is the main source of
-        // creative-but-wrong outputs on borderline clips. Greedy is more
-        // accurate when paired with tight hallucination guards.
-        temperature: 0,
         // Only set language when explicitly requested. Whisper auto-detects
         // per clip otherwise — important for users who dictate in multiple
         // languages (forcing 'en' produced phonetic garbage on Spanish).
