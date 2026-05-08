@@ -26,6 +26,7 @@ const defaults: Settings = {
   },
   voiceEnrolled: false,
   inputDeviceId: null,
+  audioCues: true,
 }
 
 export const store = new ElectronStore<Settings>({ defaults, name: 'openflow-settings' })

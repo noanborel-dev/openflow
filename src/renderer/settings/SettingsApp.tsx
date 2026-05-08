@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { Provider } from '../../shared/types'
 import GeneralTab from './tabs/GeneralTab'
 import HotkeysTab from './tabs/HotkeysTab'
 import AIProviderTab from './tabs/AIProviderTab'
@@ -21,6 +22,11 @@ const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
 export default function SettingsApp() {
   const [tab, setTab] = useState<Tab>('Provider')
   const titleInfo = TITLES[tab]
+  const [provider, setProvider] = useState<Provider | null>(null)
+
+  useEffect(() => {
+    window.openflow.getSettings().then(s => setProvider(s.provider.provider))
+  }, [tab])
 
   return (
     <div className="flex h-screen bg-paper text-ink select-none font-sans">
@@ -48,11 +54,10 @@ export default function SettingsApp() {
             )
           })}
         </nav>
-        <div className="mt-auto pb-3 px-2 pt-3 border-t border-ink-08 flex items-center justify-between text-[10px] font-mono text-ink-45">
-          <span>v0.1.0</span>
+        <div className="mt-auto pb-3 px-2 pt-3 border-t border-ink-08 text-[10px] font-mono text-ink-45">
           <span className="inline-flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-ok" />
-            connected
+            connected · {provider ?? 'groq'}
           </span>
         </div>
       </aside>
