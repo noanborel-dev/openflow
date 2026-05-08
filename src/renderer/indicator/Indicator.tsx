@@ -15,6 +15,7 @@ declare global {
       onStateChange: (cb: (state: string) => void) => () => void
       sendAudioChunk: (chunk: ArrayBuffer) => void
       sendAudioDone: () => void
+      getInputDeviceId: () => Promise<string | null>
     }
   }
 }
@@ -39,9 +40,7 @@ export default function Indicator() {
 
     async function prewarm() {
       try {
-        const settings = await window.openflow.getSettings()
-        const constraints = micConstraints(settings.inputDeviceId)
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        const stream = await openMic()
         if (cancelled) {
           stream.getTracks().forEach(t => t.stop())
           return
@@ -91,9 +90,7 @@ export default function Indicator() {
       return { stream: streamRef.current, analyser: analyserRef.current }
     }
     try {
-      const settings = await window.openflow.getSettings()
-      const constraints = micConstraints(settings.inputDeviceId)
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      const stream = await openMic()
       const ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
@@ -109,13 +106,28 @@ export default function Indicator() {
     }
   }
 
-  function micConstraints(deviceId: string | null): MediaStreamConstraints {
-    // exact deviceId fails loudly if the device is missing (e.g. user
-    // unplugged it). That's fine — surfaces an error instead of silently
-    // falling back to a different mic. null = system default.
-    return {
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+  // Open the user's selected mic. If the saved deviceId is invalid (mic
+  // unplugged, deviceId stale across reboots) we fall back to system
+  // default rather than throwing — losing audio entirely is worse than
+  // using a different mic. Settings IPC access is wrapped defensively
+  // because the preload bridge may not be ready on cold start.
+  async function openMic(): Promise<MediaStream> {
+    let deviceId: string | null = null
+    try {
+      deviceId = (await window.indicator.getInputDeviceId?.()) ?? null
+    } catch {
+      deviceId = null
     }
+    if (deviceId) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } },
+        })
+      } catch (err) {
+        console.warn('[Indicator] Saved mic unavailable, using default:', err)
+      }
+    }
+    return await navigator.mediaDevices.getUserMedia({ audio: true })
   }
 
   async function startRecording() {
