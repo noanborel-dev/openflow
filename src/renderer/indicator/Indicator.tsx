@@ -182,38 +182,37 @@ export default function Indicator() {
 
   if (state === 'idle') return null
 
-  // Liquid Glass pill: dark-tinted gradient over the blur for readability
-  // on any desktop. Drop-shadow on the parent (not box-shadow) follows
-  // the rounded outline — box-shadow on a rounded element inside an
-  // Electron transparent window leaves a rectangular halo on macOS.
-  // Liquid Glass: more saturated and slightly more opaque than before,
-  // so the dark base stays consistent and lifts the foreground text.
-  // The blur dial is high (32px) for a strong depth-of-field feel
-  // without going opaque.
+  // Liquid Glass pill, charcoal variant. The refractive top edge is the
+  // signature detail — a near-white inner highlight and a near-black
+  // bottom inset together give the pill a poured-resin feel against any
+  // wallpaper. Drop-shadow lives on the parent (not box-shadow) so the
+  // shadow follows the rounded outline and Electron's transparent
+  // window doesn't leave a rectangular halo.
   const pillStyle = {
     background:
-      'linear-gradient(180deg, rgba(20,22,30,0.68) 0%, rgba(20,22,30,0.58) 100%)',
-    backdropFilter: 'blur(32px) saturate(200%)',
-    WebkitBackdropFilter: 'blur(32px) saturate(200%)',
-    border: '1px solid rgba(255,255,255,0.18)',
+      'linear-gradient(180deg, rgba(18,20,26,0.82) 0%, rgba(14,16,22,0.74) 100%)',
+    backdropFilter: 'blur(34px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(34px) saturate(180%)',
+    border: '1px solid rgba(255,255,255,0.12)',
     boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.36), ' +
-      'inset 0 -1px 0 rgba(255,255,255,0.06)',
+      'inset 0 1.2px 0 rgba(255,255,255,0.42), ' +
+      'inset 0 -1px 0 rgba(0,0,0,0.45)',
   }
 
-  // Refined cobalt — sits between iOS system blue and lavender, reads
-  // premium against the cool dark glass. A touch brighter than before
-  // for legibility.
-  const accent = '#8BB4F2'
-  const accentGlow = 'rgba(139,180,242,0.6)'
+  // More saturated, slightly cooler blue than before — reads as proper
+  // cobalt instead of lavender at this scale. Glow uses a wider falloff
+  // so each bar feels like it's emitting light.
+  const accent = '#5A8FE8'
+  const accentGlow = 'rgba(90,143,232,0.65)'
 
-  // Shared text style for italic state labels — semi-bold weight + a
-  // soft text-shadow so the serif glyphs don't get lost against the
-  // glass at small size.
+  // Shared text style for italic state labels. Instrument Serif at a
+  // medium weight reads more elegant than Cormorant at small size, with
+  // a subtle text-shadow so the glyphs don't dissolve into the glass.
   const labelStyle = {
     fontStyle: 'italic',
-    fontFamily: '"Cormorant Garamond", Georgia, serif',
-    fontWeight: 600,
+    fontFamily: '"Instrument Serif", "Cormorant Garamond", Georgia, serif',
+    fontWeight: 400,
+    letterSpacing: '0.005em',
     textShadow: '0 1px 2px rgba(0,0,0,0.35)',
   } as const
 
@@ -229,24 +228,24 @@ export default function Indicator() {
         {(state === 'recording' || state === 'stopping') && (
           <>
             <span
-              className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse shrink-0"
-              style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }}
+              className="w-[7px] h-[7px] rounded-full bg-danger animate-pulse shrink-0"
+              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
             />
-            <div className="flex items-end gap-[2px] h-[14px]">
+            <div className="flex items-end gap-[2px] h-[15px]">
               {waveform.map((v, i) => (
                 <div
                   key={i}
-                  className="w-[2px] rounded-[2px] transition-all duration-75"
+                  className="w-[2px] rounded-[1px] transition-all duration-75"
                   style={{
-                    height: `${Math.max(3, v * 0.14)}px`,
+                    height: `${Math.max(3, v * 0.15)}px`,
                     background: accent,
-                    boxShadow: `0 0 5px ${accentGlow}`,
+                    boxShadow: `0 0 6px ${accentGlow}`,
                   }}
                 />
               ))}
             </div>
             <span
-              className="text-[12px] ml-1 tracking-tight text-white/85"
+              className="text-[15px] ml-1 leading-none text-white/95"
               style={labelStyle}
             >
               listening
@@ -262,14 +261,14 @@ export default function Indicator() {
                 filter: `drop-shadow(0 0 3px ${accentGlow})`,
               }}
             />
-            <span className="text-[13px] tracking-tight text-white" style={labelStyle}>
-              transcribing
+            <span className="text-[15px] leading-none text-white/95" style={labelStyle}>
+              polishing…
             </span>
           </>
         )}
         {(state === 'done' || state === 'clipboard') && (
           <>
-            <svg width="12" height="12" viewBox="0 0 11 11" fill="none" style={{ filter: `drop-shadow(0 0 3px ${accentGlow})` }}>
+            <svg width="13" height="13" viewBox="0 0 11 11" fill="none" style={{ filter: `drop-shadow(0 0 3px ${accentGlow})` }}>
               <path
                 d="M2 5.5 L4.5 8 L9 3"
                 stroke={accent}
@@ -280,7 +279,7 @@ export default function Indicator() {
               />
             </svg>
             <span
-              className="text-[13px] tracking-tight"
+              className="text-[15px] leading-none"
               style={{ ...labelStyle, color: accent }}
             >
               {state === 'clipboard' ? 'copied — ⌘V to paste' : 'pasted'}
@@ -290,10 +289,10 @@ export default function Indicator() {
         {state === 'error' && (
           <>
             <span
-              className="w-1.5 h-1.5 rounded-full bg-danger shrink-0"
-              style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }}
+              className="w-[7px] h-[7px] rounded-full bg-danger shrink-0"
+              style={{ boxShadow: '0 0 8px rgba(232,74,58,0.8)' }}
             />
-            <span className="text-[13px] tracking-tight text-white" style={labelStyle}>
+            <span className="text-[15px] leading-none text-white/95" style={labelStyle}>
               {errorMsg || 'transcription failed'}
             </span>
           </>

@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OpenFlow — Editorial</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spectral:ital,wght@0,300;0,400;0,500;0,700;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F2EBDD;
+    --paper-warm: #EBE2D0;
+    --ink: #1A1612;
+    --ink-60: rgba(26, 22, 18, 0.62);
+    --ink-30: rgba(26, 22, 18, 0.32);
+    --rule: rgba(26, 22, 18, 0.16);
+    --vermillion: #B6391A;
+    --serif: 'Instrument Serif', 'Cormorant Garamond', Georgia, serif;
+    --body: 'Spectral', Georgia, serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-weight: 400;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(182, 57, 26, 0.05), transparent 60%),
+      radial-gradient(circle at 92% 82%, rgba(26, 22, 18, 0.04), transparent 50%);
+  }
+  /* Subtle paper grain */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' /%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.07 0' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 999;
+    mix-blend-mode: multiply;
+    opacity: 0.5;
+  }
+
+  /* ── masthead ───────────────────────────── */
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    padding: 18px 56px 14px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    gap: 32px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-60);
+  }
+  .masthead .left { display: flex; align-items: baseline; gap: 18px; }
+  .masthead .center {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 28px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .masthead .right { text-align: right; }
+  .mark {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    background: var(--ink);
+    color: var(--paper);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 16px;
+    letter-spacing: -0.02em;
+  }
+
+  /* ── hero ───────────────────────────────── */
+  .hero {
+    padding: 72px 56px 48px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--vermillion);
+    margin-bottom: 22px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .kicker::before {
+    content: "";
+    width: 24px; height: 1px;
+    background: var(--vermillion);
+  }
+  h1.headline {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(64px, 8.5vw, 132px);
+    line-height: 0.92;
+    letter-spacing: -0.018em;
+    margin: 0 0 24px;
+    color: var(--ink);
+  }
+  h1.headline .it {
+    font-style: italic;
+    color: var(--vermillion);
+  }
+  .lede {
+    font-family: var(--body);
+    font-size: 17.5px;
+    line-height: 1.55;
+    max-width: 38ch;
+    color: var(--ink-60);
+    margin: 0 0 30px;
+  }
+  .lede::first-letter {
+    font-family: var(--serif);
+    font-size: 4.4em;
+    float: left;
+    line-height: 0.86;
+    margin: 0.04em 0.08em -0.05em -0.04em;
+    color: var(--ink);
+  }
+  .actions { display: flex; gap: 18px; align-items: center; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 22px;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: 999px;
+    font-family: var(--body);
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: transform .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn .arrow { font-family: var(--serif); font-style: italic; font-size: 17px; line-height: 1; }
+  .link {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-60);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 2px;
+  }
+
+  /* hero figure */
+  .hero-fig {
+    position: relative;
+    align-self: stretch;
+    min-height: 520px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .figure-card {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    aspect-ratio: 4 / 5;
+    background: var(--paper-warm);
+    border: 1px solid var(--rule);
+    overflow: hidden;
+  }
+  .figure-card .frame-mark {
+    position: absolute;
+    top: 14px; left: 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-30);
+  }
+  .figure-card .frame-num {
+    position: absolute;
+    bottom: 14px; right: 14px;
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--ink-30);
+  }
+  .figure-record {
+    width: 64%; aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--vermillion);
+    box-shadow: 0 0 0 14px rgba(182, 57, 26, 0.08), 0 0 0 28px rgba(182, 57, 26, 0.04);
+    position: relative;
+    animation: breathe 3.4s ease-in-out infinite;
+  }
+  .figure-record::after {
+    content: "";
+    position: absolute; inset: 26%;
+    border-radius: 50%;
+    background: var(--paper-warm);
+  }
+  @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(0.94); } }
+
+  /* ── sections strip ─────────────────────── */
+  .sections {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-bottom: 1px solid var(--rule);
+  }
+  .section {
+    padding: 44px 40px 48px;
+    border-right: 1px solid var(--rule);
+    position: relative;
+  }
+  .section:last-child { border-right: none; }
+  .section-num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 56px;
+    color: var(--vermillion);
+    line-height: 0.9;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-size: 26px;
+    line-height: 1.05;
+    margin: 0 0 12px;
+    font-weight: 400;
+  }
+  .section-title .it { font-style: italic; }
+  .section-body {
+    font-family: var(--body);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink-60);
+    max-width: 32ch;
+  }
+  .section-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--ink-30);
+    margin-top: 22px;
+    display: inline-block;
+  }
+
+  /* ── product showcase row ───────────────── */
+  .showcase {
+    padding: 64px 56px 80px;
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .showcase-text h2 {
+    font-family: var(--serif);
+    font-size: 56px;
+    line-height: 0.96;
+    margin: 0 0 22px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+  }
+  .showcase-text h2 .it { font-style: italic; }
+  .showcase-text .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--vermillion);
+    margin-bottom: 18px;
+    display: inline-block;
+  }
+  .showcase-text p {
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-60);
+    margin: 0 0 16px;
+    max-width: 38ch;
+  }
+
+  /* indicator family — three states */
+  .indicator-stack { display: flex; flex-direction: column; gap: 18px; }
+  .indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 22px 14px 18px;
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 999px;
+    font-family: var(--body);
+    font-size: 14px;
+    width: fit-content;
+    box-shadow: 0 14px 30px -18px rgba(26, 22, 18, 0.45);
+  }
+  .indicator .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--vermillion);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  .indicator .label {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 17px;
+  }
+  .indicator .meter {
+    display: flex; gap: 3px; align-items: center;
+    margin-left: 4px;
+  }
+  .indicator .meter span {
+    width: 2.5px;
+    background: var(--paper);
+    border-radius: 1px;
+    animation: bar 1.1s ease-in-out infinite;
+  }
+  .indicator .meter span:nth-child(1) { height: 9px;  animation-delay: -0.2s; }
+  .indicator .meter span:nth-child(2) { height: 14px; animation-delay: -0.4s; }
+  .indicator .meter span:nth-child(3) { height: 20px; animation-delay: -0.1s; }
+  .indicator .meter span:nth-child(4) { height: 12px; animation-delay: -0.5s; }
+  .indicator .meter span:nth-child(5) { height: 18px; animation-delay: -0.3s; }
+  .indicator .meter span:nth-child(6) { height: 9px;  animation-delay: -0.2s; }
+  @keyframes bar { 0%,100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  .indicator.transcribing .dot { background: #E5A23A; }
+  .indicator.done .dot { background: #6FB66B; }
+  .indicator.done .label::before { content: "✓ "; font-style: normal; }
+
+  /* ── footer rule ───────────────────────── */
+  .ruleline {
+    border-top: 1px solid var(--rule);
+    padding: 22px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-30);
+  }
+  .ruleline em {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-60);
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="left">
+    <span class="mark">O</span>
+    <span>OpenFlow</span>
+    <span>·</span>
+    <span>№ 01 — Editorial</span>
+  </div>
+  <div class="center"><em>A monograph on voice.</em></div>
+  <div class="right">Spring · 2026</div>
+</header>
+
+<section class="hero">
+  <div>
+    <span class="kicker">Vol. 01 · The dictation issue</span>
+    <h1 class="headline">Speak<br>once.<br><span class="it">Type<br>everywhere.</span></h1>
+    <p class="lede">A small, mannered tool that turns the way you talk into the way you write — with a soft hand for the casual, a sharper one for the work, and a steady one for the long form.</p>
+    <div class="actions">
+      <a class="btn" href="#">Begin <span class="arrow">→</span></a>
+      <a class="link" href="#">⌃ ⌥ ⌘ S</a>
+    </div>
+  </div>
+  <div class="hero-fig">
+    <div class="figure-card">
+      <span class="frame-mark">Plate I — Hold to record</span>
+      <div class="figure-record"></div>
+      <span class="frame-num">i</span>
+    </div>
+  </div>
+</section>
+
+<section class="sections">
+  <div class="section">
+    <div class="section-num">01</div>
+    <h3 class="section-title">A key. <span class="it">Three behaviours.</span></h3>
+    <p class="section-body">Tap to lock recording on. Hold while you speak. Double-tap to repeat the last paste. One key learns three habits.</p>
+    <span class="section-tag">⌃ Ctrl · default</span>
+  </div>
+  <div class="section">
+    <div class="section-num">02</div>
+    <h3 class="section-title">A polish <span class="it">for every register.</span></h3>
+    <p class="section-body">Casual to your friends. Considered to your colleagues. Composed in the document. Three contexts, three temperaments.</p>
+    <span class="section-tag">Per-context</span>
+  </div>
+  <div class="section">
+    <div class="section-num">03</div>
+    <h3 class="section-title">A model <span class="it">that listens.</span></h3>
+    <p class="section-body">Whisper, large. Llama, lean. Chosen for accuracy first; tuned with a private dictionary so the names you use stay the names you meant.</p>
+    <span class="section-tag">Groq · Local soon</span>
+  </div>
+</section>
+
+<section class="showcase">
+  <div class="showcase-text">
+    <span class="tag">Specimen — Indicator</span>
+    <h2>The pill, in <span class="it">three states.</span></h2>
+    <p>An understated companion that lives wherever you put it. It pulses to listen, breathes through transcription, and bows out the moment your text lands.</p>
+    <p style="color: var(--ink-30); font-size: 13.5px;">— shown 1× actual size —</p>
+  </div>
+  <div class="indicator-stack">
+    <div class="indicator">
+      <span class="dot"></span>
+      <span class="label">Listening</span>
+      <div class="meter"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <div class="indicator transcribing">
+      <span class="dot"></span>
+      <span class="label">Transcribing…</span>
+    </div>
+    <div class="indicator done">
+      <span class="dot" style="animation:none;"></span>
+      <span class="label">Pasted</span>
+    </div>
+  </div>
+</section>
+
+<footer class="ruleline">
+  <span>OpenFlow · 2026 · v0.1</span>
+  <em>"It is enough to be heard."</em>
+  <span>Pg. 01 / 03</span>
+</footer>
+
+</body>
+</html>

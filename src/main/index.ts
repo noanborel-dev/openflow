@@ -92,6 +92,17 @@ function positionIndicatorOnActiveDisplay(): void {
   const x = Math.round(dx + width / 2 - winW / 2)
   const y = Math.round(dy + height - winH - 24)
   indicatorWindow.setBounds({ x, y, width: winW, height: winH })
+
+  // Re-assert visibility-on-all-spaces every show. macOS occasionally
+  // loses the collectionBehavior flag after a window has been hidden,
+  // moved, or after Spaces are added/removed — without re-asserting,
+  // the pill ends up pinned to the Space it was last shown on.
+  // setAlwaysOnTop with the 'screen-saver' level pierces fullscreen-app
+  // layering as well.
+  indicatorWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (process.platform === 'darwin') {
+    indicatorWindow.setAlwaysOnTop(true, 'screen-saver')
+  }
 }
 
 function createSettingsWindow(): BrowserWindow {
