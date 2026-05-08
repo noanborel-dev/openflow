@@ -93,16 +93,145 @@ export default function HotkeysTab() {
         </div>
       </div>
 
-      {/* Behavior cheatsheet — kept as a quiet card under the hero so the
-          hero stays the visual anchor. */}
-      <div className="bg-card border border-ink-08 rounded-card p-5 space-y-2.5 text-[12.5px] text-ink-60">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-2">
-          Three behaviors on one key
-        </div>
-        <Behavior label="tap" desc="Toggle recording on. Tap again to stop." />
-        <Behavior label="hold" desc="Record while held. Release to stop." />
-        <Behavior label="double-tap" desc="Paste your most recent dictation again." />
+      {/* Three behaviors — animated. Each card loops the actual gesture
+          on a small keycap so users see the timing, not just read it. */}
+      <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-3 px-1">
+        Three behaviors on one key
       </div>
+      <div className="grid grid-cols-3 gap-3">
+        <BehaviorCard
+          label="Tap"
+          desc="Toggle recording on. Tap again to stop."
+          gesture="tap"
+          glyph={keyGlyph}
+        />
+        <BehaviorCard
+          label="Hold"
+          desc="Record while held. Release to stop."
+          gesture="hold"
+          glyph={keyGlyph}
+        />
+        <BehaviorCard
+          label="Double-tap"
+          desc="Paste your most recent dictation again."
+          gesture="double"
+          glyph={keyGlyph}
+        />
+      </div>
+
+      {/* Animation keyframes — defined once at the page level so all
+          three cards share the same CSS rules. Each gesture has its
+          own loop, all 3.6s total so they stay in sync visually. */}
+      <style>{`
+        @keyframes gestureTap {
+          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          7%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          14%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+        }
+        @keyframes gestureHold {
+          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          8%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          75%           { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          85%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+        }
+        @keyframes gestureDouble {
+          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          6%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          12%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          18%           { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          24%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+        }
+
+        /* Pulse rings emitted at the moment of each "press". One per tap
+           in tap/double, sustained ring during hold. The ring fades and
+           expands outward — kinetic "this is the action" cue. */
+        @keyframes pulseTap {
+          0%, 100% { opacity: 0; transform: scale(0.8); }
+          7%       { opacity: 0.5; transform: scale(1); }
+          22%      { opacity: 0;   transform: scale(1.6); }
+        }
+        @keyframes pulseHold {
+          0%, 100% { opacity: 0; transform: scale(0.8); }
+          8%       { opacity: 0.5; transform: scale(1); }
+          80%      { opacity: 0.3; transform: scale(1.45); }
+          90%      { opacity: 0;   transform: scale(1.6); }
+        }
+        @keyframes pulseDouble {
+          0%, 100% { opacity: 0; transform: scale(0.8); }
+          6%       { opacity: 0.5; transform: scale(1); }
+          14%      { opacity: 0;   transform: scale(1.5); }
+          18%      { opacity: 0.5; transform: scale(1); }
+          26%      { opacity: 0;   transform: scale(1.5); }
+        }
+
+        /* Timeline tracker — small bar that fills to show when the key
+           is "pressed" during the loop. Read this as a piano-roll. */
+        @keyframes timelineTap    { 0%, 100% { width: 0%; left: 0%; } 7%  { width: 4%; left: 14%; } 14% { width: 4%; left: 14%; opacity: 0; } 14.01% { opacity: 1; } }
+        @keyframes timelineHold   { 0%, 100% { width: 0%; left: 0%; } 8%  { width: 0%; left: 14%; } 75% { width: 60%; left: 14%; } 85% { width: 60%; left: 14%; opacity: 0; } 85.01% { opacity: 1; } }
+        @keyframes timelineDouble { 0%, 100% { width: 0%; left: 0%; } 6%  { width: 4%; left: 12%; } 12% { width: 4%; left: 12%; opacity: 0; } 12.01% { opacity: 1; left: 30%; } 18% { opacity: 1; width: 4%; left: 30%; } 24% { width: 4%; left: 30%; opacity: 0; } 24.01% { opacity: 1; } }
+
+        .keycap-anim          { animation: gestureTap    3.6s ease-in-out infinite; }
+        .keycap-anim.hold     { animation: gestureHold   3.6s ease-in-out infinite; }
+        .keycap-anim.double   { animation: gestureDouble 3.6s ease-in-out infinite; }
+        .pulse-anim           { animation: pulseTap      3.6s ease-out  infinite; }
+        .pulse-anim.hold      { animation: pulseHold     3.6s ease-out  infinite; }
+        .pulse-anim.double    { animation: pulseDouble   3.6s ease-out  infinite; }
+        .timeline-anim        { animation: timelineTap    3.6s linear   infinite; }
+        .timeline-anim.hold   { animation: timelineHold   3.6s linear   infinite; }
+        .timeline-anim.double { animation: timelineDouble 3.6s linear   infinite; }
+      `}</style>
+    </div>
+  )
+}
+
+function BehaviorCard({
+  label, desc, gesture, glyph,
+}: {
+  label: string
+  desc: string
+  gesture: 'tap' | 'hold' | 'double'
+  glyph: string
+}) {
+  const cls = gesture === 'tap' ? '' : gesture
+  return (
+    <div className="bg-card border border-ink-08 rounded-[14px] p-4 flex flex-col">
+      {/* Animated keycap with emitting pulse ring */}
+      <div className="relative h-[88px] flex items-center justify-center mb-3">
+        <div className="absolute w-[58px] h-[58px] rounded-[14px] bg-[#5A8FE8]/35 pointer-events-none">
+          <div
+            className={`absolute inset-0 rounded-[14px] bg-[#5A8FE8]/30 pulse-anim ${cls}`}
+            style={{ animationName: gesture === 'tap' ? 'pulseTap' : gesture === 'hold' ? 'pulseHold' : 'pulseDouble' }}
+          />
+        </div>
+        <div
+          className={`relative w-[52px] h-[52px] rounded-[12px] bg-paper border border-ink-08 flex items-center justify-center keycap-anim ${cls}`}
+          style={{
+            boxShadow: '0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset',
+            animationName: gesture === 'tap' ? 'gestureTap' : gesture === 'hold' ? 'gestureHold' : 'gestureDouble',
+          }}
+        >
+          <span
+            className="text-[22px] leading-none text-ink font-mono"
+            style={{ fontSize: glyph.length > 2 ? '14px' : '22px' }}
+          >
+            {glyph}
+          </span>
+        </div>
+      </div>
+
+      {/* Piano-roll timeline showing press timing in the loop. Helps
+          users compare gesture durations at a glance. */}
+      <div className="relative h-[3px] bg-ink-08 rounded-full mb-3 overflow-hidden">
+        <div
+          className={`absolute h-full bg-[#5A8FE8] rounded-full timeline-anim ${cls}`}
+          style={{
+            animationName: gesture === 'tap' ? 'timelineTap' : gesture === 'hold' ? 'timelineHold' : 'timelineDouble',
+          }}
+        />
+      </div>
+
+      <div className="text-[12.5px] font-semibold leading-tight">{label}</div>
+      <div className="text-[11px] text-ink-60 mt-1 leading-snug">{desc}</div>
     </div>
   )
 }
@@ -164,13 +293,3 @@ function Keycap({
   )
 }
 
-function Behavior({ label, desc }: { label: string; desc: string }) {
-  return (
-    <div className="flex items-baseline gap-3">
-      <span className="font-mono text-[10.5px] text-ink-45 uppercase tracking-[0.14em] w-[80px] shrink-0">
-        {label}
-      </span>
-      <span>{desc}</span>
-    </div>
-  )
-}
