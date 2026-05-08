@@ -61,12 +61,11 @@ export default function PolishTab() {
   return (
     <div className="max-w-[760px]">
       <SectionHero
-        number="01"
         label="POLISH"
-        accent="green"
-        headline={<>Strikes, <em className="font-display italic">never</em> drops.</>}
-        body="Filler words, false starts, repeated phrasing — gone. The actual sentence is preserved."
-        visual={<RawPolishedPreview />}
+        accent="violet"
+        headline={<>One voice, <em className="font-display italic">three</em> registers.</>}
+        body="Same content, calibrated to context. Casual to clients, very-casual to roommates, formal in email. Pick a level per context below."
+        visual={<RegisterBubbles />}
       />
 
       {/* Per-context rows — three active + locked Code & Terminal */}
@@ -130,18 +129,27 @@ export default function PolishTab() {
   )
 }
 
-function RawPolishedPreview() {
+// Three example chat bubbles demonstrating how the same dictation
+// renders at different polish levels. Cool gray = formal, warm pink =
+// casual, deep purple = very-casual. Visual mirrors the screenshot
+// the user provided as the reference for this card.
+function RegisterBubbles() {
   return (
-    <div className="bg-paper/60 border border-ink-08 rounded-[12px] px-4 py-4 w-full max-w-[280px] text-[12px] leading-relaxed">
-      <div className="text-[9.5px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">Raw</div>
-      <div className="text-ink-60 mb-3">
-        <s className="text-[#C94A2A]/70 decoration-[#C94A2A]/70">um</s>{' '}so I need to{' '}
-        <s className="text-[#C94A2A]/70 decoration-[#C94A2A]/70">like</s>{' '}reply to Sarah about the thursday meeting{' '}
-        <s className="text-[#C94A2A]/70 decoration-[#C94A2A]/70">basically</s>
+    <div className="flex flex-col gap-2 w-full max-w-[280px]">
+      <div className="rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug"
+           style={{ background: '#E5E1F0', color: '#1F1B2E' }}>
+        Hey, are you free for lunch tomorrow?
       </div>
-      <div className="text-[9.5px] font-mono uppercase tracking-[0.16em] text-[#3D7E3D] mb-1.5">Polished</div>
-      <div className="text-ink font-medium">
-        So I need to reply to Sarah about the <span className="border-b-[1.5px] border-[#3D7E3D]">Thursday</span> meeting.
+      <div className="rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug"
+           style={{ background: '#F5DCDA', color: '#2A1A18' }}>
+        Hey are you free for lunch tomorrow? Let's do 12 if that works
+      </div>
+      <div className="rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug"
+           style={{ background: '#3F2570', color: '#F0E6FF' }}>
+        hey are you free for lunch tomorrow lets do 12 if that works
+      </div>
+      <div className="text-right text-[9.5px] font-mono uppercase tracking-[0.18em] text-ink-45 mt-1">
+        FORMAL  ·  CASUAL  ·  <span style={{ color: '#6B46C1' }}>VERY-CASUAL</span>
       </div>
     </div>
   )

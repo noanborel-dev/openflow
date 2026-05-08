@@ -13,7 +13,6 @@ export const SECTION_COLORS = {
 export type SectionAccent = keyof typeof SECTION_COLORS
 
 interface Props {
-  number: string         // "01"
   label: string          // "POLISH"
   accent: SectionAccent
   headline: ReactNode    // can include <span class="italic">…</span>
@@ -21,7 +20,7 @@ interface Props {
   visual?: ReactNode     // right-side illustration / preview
 }
 
-export function SectionHero({ number, label, accent, headline, body, visual }: Props) {
+export function SectionHero({ label, accent, headline, body, visual }: Props) {
   const c = SECTION_COLORS[accent]
   return (
     <div
@@ -38,7 +37,7 @@ export function SectionHero({ number, label, accent, headline, body, visual }: P
             className="text-[10.5px] font-mono uppercase tracking-[0.18em] mb-3"
             style={{ color: c.eyebrow }}
           >
-            <span className="opacity-70">{number}</span>{'  ·  '}{label}
+            {label}
           </div>
           <h2 className="font-display text-[30px] leading-[1.1] tracking-tight mb-3 text-ink">
             {headline}

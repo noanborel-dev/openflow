@@ -75,7 +75,6 @@ export default function AIProviderTab() {
   return (
     <div className="max-w-[760px]">
       <SectionHero
-        number="03"
         label="PROVIDER"
         accent="coral"
         headline={<>Audio goes <em className="font-display italic">straight</em> through.</>}

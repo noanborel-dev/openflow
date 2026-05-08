@@ -4,17 +4,15 @@ import HotkeysTab from './tabs/HotkeysTab'
 import AIProviderTab from './tabs/AIProviderTab'
 import DictionaryTab from './tabs/DictionaryTab'
 import PolishTab from './tabs/PolishTab'
-import StyleTab from './tabs/StyleTab'
 import AboutTab from './tabs/AboutTab'
 
-const TABS = ['Provider', 'Hotkey', 'Polish', 'Style', 'Dictionary', 'General', 'About'] as const
+const TABS = ['Provider', 'Hotkey', 'Polish', 'Dictionary', 'General', 'About'] as const
 type Tab = typeof TABS[number]
 
 const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
   Provider:   { title: 'Your',  italic: 'provider.',    sub: 'Transcription + cleanup service' },
   Hotkey:     { title: 'Your',  italic: 'hotkey.',      sub: 'Tap · hold · double-tap' },
-  Polish:     { title: 'Your',  italic: 'polish.',      sub: 'How aggressively to clean each context' },
-  Style:      { title: 'Your',  italic: 'style.',       sub: 'Three registers · same voice' },
+  Polish:     { title: 'Your',  italic: 'polish.',      sub: 'Same voice — three registers per context' },
   Dictionary: { title: 'Your',  italic: 'dictionary.',  sub: 'Bias Whisper toward terms it mishears' },
   General:    { title: 'Your',  italic: 'preferences.', sub: 'How OpenFlow should behave' },
   About:      { title: 'About', italic: 'OpenFlow.',    sub: 'Version & diagnostics' },
@@ -69,7 +67,6 @@ export default function SettingsApp() {
         {tab === 'Provider' && <AIProviderTab />}
         {tab === 'Hotkey' && <HotkeysTab />}
         {tab === 'Polish' && <PolishTab />}
-        {tab === 'Style' && <StyleTab />}
         {tab === 'Dictionary' && <DictionaryTab />}
         {tab === 'General' && <GeneralTab />}
         {tab === 'About' && <AboutTab />}

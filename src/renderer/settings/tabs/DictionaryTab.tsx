@@ -39,7 +39,6 @@ export default function DictionaryTab() {
   return (
     <div className="max-w-[760px]">
       <SectionHero
-        number="04"
         label="DICTIONARY"
         accent="cobalt"
         headline={<>Names &amp; <em className="font-display italic">jargon</em>, recognized.</>}
