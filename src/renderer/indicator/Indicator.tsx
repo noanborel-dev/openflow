@@ -39,7 +39,9 @@ export default function Indicator() {
 
     async function prewarm() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const settings = await window.openflow.getSettings()
+        const constraints = micConstraints(settings.inputDeviceId)
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
         if (cancelled) {
           stream.getTracks().forEach(t => t.stop())
           return
@@ -89,7 +91,9 @@ export default function Indicator() {
       return { stream: streamRef.current, analyser: analyserRef.current }
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const settings = await window.openflow.getSettings()
+      const constraints = micConstraints(settings.inputDeviceId)
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
       const ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
@@ -102,6 +106,15 @@ export default function Indicator() {
     } catch (err) {
       console.error('[Indicator] Mic error:', err)
       return null
+    }
+  }
+
+  function micConstraints(deviceId: string | null): MediaStreamConstraints {
+    // exact deviceId fails loudly if the device is missing (e.g. user
+    // unplugged it). That's fine — surfaces an error instead of silently
+    // falling back to a different mic. null = system default.
+    return {
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
     }
   }
 

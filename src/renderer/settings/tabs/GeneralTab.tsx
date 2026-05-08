@@ -6,10 +6,30 @@ import { Pill } from '../../shared/ui/Pill'
 export default function GeneralTab() {
   const [launchAtLogin, setLaunchAtLogin] = useState<boolean | null>(null)
   const [resetting, setResetting] = useState(false)
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([])
+  const [inputDeviceId, setInputDeviceId] = useState<string | null>(null)
 
   useEffect(() => {
     window.openflow.getLaunchAtLogin().then(setLaunchAtLogin)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      navigator.mediaDevices.enumerateDevices(),
+      window.openflow.getSettings(),
+    ]).then(([devices, settings]) => {
+      if (cancelled) return
+      setMics(devices.filter((d) => d.kind === 'audioinput'))
+      setInputDeviceId(settings.inputDeviceId)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  function handleSelectMic(id: string | null) {
+    setInputDeviceId(id)
+    window.openflow.setSettings({ inputDeviceId: id })
+  }
 
   async function toggleLaunchAtLogin(next: boolean) {
     setLaunchAtLogin(next)
@@ -30,6 +50,27 @@ export default function GeneralTab() {
   return (
     <div className="max-w-[520px] space-y-4">
       <Card>
+        <Row>
+          <div className="flex-1">
+            <div className="text-[12.5px] font-medium">Microphone</div>
+            <div className="text-[10.5px] text-ink-45 mt-0.5">
+              Which input device OpenFlow records from.
+            </div>
+          </div>
+          <select
+            value={inputDeviceId ?? ''}
+            onChange={(e) => handleSelectMic(e.target.value || null)}
+            className="bg-card border border-ink-08 rounded-input px-2 py-1 text-[12px] focus:outline-none focus:border-volt max-w-[200px]"
+          >
+            <option value="">System default</option>
+            {mics.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Unnamed microphone'}
+              </option>
+            ))}
+          </select>
+        </Row>
+
         <Row>
           <div className="flex-1">
             <div className="text-[12.5px] font-medium">Launch at login</div>

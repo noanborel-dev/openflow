@@ -42,6 +42,8 @@ export default function OnboardingApp() {
   })
   const [micGranted, setMicGranted] = useState(false)
   const [accessibilityGranted, setAccessibilityGranted] = useState(false)
+  const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([])
+  const [inputDeviceId, setInputDeviceId] = useState<string | null>(null)
 
   // Poll real OS permission state while on the permissions step. Stops as
   // soon as both are granted or the user moves on.
@@ -64,6 +66,33 @@ export default function OnboardingApp() {
       window.clearInterval(id)
     }
   }, [step])
+
+  // Once mic is granted, enumerate available input devices and load the
+  // user's saved choice (if any). Browsers only return real device labels
+  // after the permission grant, so this can't run until micGranted flips.
+  useEffect(() => {
+    if (!micGranted) return
+    let cancelled = false
+    Promise.all([
+      navigator.mediaDevices.enumerateDevices(),
+      window.openflow.getSettings(),
+    ]).then(([devices, settings]) => {
+      if (cancelled) return
+      const mics = devices.filter((d) => d.kind === 'audioinput')
+      setMicDevices(mics)
+      // If saved deviceId still exists, keep it. Otherwise fall back to
+      // null (= system default) and let the user choose explicitly.
+      const saved = settings.inputDeviceId
+      const stillAvailable = saved && mics.some((m) => m.deviceId === saved)
+      setInputDeviceId(stillAvailable ? saved : null)
+    })
+    return () => { cancelled = true }
+  }, [micGranted])
+
+  function handleSelectMic(id: string | null) {
+    setInputDeviceId(id)
+    window.openflow.setSettings({ inputDeviceId: id })
+  }
 
   // Capture-key listener for the hotkey step.
   useEffect(() => {
@@ -166,6 +195,9 @@ export default function OnboardingApp() {
             onRequestMic={handleRequestMic}
             onOpenAccessibility={handleOpenAccessibility}
             onContinue={next}
+            micDevices={micDevices}
+            inputDeviceId={inputDeviceId}
+            onSelectMic={handleSelectMic}
           />
         )}
 
@@ -242,12 +274,18 @@ function StepPermissions({
   onRequestMic,
   onOpenAccessibility,
   onContinue,
+  micDevices,
+  inputDeviceId,
+  onSelectMic,
 }: {
   micGranted: boolean
   accessibilityGranted: boolean
   onRequestMic: () => void
   onOpenAccessibility: () => void
   onContinue: () => void
+  micDevices: MediaDeviceInfo[]
+  inputDeviceId: string | null
+  onSelectMic: (id: string | null) => void
 }) {
   const allGranted = micGranted && accessibilityGranted
   return (
@@ -267,7 +305,33 @@ function StepPermissions({
           onAction={onRequestMic}
           actionLabel="Allow"
           showLiveMic
+          liveMicDeviceId={inputDeviceId}
         />
+        {micGranted && micDevices.length > 0 && (
+          <Card>
+            <div className="px-4 py-3">
+              <div className="text-[11.5px] text-ink-60 mb-2">
+                Use this microphone
+              </div>
+              <div className="space-y-1.5">
+                <MicChoice
+                  label="System default"
+                  hint="Whatever your Mac is set to use."
+                  selected={inputDeviceId === null}
+                  onClick={() => onSelectMic(null)}
+                />
+                {micDevices.map((d) => (
+                  <MicChoice
+                    key={d.deviceId}
+                    label={d.label || 'Unnamed microphone'}
+                    selected={inputDeviceId === d.deviceId}
+                    onClick={() => onSelectMic(d.deviceId)}
+                  />
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
         <PermissionRow
           label="Accessibility"
           hint="Paste into the focused app."
@@ -284,6 +348,42 @@ function StepPermissions({
   )
 }
 
+function MicChoice({
+  label,
+  hint,
+  selected,
+  onClick,
+}: {
+  label: string
+  hint?: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'w-full text-left flex items-center gap-3 px-2.5 py-1.5 rounded-input transition-colors',
+        selected ? 'bg-ink/5' : 'hover:bg-ink/[0.03]',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center',
+          selected ? 'border-ink' : 'border-ink-45',
+        ].join(' ')}
+      >
+        {selected && <span className="w-1.5 h-1.5 rounded-full bg-ink" />}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[12px] truncate">{label}</span>
+        {hint && <span className="block text-[10.5px] text-ink-45">{hint}</span>}
+      </span>
+    </button>
+  )
+}
+
 function PermissionRow({
   label,
   hint,
@@ -291,6 +391,7 @@ function PermissionRow({
   onAction,
   actionLabel,
   showLiveMic,
+  liveMicDeviceId,
 }: {
   label: string
   hint: string
@@ -298,6 +399,7 @@ function PermissionRow({
   onAction: () => void
   actionLabel: string
   showLiveMic?: boolean
+  liveMicDeviceId?: string | null
 }) {
   return (
     <Card>
@@ -307,7 +409,7 @@ function PermissionRow({
             <div className="text-[13px] font-medium">{label}</div>
             <div className="text-[11.5px] text-ink-45 mt-0.5">{hint}</div>
           </div>
-          {granted && showLiveMic && <LiveMicMeter />}
+          {granted && showLiveMic && <LiveMicMeter deviceId={liveMicDeviceId ?? null} />}
         </div>
         {granted ? (
           <span className="text-[12px] font-medium text-ok inline-flex items-center gap-1.5 animate-checkPop">
@@ -330,7 +432,8 @@ function PermissionRow({
 
 // Live mic level meter — proves to the user that we can actually hear
 // them. Pure visual, doesn't store anything. Stops when unmounted.
-function LiveMicMeter() {
+// Re-mounts when deviceId changes so the meter follows the picker.
+function LiveMicMeter({ deviceId }: { deviceId: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -340,7 +443,10 @@ function LiveMicMeter() {
 
     async function start() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const constraints: MediaStreamConstraints = {
+          audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+        }
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
         if (cancelled) return
         ctx = new AudioContext()
         const source = ctx.createMediaStreamSource(stream)
@@ -386,7 +492,7 @@ function LiveMicMeter() {
       if (stream) stream.getTracks().forEach((t) => t.stop())
       if (ctx) ctx.close().catch(() => {})
     }
-  }, [])
+  }, [deviceId])
   return (
     <canvas
       ref={canvasRef}

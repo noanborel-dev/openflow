@@ -58,6 +58,7 @@ export interface Settings {
   userDictionary: string[]   // user-added terms biased into Whisper transcription
   strictness: CategoryStrictness
   voiceEnrolled: boolean   // whether the user has completed voice enrollment
+  inputDeviceId: string | null   // mic deviceId picked by the user; null = system default
 }
 
 export interface DictationResult {
