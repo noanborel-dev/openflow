@@ -221,8 +221,38 @@ export default function Indicator() {
       className="flex items-center justify-center w-full h-full font-sans"
       style={{ filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.35))' }}
     >
+      <style>{`
+        @keyframes pillBreathe {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50%      { transform: scale(1.012); filter: brightness(1.05); }
+        }
+        @keyframes refractGlide {
+          0%, 100% { background-position: -120% 0; opacity: 0; }
+          12%      { opacity: 0.55; }
+          50%      { background-position: 220% 0; opacity: 0; }
+        }
+        .pill-breathe { animation: pillBreathe 3.6s ease-in-out infinite; }
+        .pill-refract::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(115deg,
+            transparent 25%,
+            rgba(255,255,255,0.18) 48%,
+            rgba(255,255,255,0.32) 50%,
+            rgba(255,255,255,0.18) 52%,
+            transparent 75%);
+          background-size: 220% 100%;
+          background-position: -120% 0;
+          mix-blend-mode: overlay;
+          pointer-events: none;
+          opacity: 0;
+          animation: refractGlide 5.2s ease-in-out infinite;
+        }
+      `}</style>
       <div
-        className="inline-flex items-center gap-2.5 px-4 py-2 rounded-pill text-white"
+        className="inline-flex items-center gap-2.5 px-4 py-2 rounded-pill text-white relative overflow-hidden pill-breathe pill-refract"
         style={pillStyle}
       >
         {(state === 'recording' || state === 'stopping') && (
