@@ -155,6 +155,13 @@ export default function OnboardingApp() {
 
   return (
     <div className="min-h-screen bg-paper text-ink font-sans flex flex-col relative overflow-hidden">
+      {/* OS drag strip — full width, top 32px. Required for hiddenInset
+          windows; without it the renderer captures clicks and the
+          window can't be moved when focused. */}
+      <div
+        className="absolute top-0 left-0 right-0 h-8 z-50"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
       {/* Drifting volt blob — soft, slow, decorative. Adds depth without
           stealing focus. Sits behind everything via -z-10. */}
       <div

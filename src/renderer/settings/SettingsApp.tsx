@@ -29,7 +29,16 @@ export default function SettingsApp() {
   }, [tab])
 
   return (
-    <div className="flex h-screen bg-paper text-ink select-none font-sans">
+    <div className="flex h-screen bg-paper text-ink select-none font-sans relative">
+      {/* Drag strip — full window width, top 32px. Without an explicit
+          -webkit-app-region drag area, hiddenInset windows can't be
+          moved when focused (the renderer captures the click before the
+          OS does). Buttons inside the sidebar sit BELOW this strip in
+          z-order so they remain clickable. */}
+      <div
+        className="absolute top-0 left-0 right-0 h-8 z-10"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
       <aside className="w-[200px] bg-[#F2F0E8] border-r border-ink-08 pt-9 px-3 flex flex-col shrink-0">
         <div className="flex items-center gap-2 px-2 pb-4 mb-3 border-b border-ink-08">
           <div className="w-6 h-6 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[11px] font-bold font-display italic">O</div>

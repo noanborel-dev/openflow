@@ -112,10 +112,18 @@ function createSettingsWindow(): BrowserWindow {
   }
 
   const win = new BrowserWindow({
-    width: 720,
-    height: 560,
+    // Sized to fit the redesigned hero cards comfortably without
+    // forcing scroll on the most common tabs (Provider, Polish, About).
+    width: 980,
+    height: 740,
+    minWidth: 820,
+    minHeight: 600,
     show: false,
     titleBarStyle: 'hiddenInset',
+    // Inset the traffic lights so they sit centered in our 30px drag
+    // strip — without this they collide with the OpenFlow wordmark in
+    // the sidebar.
+    trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#FAFAF5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -143,11 +151,12 @@ function createOnboardingWindow(): BrowserWindow {
   }
 
   const win = new BrowserWindow({
-    width: 560,
-    height: 540,
+    width: 880,
+    height: 680,
     resizable: false,
     show: false,
     titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#FAFAF5',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
