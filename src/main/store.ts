@@ -24,7 +24,6 @@ const defaults: Settings = {
     work: 3,
     writing: 2,
   },
-  voiceEnrolled: false,
   inputDeviceId: null,
   audioCues: true,
 }

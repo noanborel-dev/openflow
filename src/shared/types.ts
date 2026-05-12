@@ -57,7 +57,6 @@ export interface Settings {
   indicatorPosition: { x: number; y: number } | null
   userDictionary: string[]   // user-added terms biased into Whisper transcription
   strictness: CategoryStrictness
-  voiceEnrolled: boolean   // whether the user has completed voice enrollment
   inputDeviceId: string | null   // mic deviceId picked by the user; null = system default
   audioCues: boolean   // play a subtle blip when recording starts and ends
 }
@@ -80,7 +79,6 @@ export const IPC = {
   SETTINGS_SET: 'settings:set',
   PROVIDER_TEST: 'provider:test',
   HISTORY_GET: 'history:get',
-  PASTE_LAST: 'paste:last',
   OPEN_SETTINGS: 'open-settings',
   OPEN_ONBOARDING: 'open-onboarding',
   MIC_PERMISSION: 'mic:permission',
