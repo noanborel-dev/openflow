@@ -24,7 +24,14 @@ export function modelsDir(): string {
 // detection pass adds ~30-50ms per call.
 export type LocalModelId = 'base.en' | 'small.en' | 'large-v3-turbo'
 
-export const DEFAULT_LOCAL_MODEL: LocalModelId = 'small.en'
+// Accurate (large-v3-turbo) by default. With useFlashAttn enabled and
+// the pipeline fixes (press-time AX probe, cleanup-skip for short
+// transcripts) it hits ~500ms warm on M-series, which is the target.
+// Multilingual + best accuracy on brand names and technical terms —
+// real differences vs small.en on dictations like "Claude Code" /
+// "useEffect" / "GPT-4". The tier picker is right there for users who
+// want to trade accuracy for raw speed.
+export const DEFAULT_LOCAL_MODEL: LocalModelId = 'large-v3-turbo'
 
 interface LocalModelInfo {
   id: LocalModelId

@@ -38,7 +38,7 @@ export default function OnboardingApp() {
   // Per-provider state so users can pick Groq / OpenAI / Anthropic and
   // each has its own key field. Matches the Settings → Provider tab.
   const [provider, setProvider] = useState<Provider>('local')
-  const [localModel, setLocalModel] = useState<LocalModelId>('small.en')
+  const [localModel, setLocalModel] = useState<LocalModelId>('large-v3-turbo')
   const [groqKey, setGroqKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
@@ -752,9 +752,9 @@ interface OnboardingModelMeta {
   recommended?: boolean
 }
 const ONBOARDING_MODELS: OnboardingModelMeta[] = [
-  { id: 'base.en',         name: 'Fast',     speed: '~80 ms',  size: '57 MB',  hint: 'English. Tiny + fastest.' },
-  { id: 'small.en',        name: 'Balanced', speed: '~200 ms', size: '181 MB', hint: 'English. Sub-300ms warm.', recommended: true },
-  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~900 ms', size: '547 MB', hint: 'Multilingual. Slower.' },
+  { id: 'base.en',         name: 'Fast',     speed: '~150 ms', size: '57 MB',  hint: 'English. Tiny + fastest.' },
+  { id: 'small.en',        name: 'Balanced', speed: '~300 ms', size: '181 MB', hint: 'English. Quick + accurate.' },
+  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~500 ms', size: '547 MB', hint: 'Multilingual. Best for brand names.', recommended: true },
 ]
 
 function OnboardingLocalPanel({

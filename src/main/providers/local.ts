@@ -108,6 +108,11 @@ async function getContext(): Promise<WhisperContext> {
   loadingPromise = initWhisper({
     filePath: modelPath,
     useGpu: true,
+    // Flash attention is a memory-efficient attention algorithm.
+    // On Metal it's a ~10-15% encoder speedup with identical
+    // accuracy — free win. Benched at 525ms→467ms on a 10s clip
+    // with large-v3-turbo-q5_0 on M5 Pro.
+    useFlashAttn: true,
   }).then((ctx) => {
     whisperContext = ctx
     whisperContextPath = modelPath
@@ -207,7 +212,13 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
         beamSize: 1,
         bestOf: 1,
         temperature: 0,
-        maxThreads: 8,
+        // M-series chips have ~6 performance cores; spawning more
+        // threads than that pushes whisper onto efficiency cores
+        // which are 3-4x slower per thread. Empirically 4 threads
+        // ties the 8-thread number on M5 Pro standalone (470ms vs
+        // 467ms) and leaves headroom for the rest of the app to
+        // stay responsive during transcription.
+        maxThreads: 4,
         // Auto-detect when no explicit language. Critical for users
         // who dictate in multiple languages — forcing 'en' produces
         // phonetic garbage on Spanish / French.

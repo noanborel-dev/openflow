@@ -16,9 +16,9 @@ interface LocalModelMeta {
 }
 
 const LOCAL_MODEL_META: LocalModelMeta[] = [
-  { id: 'base.en',         name: 'Fast',     speed: '~80 ms',  size: '57 MB',  description: 'English only. Tiny + ultra-fast. Some mistakes on names and acronyms.' },
-  { id: 'small.en',        name: 'Balanced', speed: '~200 ms', size: '181 MB', description: 'Sub-300ms warm. English only. Near-perfect for dictation.', recommended: true },
-  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~900 ms', size: '547 MB', description: 'Highest accuracy. Multilingual. Slower — best for non-English or noisy audio.' },
+  { id: 'base.en',         name: 'Fast',     speed: '~150 ms', size: '57 MB',  description: 'English only. Tiny + ultra-fast. Some mistakes on brand names and acronyms.' },
+  { id: 'small.en',        name: 'Balanced', speed: '~300 ms', size: '181 MB', description: 'English only. Quick + near-perfect for conversational dictation.' },
+  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~500 ms', size: '547 MB', description: 'Multilingual. Best accuracy on technical terms and brand names.', recommended: true },
 ]
 
 interface ProviderInfo {
