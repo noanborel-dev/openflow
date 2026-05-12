@@ -321,9 +321,10 @@ function setupHotkeys(): void {
       // Warm the focused-app cache while the user is speaking. The
       // pipeline reads it synchronously when AUDIO_DONE arrives.
       captureFocusedApp()
+      // Re-position to the user's current display in case they've moved
+      // monitors since the last recording. The window itself stays
+      // always-visible across Spaces — no show/hide.
       positionIndicatorOnActiveDisplay()
-      indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-      indicatorWindow?.showInactive()
       broadcastState('recording')
     },
     onStop: () => {
@@ -351,22 +352,14 @@ function setupHotkeys(): void {
       if (!last) {
         broadcastState('error:nothing to paste')
         positionIndicatorOnActiveDisplay()
-        indicatorWindow?.showInactive()
-        setTimeout(() => {
-          broadcastState('idle')
-          indicatorWindow?.hide()
-        }, 1800)
+        setTimeout(() => broadcastState('idle'), 1800)
         return
       }
       pasteText(last.cleaned)
         .then(({ method }) => {
           positionIndicatorOnActiveDisplay()
-          indicatorWindow?.showInactive()
           broadcastState(method === 'clipboard' ? 'clipboard' : 'done')
-          setTimeout(() => {
-            broadcastState('idle')
-            indicatorWindow?.hide()
-          }, method === 'clipboard' ? 6000 : 1500)
+          setTimeout(() => broadcastState('idle'), method === 'clipboard' ? 6000 : 1500)
         })
         .catch(err => logError('Paste-last failed', err))
     },
@@ -388,11 +381,7 @@ function setupAudioIpc(): void {
     const stillLatest = () => mySession === sessionId
 
     if (audioBuffer.length < 500) {
-      if (stillLatest()) {
-        broadcastState('idle')
-        indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-        indicatorWindow?.hide()
-      }
+      if (stillLatest()) broadcastState('idle')
       return
     }
 
@@ -418,11 +407,7 @@ function setupAudioIpc(): void {
         }
         const dismissAfter = isClipboard ? 2200 : 1500
         setTimeout(() => {
-          if (stillLatest()) {
-            broadcastState('idle')
-            indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-            indicatorWindow?.hide()
-          }
+          if (stillLatest()) broadcastState('idle')
         }, dismissAfter)
       }
     } catch (err) {
@@ -439,11 +424,7 @@ function setupAudioIpc(): void {
         broadcastState(`error:${userErr.userMessage}`)
         const dismissAfter = userErr.code === 'NO_SPEECH' ? 2200 : 4000
         setTimeout(() => {
-          if (stillLatest()) {
-            broadcastState('idle')
-            indicatorWindow?.setIgnoreMouseEvents(true, { forward: true })
-            indicatorWindow?.hide()
-          }
+          if (stillLatest()) broadcastState('idle')
         }, dismissAfter)
       }
     }
@@ -482,6 +463,18 @@ app.whenReady().then(() => {
   setupIpcListeners()
 
   indicatorWindow = createIndicatorWindow()
+  // Show the indicator window immediately at app start so it joins the
+  // macOS window tracker with collectionBehavior = canJoinAllSpaces.
+  // The renderer returns null while state is 'idle', so the transparent
+  // window is invisible — but it's "alive" in the OS and follows the
+  // user across every Space.
+  //
+  // Critical: hide() / show() pairs during state transitions used to
+  // intermittently strand the pill on the Space where it was last
+  // shown. Keeping the window always-visible (and emptying its
+  // content via renderer state) eliminates that race.
+  indicatorWindow.setIgnoreMouseEvents(true, { forward: true })
+  indicatorWindow.showInactive()
   setupTray()
   setupHotkeys()
   // Pre-spawn the AppleScript helper so the first paste doesn't pay
