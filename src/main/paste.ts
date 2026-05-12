@@ -3,7 +3,6 @@ import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
 import { logInfo } from './log'
 import { getFocusedApp } from './focused-app'
-import { getFocusedAXRoleCached } from './selection'
 
 const exec = promisify(execFile)
 
@@ -63,6 +62,38 @@ const NON_PASTEABLE_ROLES = new Set([
   'AXDisclosureTriangle',
 ])
 
+// Live AX-role probe — fired at paste time (or by the pipeline,
+// concurrently with cleanup, so the wait overlaps with LLM latency
+// and adds no hot-path time). Returns the role of whatever has
+// keyboard focus AT THE MOMENT THE PROMISE IS CREATED, which is the
+// only reading that makes sense — the user might have moved between
+// apps while dictating.
+const FOCUSED_ROLE_SCRIPT = `
+tell application "System Events"
+  try
+    set frontApp to first application process whose frontmost is true
+    try
+      set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
+      return value of attribute "AXRole" of focusedEl
+    on error
+      return "no-focus"
+    end try
+  on error
+    return "script-error"
+  end try
+end tell
+`
+
+export async function probeFocusedAXRole(): Promise<string> {
+  if (process.platform !== 'darwin') return 'script-error'
+  try {
+    const { stdout } = await exec('osascript', ['-e', FOCUSED_ROLE_SCRIPT])
+    return stdout.trim() || 'script-error'
+  } catch {
+    return 'script-error'
+  }
+}
+
 // Apps where AXGroup / AXScrollArea / generic roles mean "no text
 // destination". For these we require an EXPLICIT text-input role
 // before allowing paste; everything else routes to the fallback.
@@ -99,18 +130,21 @@ function canPasteIntoRole(role: string, bundleId: string): boolean {
   return true
 }
 
-export async function pasteText(text: string): Promise<{ method: 'paste' | 'clipboard' }> {
+export async function pasteText(
+  text: string,
+  // The pipeline kicks off the AX-role probe concurrently with the
+  // cleanup LLM so the result is ready when paste runs — no extra
+  // hot-path osascript. Callers that don't have one (paste-last from
+  // history, etc.) get a fresh probe fired here.
+  rolePromise?: Promise<string>,
+): Promise<{ method: 'paste' | 'clipboard' }> {
   clipboard.writeText(text)
 
   if (process.platform !== 'darwin') {
     return { method: 'clipboard' }
   }
 
-  // Pre-check uses the AX role captured at hotkey-press time (see
-  // selection.ts → captureFocusedContext). That osascript already ran
-  // and resolved while the user was speaking, so this lookup is
-  // synchronous — zero hot-path roundtrip.
-  const role = getFocusedAXRoleCached()
+  const role = await (rolePromise ?? probeFocusedAXRole())
   const { bundleId } = getFocusedApp()
   const canPaste = canPasteIntoRole(role, bundleId)
   logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })

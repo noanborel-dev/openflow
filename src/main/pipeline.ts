@@ -13,7 +13,7 @@ import {
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
 import { getFocusedApp } from './focused-app'
-import { pasteText } from './paste'
+import { pasteText, probeFocusedAXRole } from './paste'
 import { logInfo, logError } from './log'
 import { NoSpeechError } from './errors'
 
@@ -285,6 +285,15 @@ export async function runDictationPipeline(
   // clean text, so we prefer raw Whisper output (already excellent for
   // most English / Spanish / French dictation) unless cleanup is needed.
   let cleaned = transcript
+  // Kick off the AX-role probe NOW — concurrently with whatever
+  // cleanup work follows. By the time pasteText awaits this promise,
+  // the osascript will have completed during the cleanup LLM's
+  // network roundtrip, costing the hot path effectively zero.
+  // Critically, this fires at the moment the user releases the hotkey
+  // (paste time), so the probe reflects wherever they're focused
+  // NOW — not where they were when they started talking.
+  const axRolePromise = probeFocusedAXRole()
+
   if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
   } else {
@@ -317,7 +326,7 @@ export async function runDictationPipeline(
   // the LLM never ran.
   cleaned = applyQuickFixes(cleaned)
 
-  const { method: pasteMethod } = await pasteText(cleaned)
+  const { method: pasteMethod } = await pasteText(cleaned, axRolePromise)
   logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
 
   onState('done')

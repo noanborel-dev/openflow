@@ -14,7 +14,7 @@ import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
-import { captureFocusedContext, clearSelectedText, getSelectedText } from './selection'
+import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
 import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
@@ -319,14 +319,15 @@ function setupHotkeys(): void {
     onStart: () => {
       sessionId++
       audioChunks.length = 0
-      // Warm focused-app + focused-element context (AX role + selected
-      // text) in parallel while the user speaks. By AUDIO_DONE / paste
-      // time, both osascript calls have long since finished — so the
-      // hot path doesn't pay another roundtrip. captureFocusedContext
-      // bundles AXRole + AXSelectedText into one osascript instead of
-      // two, saving another ~50ms.
+      // Warm caches that need press-time intent: focused app (for the
+      // cleanup category prompt) and selected text (for command-mode
+      // rewrite). The AX-role check for "is the paste destination
+      // actually pasteable" happens at paste time inside the pipeline,
+      // concurrently with the cleanup LLM — that one must reflect the
+      // CURRENT focus, not the press-time focus, because the user can
+      // move between apps while dictating.
       captureFocusedApp()
-      captureFocusedContext()
+      captureSelectedText()
       // Re-position to the user's current display in case they've moved
       // monitors since the last recording. The window itself stays
       // always-visible across Spaces — no show/hide.
