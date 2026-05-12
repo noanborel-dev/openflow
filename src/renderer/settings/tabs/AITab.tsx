@@ -2,14 +2,18 @@ import { useEffect, useState } from 'react'
 import { SectionHero } from '../../shared/ui/SectionHero'
 import { BrandLogo } from '../../shared/ui/BrandLogo'
 
-// AI tab — two visual mocks, both animated.
+// AI tab — two visual mocks.
 //
-//   HERO: chat input morphs from rambly dictation to a clean prompt
-//   when OpenFlow detects you're in a chatbot.
+//   HERO: chat-input morph for AI-context prompt engineering.
 //
-//   BODY: cycles through realistic mockups of iMessage / Gmail / Notion.
-//   Each mock includes the actual app's sidebar / chrome / signature
-//   elements so the user recognizes it at a glance.
+//   BODY: cycles through realistic app mockups (iMessage / Gmail /
+//   Notion). Each shows the full screen-recording moment:
+//     1. cursor drags across text → native blue selection appears
+//     2. OpenFlow indicator pill fades in at the bottom in
+//        "listening" state with a live-style waveform
+//     3. spoken instruction bubble appears
+//     4. selected text fades to the rewritten version
+//     5. pill fades out
 
 export default function AITab() {
   return (
@@ -30,7 +34,7 @@ export default function AITab() {
   )
 }
 
-// ─── Hero: chat-input morph ────────────────────────────────────────
+// ─── Hero: chat-input morph (unchanged) ────────────────────────────
 
 function ChatPromptMock() {
   return (
@@ -64,11 +68,10 @@ function ChatPromptMock() {
   )
 }
 
-// ─── Body cycle: realistic per-app mockups ─────────────────────────
+// ─── Body: cycling realistic app mockups ──────────────────────────
 
 type Scenario = 'imessage' | 'gmail' | 'notion'
 const ORDER: Scenario[] = ['imessage', 'gmail', 'notion']
-
 const INSTRUCTIONS: Record<Scenario, string> = {
   imessage: "make this casual",
   gmail:    "make it more formal",
@@ -78,7 +81,7 @@ const INSTRUCTIONS: Record<Scenario, string> = {
 function AppMockCycle() {
   const [idx, setIdx] = useState(0)
   useEffect(() => {
-    const id = window.setInterval(() => setIdx((i) => (i + 1) % ORDER.length), 5600)
+    const id = window.setInterval(() => setIdx((i) => (i + 1) % ORDER.length), 6400)
     return () => window.clearInterval(id)
   }, [])
   const s = ORDER[idx]
@@ -91,7 +94,7 @@ function AppMockCycle() {
         {s === 'notion'   && <NotionMock   instruction={INSTRUCTIONS.notion} />}
       </div>
 
-      <div className="flex items-center justify-center gap-1.5 pb-3 pt-1 border-t border-ink-08 bg-paper/40">
+      <div className="flex items-center justify-center gap-1.5 pb-3 pt-2 border-t border-ink-08 bg-paper/40">
         {ORDER.map((_, i) => (
           <button
             key={i}
@@ -108,103 +111,224 @@ function AppMockCycle() {
   )
 }
 
-// Spoken-instruction bubble that pops in mid-cycle. Anchored absolutely
-// over the mock so users see it pointing at the highlighted region.
-function InstructionBubble({ text, side = 'right', y = '50%' }: {
-  text: string; side?: 'left' | 'right'; y?: string
-}) {
+// ─── Shared bits ───────────────────────────────────────────────────
+
+// macOS-style window controls. Order: close / minimize / zoom.
+function TrafficLights() {
   return (
-    <div
-      className="absolute z-10"
-      style={{ [side]: 12, top: y, transform: 'translateY(-50%)' }}
-    >
-      <style>{`
-        @keyframes ai-bubble {
-          0%, 25%   { opacity: 0; transform: translateY(calc(-50% + 8px)); }
-          35%, 80%  { opacity: 1; transform: translateY(-50%); }
-          90%, 100% { opacity: 0; transform: translateY(calc(-50% + 4px)); }
-        }
-        .ai-bubble { animation: ai-bubble 5.6s ease-in-out infinite; }
-      `}</style>
-      <div className="ai-bubble bg-[#3F2570] text-[#F0E6FF] text-[11px] px-3 py-1.5 rounded-pill leading-snug shadow-lg whitespace-nowrap">
-        <span className="text-[#F0E6FF]/60 mr-1.5 text-[9px] font-mono uppercase tracking-wider">you say</span>
-        "{text}"
-      </div>
+    <div className="flex items-center gap-1.5">
+      <span className="w-[10px] h-[10px] rounded-full bg-[#FF5F57]" />
+      <span className="w-[10px] h-[10px] rounded-full bg-[#FEBC2E]" />
+      <span className="w-[10px] h-[10px] rounded-full bg-[#28C840]" />
     </div>
   )
 }
 
-// Within-mock fade keyframes — same timing across all three mocks so
-// users learn the rhythm: ~38% before fades out, after fades in.
-const FADE_STYLES = `
-  @keyframes ai-before { 0%, 38% { opacity: 1; } 48%, 100% { opacity: 0; } }
-  @keyframes ai-after  { 0%, 44% { opacity: 0; } 56%, 100% { opacity: 1; } }
-  .ai-before { animation: ai-before 5.6s ease-in-out infinite; }
-  .ai-after  { animation: ai-after  5.6s ease-in-out infinite; }
+// macOS pointer-arrow cursor sprite. Positioned absolutely by the
+// parent mock and animated via the shared keyframes below.
+function MacCursor() {
+  return (
+    <svg width="14" height="20" viewBox="0 0 14 20" className="drop-shadow-md pointer-events-none">
+      <path
+        d="M1.5,1 L1.5,15.2 L5,12.2 L7,17 L9,16.2 L7,11.4 L12.2,11.4 Z"
+        fill="white"
+        stroke="black"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+// Mini replica of the actual indicator pill. Shows the listening state
+// while the user is dictating, with a six-bar cobalt waveform.
+function MiniPill({ state = 'listening' }: { state?: 'listening' | 'polishing' }) {
+  return (
+    <div
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill text-white"
+      style={{
+        background: 'linear-gradient(180deg, rgba(18,20,26,0.92) 0%, rgba(14,16,22,0.88) 100%)',
+        border: '1px solid rgba(255,255,255,0.14)',
+        boxShadow:
+          'inset 0 1px 0 rgba(255,255,255,0.36), inset 0 -1px 0 rgba(0,0,0,0.4), ' +
+          '0 6px 14px -6px rgba(0,0,0,0.55)',
+      }}
+    >
+      {state === 'listening' ? (
+        <>
+          <span className="w-1.5 h-1.5 rounded-full bg-[#E84A3A]" style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }} />
+          <div className="flex items-end gap-[1.5px] h-2.5">
+            <span className="mini-bar mini-bar-1 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
+            <span className="mini-bar mini-bar-2 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
+            <span className="mini-bar mini-bar-3 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
+            <span className="mini-bar mini-bar-4 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
+            <span className="mini-bar mini-bar-5 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
+          </div>
+        </>
+      ) : (
+        <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-white/30 border-t-[#5A8FE8] animate-spin" />
+      )}
+      <span
+        className="text-[10px] leading-none ml-0.5"
+        style={{
+          fontStyle: 'italic',
+          fontFamily: '"Instrument Serif", Georgia, serif',
+        }}
+      >
+        {state}
+      </span>
+    </div>
+  )
+}
+
+// All app mocks share this animation timeline so they read as the same
+// flow at different surfaces:
+//
+//   0–15%   app at rest
+//   15–30%  cursor drags across text, native-blue selection grows
+//   30–55%  cursor fades, OpenFlow pill enters listening, instruction
+//           bubble pops in, raw text starts to fade
+//   55–75%  cleaned text fades in
+//   75–95%  pill switches to polishing → fades out, instruction fades
+//   95–100% hold final
+//
+// 6.4s total per cycle.
+const TIMELINE_STYLES = `
+  @keyframes mock-cursor {
+    0%, 8%      { opacity: 0; transform: translate(0%, 0); }
+    13%         { opacity: 1; transform: translate(0%, 0); }
+    27%         { opacity: 1; transform: translate(100%, 0); }
+    32%, 100%   { opacity: 0; transform: translate(100%, 0); }
+  }
+  @keyframes mock-selection {
+    0%, 12%     { transform: scaleX(0); }
+    27%         { transform: scaleX(1); }
+    62%         { transform: scaleX(1); opacity: 1; }
+    68%, 100%   { transform: scaleX(1); opacity: 0; }
+  }
+  @keyframes mock-before {
+    0%, 50%     { opacity: 1; }
+    62%, 100%   { opacity: 0; }
+  }
+  @keyframes mock-after  {
+    0%, 58%     { opacity: 0; }
+    70%, 100%   { opacity: 1; }
+  }
+  @keyframes mock-pill {
+    0%, 28%     { opacity: 0; transform: translateY(8px); }
+    35%, 78%    { opacity: 1; transform: translateY(0); }
+    85%, 100%   { opacity: 0; transform: translateY(4px); }
+  }
+  @keyframes mock-instr {
+    0%, 32%     { opacity: 0; transform: translateY(6px); }
+    40%, 70%    { opacity: 1; transform: translateY(0); }
+    78%, 100%   { opacity: 0; transform: translateY(4px); }
+  }
+  @keyframes mock-bar1 { 0%,100% { height: 4px; } 50% { height: 9px; } }
+  @keyframes mock-bar2 { 0%,100% { height: 7px; } 50% { height: 2px; } }
+  @keyframes mock-bar3 { 0%,100% { height: 9px; } 50% { height: 5px; } }
+  @keyframes mock-bar4 { 0%,100% { height: 3px; } 50% { height: 8px; } }
+  @keyframes mock-bar5 { 0%,100% { height: 6px; } 50% { height: 2px; } }
+
+  .mock-cursor    { animation: mock-cursor 6.4s ease-in-out infinite; }
+  .mock-selection { animation: mock-selection 6.4s ease-in-out infinite; transform-origin: left center; }
+  .mock-before    { animation: mock-before 6.4s ease-in-out infinite; }
+  .mock-after     { animation: mock-after 6.4s ease-in-out infinite; }
+  .mock-pill      { animation: mock-pill 6.4s ease-in-out infinite; }
+  .mock-instr     { animation: mock-instr 6.4s ease-in-out infinite; }
+  .mini-bar-1 { animation: mock-bar1 0.7s ease-in-out infinite; }
+  .mini-bar-2 { animation: mock-bar2 0.6s ease-in-out infinite; }
+  .mini-bar-3 { animation: mock-bar3 0.55s ease-in-out infinite; }
+  .mini-bar-4 { animation: mock-bar4 0.65s ease-in-out infinite; }
+  .mini-bar-5 { animation: mock-bar5 0.5s ease-in-out infinite; }
 `
 
-// ─── iMessage mock — sidebar conversation list + thread ────────────
+// ─── iMessage mock ─────────────────────────────────────────────────
 
 function IMessageMock({ instruction }: { instruction: string }) {
   return (
-    <div className="relative grid grid-cols-[170px_1fr] h-[300px] bg-[#f5f5f7]">
-      <style>{FADE_STYLES}</style>
+    <div className="relative bg-[#f2f2f7] h-[320px] overflow-hidden">
+      <style>{TIMELINE_STYLES}</style>
 
-      {/* Sidebar: conversation list */}
-      <div className="border-r border-ink-08/70 bg-[#ececec] flex flex-col">
-        <div className="px-2.5 pt-2 pb-1.5">
-          <div className="bg-white rounded-[6px] h-[20px] flex items-center px-2 text-[9px] text-ink-45">🔍 Search</div>
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <Conv name="Trev Smith" preview="Gotcha covered!" time="Yesterday" color="#f59e0b" />
-          <Conv name="Antonio Manriquez" preview="Is your mind blown?" time="Sunday" color="#94a3b8" />
-          <Conv name="Hiker Neighbors" preview="Reacted ❤️ to 'Guess who…'" time="Sunday" color="#94a3b8" />
-          <Conv name="Orkun" preview="Looking forward to Friday!" time="Sunday" color="#fb923c" selected />
-          <Conv name="Xiaomeng Zhong" preview="Now you've got me thinking…" time="Sunday" color="#3b82f6" />
-        </div>
+      {/* macOS window chrome */}
+      <div className="px-3 py-2 bg-[#ececec] border-b border-ink-08/60 flex items-center gap-3">
+        <TrafficLights />
       </div>
 
-      {/* Thread */}
-      <div className="relative flex flex-col bg-white">
-        {/* Conversation header */}
-        <div className="px-3 py-2 border-b border-ink-08/50 flex flex-col items-center">
-          <div className="w-7 h-7 rounded-full bg-[#fb923c] mb-0.5" />
-          <div className="text-[10.5px] font-medium leading-none">Orkun ›</div>
-        </div>
-        {/* Bubbles */}
-        <div className="flex-1 px-3 py-2.5 space-y-1.5 overflow-hidden">
-          <div className="flex justify-end">
-            <div className="bg-[#34c759] text-white text-[11px] px-3 py-1.5 rounded-[14px] rounded-br-[4px] max-w-[75%] leading-snug">
-              Family game night Friday — could we borrow your puzzles, please?
+      <div className="grid grid-cols-[170px_1fr] h-[calc(100%-80px)]">
+        {/* Sidebar */}
+        <div className="border-r border-ink-08/60 bg-[#f6f6f6] flex flex-col">
+          <div className="px-2.5 pt-2 pb-1.5">
+            <div className="bg-white rounded-[6px] h-[20px] flex items-center px-2 text-[9px] text-ink-45 shadow-[0_0_0_0.5px_rgba(0,0,0,0.1)]">
+              <span className="text-[9px]">🔍</span>
+              <span className="ml-1.5">Search</span>
             </div>
           </div>
-          <div className="flex justify-start">
-            <div className="bg-[#e9e9eb] text-ink text-[11px] px-3 py-1.5 rounded-[14px] rounded-bl-[4px] max-w-[75%] leading-snug">
-              Of course! I'll drop a few off after work.
-            </div>
-          </div>
-          {/* The draft (what's morphing) — still in the conversation
-              as the most recent sent bubble, with a violet selection
-              halo to signal it's the one being rewritten. */}
-          <div className="flex justify-end">
-            <div className="relative min-w-[210px] max-w-[80%]">
-              <div className="ai-before bg-[#34c759] text-white text-[11px] px-3 py-1.5 rounded-[14px] rounded-br-[4px] leading-snug ring-2 ring-[#6B46C1]/50">
-                I regret to inform you that I will be unable to attend tonight
-              </div>
-              <div className="ai-after absolute inset-0 bg-[#34c759] text-white text-[11px] px-3 py-1.5 rounded-[14px] rounded-br-[4px] leading-snug">
-                yo can't make it tonight — rain check?
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Compose bar */}
-        <div className="px-3 py-1.5 border-t border-ink-08/50 bg-white flex items-center gap-2">
-          <span className="text-[#007aff] text-[14px] leading-none">+</span>
-          <div className="flex-1 bg-white border border-ink-08 rounded-pill h-5 text-[9.5px] text-ink-45 flex items-center px-2">iMessage</div>
-          <span className="text-ink-45 text-[12px]">🎙</span>
+          <Conv name="Trev Smith" preview="Gotcha covered!" time="Yesterday" color="#f59e0b" />
+          <Conv name="Antonio Manriquez" preview="Is your mind blown?" time="Sunday" color="#94a3b8" />
+          <Conv name="Hiker Neighbors" preview="Reacted ❤️ to 'Guess who…'" time="Sunday" color="#a78bfa" />
+          <Conv name="Orkun" preview="Looking forward to Friday!" time="Sunday" color="#fb923c" selected />
+          <Conv name="Xiaomeng Zhong" preview="Got me thinking about…" time="Sunday" color="#3b82f6" />
+          <Conv name="Aileen & Rich" preview="Hope the little ones…" time="Saturday" color="#64748b" />
         </div>
 
-        <InstructionBubble text={instruction} side="right" y="60%" />
+        {/* Thread */}
+        <div className="relative flex flex-col bg-white">
+          <div className="px-3 py-1.5 border-b border-ink-08/40 flex flex-col items-center bg-white/85 backdrop-blur-sm">
+            <div className="w-6 h-6 rounded-full bg-[#fb923c] mb-0.5" />
+            <div className="text-[10px] font-medium leading-none flex items-center gap-0.5">Orkun <span className="text-ink-45">›</span></div>
+          </div>
+
+          <div className="flex-1 px-3 py-2.5 space-y-1.5 overflow-hidden">
+            <div className="flex justify-end">
+              <div className="bg-[#34c759] text-white text-[11px] px-2.5 py-1.5 rounded-[15px] rounded-br-[4px] max-w-[80%] leading-snug shadow-sm">
+                Like a jigsaw puzzle?
+              </div>
+            </div>
+            <div className="flex justify-start">
+              <div className="bg-[#e9e9eb] text-ink text-[11px] px-2.5 py-1.5 rounded-[15px] rounded-bl-[4px] max-w-[80%] leading-snug">
+                Oh! I forgot you collect puzzles 🧩
+              </div>
+            </div>
+            {/* The bubble being rewritten */}
+            <div className="flex justify-end">
+              <div className="relative max-w-[80%]">
+                <div className="bg-[#34c759] text-white text-[11px] px-2.5 py-1.5 rounded-[15px] rounded-br-[4px] leading-snug shadow-sm">
+                  <span className="mock-before">
+                    {/* Native-blue selection layer behind the text */}
+                    <span
+                      className="mock-selection absolute inset-x-2.5 inset-y-1.5 rounded-[2px]"
+                      style={{ background: 'rgba(0,122,255,0.42)' }}
+                    />
+                    <span className="relative">I regret to inform you that I will be unable to attend tonight</span>
+                  </span>
+                  <span className="mock-after absolute inset-0 px-2.5 py-1.5">yo can't make it tonight — rain check?</span>
+                </div>
+                {/* Cursor parked at the end of the selection during the drag */}
+                <div className="mock-cursor absolute left-2 top-1.5">
+                  <MacCursor />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-3 py-1.5 border-t border-ink-08/40 bg-white flex items-center gap-2">
+            <span className="text-[#007aff] text-[14px] leading-none">+</span>
+            <div className="flex-1 bg-white border border-ink-08/80 rounded-pill h-5 flex items-center px-2 text-[9.5px] text-ink-45">iMessage</div>
+            <span className="text-ink-45 text-[12px]">🎙</span>
+          </div>
+
+          {/* OpenFlow pill at the bottom, overlaid on the thread */}
+          <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-9 pointer-events-none">
+            <MiniPill />
+          </div>
+          {/* Spoken instruction floats above the pill */}
+          <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[78px] pointer-events-none">
+            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+              "{instruction}"
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -230,73 +354,100 @@ function Conv({ name, preview, time, color, selected }: {
   )
 }
 
-// ─── Gmail mock — sidebar + floating compose ───────────────────────
+// ─── Gmail mock ────────────────────────────────────────────────────
 
 function GmailMock({ instruction }: { instruction: string }) {
   return (
-    <div className="relative h-[300px] bg-[#f6f8fc]">
-      <style>{FADE_STYLES}</style>
+    <div className="relative h-[320px] bg-[#f6f8fc] overflow-hidden">
+      <style>{TIMELINE_STYLES}</style>
 
-      {/* Top bar */}
+      {/* Browser window chrome */}
+      <div className="px-3 py-2 bg-[#ececec] border-b border-ink-08/60 flex items-center gap-3">
+        <TrafficLights />
+        <div className="flex-1 bg-white border border-ink-08 rounded-[6px] h-5 max-w-[320px] flex items-center px-2.5 text-[9.5px] text-ink-45">
+          🔒 mail.google.com/mail/u/0/#inbox
+        </div>
+      </div>
+
+      {/* Gmail top bar */}
       <div className="px-3 py-1.5 border-b border-ink-08/60 bg-white flex items-center gap-3">
         <div className="flex items-center gap-1.5">
           <BrandLogo brand="gmail" size={16} />
           <span className="text-[12px] font-medium text-ink-60 tracking-tight">Gmail</span>
         </div>
-        <div className="flex-1 max-w-[280px] bg-[#eaf1fb] rounded-[6px] h-5 flex items-center px-2 text-[9px] text-ink-45">
+        <div className="flex-1 max-w-[260px] bg-[#eaf1fb] rounded-[6px] h-5 flex items-center px-2 text-[9px] text-ink-45">
           🔍  Search mail
         </div>
+        <div className="w-5 h-5 rounded-full bg-[#1a73e8]" />
       </div>
 
-      <div className="grid grid-cols-[100px_1fr] h-[calc(100%-30px)]">
+      <div className="grid grid-cols-[110px_1fr] h-[calc(100%-72px)]">
         {/* Sidebar */}
-        <div className="bg-white border-r border-ink-08/50 py-2 px-2 space-y-0.5 text-[10px]">
-          <div className="bg-[#c2e7ff] text-[#001d35] font-medium rounded-pill px-2.5 py-1 inline-flex items-center gap-1 text-[10.5px]">
-            <span>+</span> Compose
+        <div className="bg-white border-r border-ink-08/40 py-2 px-1.5 space-y-0.5 text-[10px]">
+          <div className="bg-[#c2e7ff] text-[#001d35] font-medium rounded-pill px-2.5 py-1 inline-flex items-center gap-1 text-[10.5px] shadow-sm">
+            <span>✏️</span> Compose
           </div>
           <SideRow label="Inbox" count="21,333" active />
           <SideRow label="Starred" />
           <SideRow label="Snoozed" />
+          <SideRow label="Important" />
           <SideRow label="Sent" />
           <SideRow label="Drafts" count="146" />
         </div>
 
-        {/* Email list (dimmed background) */}
-        <div className="relative px-2 py-1.5">
+        {/* Mail list with the floating compose composer over it */}
+        <div className="relative px-2 py-1.5 bg-[#f6f8fc]">
           <EmailRow sender="Seeking Alpha" preview="Top income ideas. One day…" time="9:56 AM" />
           <EmailRow sender="Ideabrowser" preview="Idea of the Day: Lego brick scanner…" time="9:52 AM" />
-          <EmailRow sender="Daniel … Daniel 5" preview="Fwd: IMPORT JEEPCJ7" time="8:25 AM" />
+          <EmailRow sender="Daniel 5" preview="Fwd: IMPORT JEEPCJ7" time="8:25 AM" />
           <EmailRow sender="Marriott Bonvoy" preview="Earn double points this summer" time="Mon" />
-          <EmailRow sender="AI Automation Hub" preview="This week in AI infra" time="Mon" />
 
-          {/* Floating Compose window */}
-          <div className="absolute bottom-2 right-2 w-[260px] bg-white rounded-t-[6px] shadow-[0_-2px_8px_rgba(0,0,0,0.12)] border border-ink-08 overflow-hidden">
+          {/* Floating compose */}
+          <div className="absolute bottom-2 right-2 w-[280px] bg-white rounded-t-[8px] shadow-[0_-2px_12px_rgba(0,0,0,0.16)] border border-ink-08 overflow-hidden">
             <div className="bg-[#404040] text-white text-[10px] px-2.5 py-1 flex items-center justify-between">
-              <span>New Message</span>
+              <span className="font-medium">New Message</span>
               <span className="text-white/60 text-[10px] flex gap-1.5">— ⛶ ✕</span>
             </div>
-            <div className="px-2.5 py-1 border-b border-ink-08/40 text-[10px] text-ink-45 flex items-center gap-1">
-              <span>To</span><span className="text-ink">alex@company.com</span>
+            <div className="px-2.5 py-1 border-b border-ink-08/40 text-[10px] flex items-center gap-1">
+              <span className="text-ink-45">To</span>
+              <span className="text-ink">alex@company.com</span>
             </div>
-            <div className="px-2.5 py-1 border-b border-ink-08/40 text-[10px] text-ink-45 flex items-center gap-1">
-              <span>Subject</span><span className="text-ink">Meeting move</span>
+            <div className="px-2.5 py-1 border-b border-ink-08/40 text-[10px] flex items-center gap-1">
+              <span className="text-ink-45">Subject</span>
+              <span className="text-ink">Meeting move</span>
             </div>
-            <div className="px-2.5 py-2 min-h-[64px] relative">
-              <div className="ai-before text-[10.5px] leading-snug text-ink-60">
-                <span className="bg-[#6B46C1]/22 text-ink rounded-[2px] px-0.5">yo so basically the meeting got moved to like 3pm tomorrow lmk if that works</span>
+            <div className="px-2.5 py-2 min-h-[70px] relative">
+              <div className="mock-before relative text-[10.5px] leading-snug text-ink">
+                <span
+                  className="mock-selection absolute top-[1px] bottom-[1px] left-0 right-0 rounded-[2px]"
+                  style={{ background: 'rgba(0,122,255,0.32)' }}
+                />
+                <span className="relative">yo so basically the meeting got moved to like 3pm tomorrow lmk if that works</span>
               </div>
-              <div className="ai-after absolute inset-0 px-2.5 py-2 text-[10.5px] leading-snug text-ink">
+              <div className="mock-after absolute inset-0 px-2.5 py-2 text-[10.5px] leading-snug text-ink">
                 Heads up — the meeting is now at 3 PM tomorrow. Please let me know if that works.
+              </div>
+
+              <div className="mock-cursor absolute left-1 top-1">
+                <MacCursor />
               </div>
             </div>
             <div className="px-2.5 py-1.5 border-t border-ink-08/40 flex items-center gap-1.5">
               <div className="bg-[#0b57d0] text-white text-[10px] font-medium px-2.5 py-0.5 rounded">Send</div>
             </div>
           </div>
+
+          {/* OpenFlow pill overlaid mid-screen, above the composer */}
+          <div className="mock-pill absolute left-1/2 -translate-x-1/2 top-[44%] pointer-events-none">
+            <MiniPill />
+          </div>
+          <div className="mock-instr absolute left-1/2 -translate-x-1/2 top-[28%] pointer-events-none">
+            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+              "{instruction}"
+            </div>
+          </div>
         </div>
       </div>
-
-      <InstructionBubble text={instruction} side="left" y="58%" />
     </div>
   )
 }
@@ -315,8 +466,9 @@ function SideRow({ label, count, active }: { label: string; count?: string; acti
 
 function EmailRow({ sender, preview, time }: { sender: string; preview: string; time: string }) {
   return (
-    <div className="flex items-center gap-1.5 py-1 border-b border-ink-08/30 text-[9.5px]">
+    <div className="flex items-center gap-1.5 py-1 border-b border-ink-08/30 bg-white px-1.5 text-[9.5px]">
       <div className="w-3 h-3 rounded border border-ink-08" />
+      <span className="text-yellow-500 text-[10px]">☆</span>
       <span className="font-semibold text-ink truncate w-[60px] shrink-0">{sender}</span>
       <span className="text-ink-60 truncate flex-1">{preview}</span>
       <span className="text-ink-45 shrink-0">{time}</span>
@@ -324,52 +476,85 @@ function EmailRow({ sender, preview, time }: { sender: string; preview: string; 
   )
 }
 
-// ─── Notion mock — sidebar + page ──────────────────────────────────
+// ─── Notion mock ───────────────────────────────────────────────────
 
 function NotionMock({ instruction }: { instruction: string }) {
   return (
-    <div className="relative grid grid-cols-[150px_1fr] h-[300px] bg-white">
-      <style>{FADE_STYLES}</style>
+    <div className="relative h-[320px] bg-white overflow-hidden">
+      <style>{TIMELINE_STYLES}</style>
 
-      {/* Sidebar */}
-      <div className="border-r border-ink-08/60 bg-[#f7f6f3] py-2 px-1.5 text-[10px] flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5 px-1.5 py-1 text-ink-60">
-          <div className="w-3.5 h-3.5 bg-ink rounded text-paper text-[8px] flex items-center justify-center font-bold">A</div>
-          <span className="font-medium">Acme Inc.</span>
-          <span className="text-[8px] ml-auto">⌃</span>
+      {/* Browser-style chrome with the notion.so address */}
+      <div className="px-3 py-2 bg-[#ececec] border-b border-ink-08/60 flex items-center gap-3">
+        <TrafficLights />
+        <div className="flex-1 bg-white border border-ink-08 rounded-[6px] h-5 max-w-[260px] flex items-center px-2.5 text-[9.5px] text-ink-45">
+          🔒 notion.so
         </div>
-        <NotionRow icon="🔍" label="Quick Find" />
-        <NotionRow icon="⏱" label="All Updates" />
-        <NotionRow icon="⚙" label="Settings & Members" />
-        <div className="text-[8px] text-ink-45 font-semibold uppercase tracking-wider px-1.5 mt-2 mb-0.5">Workspace</div>
-        <NotionRow icon="🏠" label="Acme Home" active />
-        <NotionRow icon="📋" label="Applicant Tracker" />
-        <NotionRow icon="🚗" label="Roadmap" />
-        <NotionRow icon="📝" label="Meeting Notes" />
-        <NotionRow icon="📘" label="Task List" />
+        <div className="bg-white border border-ink-08 rounded text-[9.5px] px-2 py-0.5 flex items-center gap-1">
+          <span className="text-[10px]">N</span>
+          <span>🏠 Acme Home</span>
+        </div>
       </div>
 
-      {/* Page */}
-      <div className="relative px-5 py-3 overflow-hidden">
-        <div className="text-[10px] text-ink-45 mb-1.5 flex items-center gap-1">
-          <span>🏠</span><span>Acme Home / Engineering</span>
-        </div>
-        <div className="text-[22px] font-bold leading-tight mb-3">Project blockers</div>
-        <div className="relative">
-          <div className="ai-before text-[11px] leading-relaxed text-ink-60">
-            <span className="bg-[#6B46C1]/22 text-ink rounded-[2px] px-0.5">the project has three blockers right now design review pricing approval and the api migration</span>
+      <div className="grid grid-cols-[155px_1fr] h-[calc(100%-32px)]">
+        {/* Sidebar */}
+        <div className="border-r border-ink-08/60 bg-[#f7f6f3] py-2 px-1.5 text-[10px] flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5 px-1.5 py-1 text-ink-60">
+            <div className="w-3.5 h-3.5 bg-ink rounded text-paper text-[8px] flex items-center justify-center font-bold">A</div>
+            <span className="font-medium text-[10.5px]">Acme Inc.</span>
+            <span className="text-[8px] ml-auto">⇅</span>
           </div>
-          <div className="ai-after absolute inset-0 text-[11px] leading-relaxed text-ink">
-            <div className="mb-1.5">The project has three blockers:</div>
-            <div className="pl-2 space-y-0.5">
-              <div>•&nbsp; Design review</div>
-              <div>•&nbsp; Pricing approval</div>
-              <div>•&nbsp; API migration</div>
+          <NotionRow icon="🔍" label="Quick Find" />
+          <NotionRow icon="⏱" label="All Updates" />
+          <NotionRow icon="⚙" label="Settings & Members" />
+          <div className="text-[8px] text-ink-45 font-semibold uppercase tracking-wider px-1.5 mt-2 mb-0.5">Workspace</div>
+          <NotionRow icon="🏠" label="Acme Home" active />
+          <NotionRow icon="📋" label="Applicant Tracker" />
+          <NotionRow icon="🚗" label="Roadmap" />
+          <NotionRow icon="📝" label="Meeting Notes" />
+          <NotionRow icon="📘" label="Task List" />
+          <div className="text-[8px] text-ink-45 font-semibold uppercase tracking-wider px-1.5 mt-2 mb-0.5">Shared</div>
+          <div className="text-[8px] text-ink-45 font-semibold uppercase tracking-wider px-1.5 mt-1 mb-0.5">Private</div>
+        </div>
+
+        {/* Page */}
+        <div className="relative px-5 py-3 overflow-hidden">
+          <div className="text-[10px] text-ink-45 mb-1 flex items-center gap-1">
+            <span>🏠</span><span>Acme Home / Engineering</span>
+          </div>
+          <div className="text-[22px] font-bold leading-tight mb-3">Project blockers</div>
+
+          <div className="relative">
+            <div className="mock-before relative text-[11px] leading-relaxed text-ink">
+              <span
+                className="mock-selection absolute top-[1px] bottom-[1px] left-0 right-0 rounded-[2px]"
+                style={{ background: 'rgba(0,122,255,0.32)' }}
+              />
+              <span className="relative">the project has three blockers right now design review pricing approval and the api migration</span>
+            </div>
+            <div className="mock-after absolute inset-0 text-[11px] leading-relaxed text-ink">
+              <div className="mb-1.5">The project has three blockers:</div>
+              <div className="pl-2 space-y-0.5 text-ink-60">
+                <div>•&nbsp; Design review</div>
+                <div>•&nbsp; Pricing approval</div>
+                <div>•&nbsp; API migration</div>
+              </div>
+            </div>
+
+            <div className="mock-cursor absolute left-1 top-0.5">
+              <MacCursor />
+            </div>
+          </div>
+
+          {/* Pill + instruction */}
+          <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-8 pointer-events-none">
+            <MiniPill />
+          </div>
+          <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[68px] pointer-events-none">
+            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+              "{instruction}"
             </div>
           </div>
         </div>
-
-        <InstructionBubble text={instruction} side="right" y="62%" />
       </div>
     </div>
   )
