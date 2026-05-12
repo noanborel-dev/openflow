@@ -6,7 +6,7 @@ This file is auto-loaded every session. It tells you how to work in this repo. *
 
 ## What this is
 
-The marketing site for **OpenFlow** — an open-source macOS voice-dictation app that polishes your speech per destination (iMessage, Slack, Gmail, etc.) and pastes the cleaned result. The product lives one directory up at `/Users/noanborel/OpenFlow`. This landing page is its own project.
+The marketing site for **OpenFlow** — a macOS voice-dictation app that polishes your speech per destination (iMessage, Slack, Gmail, etc.) and pastes the cleaned result. **Closed-source commercial product** — do NOT describe as open source / MIT / auditable / forkable / "source is public." The differentiation angle is *more creative, BYOK transparency, audio never proxied through us* — not OSS. The product lives one directory up at `/Users/noanborel/OpenFlow`. This landing page is its own project.
 
 Primary goal: **macOS downloads**. Single dominant CTA. The page should sell by showing the product working, not describing it.
 
@@ -54,9 +54,9 @@ Default to motion over copy. Each section should hit:
 
 If a section starts growing bullet lists, paragraphs, or feature grids — rebuild it as motion. This rule comes from the user directly and is non-negotiable.
 
-### 5. No GitHub-star noise
+### 5. NOT open source — strip every OSS reference
 
-The user explicitly said they don't care about GitHub stars or contributor counts. Don't add open-source badges, "Star us" buttons, or contributor walls. The "open source" angle is privacy/trust, not virality.
+OpenFlow is closed-source. Never write "open source", "MIT-licensed", "view source", "audit reproduces it", "self-host", "fork it", "star on GitHub", or any contributor/stars framing. The differentiation angle is **creative product + BYOK transparency**, not OSS. The privacy story is "audio goes mic → your provider directly, our servers are not in the path" — no source-availability claim.
 
 ### 6. Logos
 

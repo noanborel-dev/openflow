@@ -236,6 +236,7 @@ To add more (parked for the "Built for AI coding" section): `cursor.png`, `chatg
 | ❌ Big serif everywhere | Serif is reserved for headlines + the pill label. Body is Inter. |
 | ❌ Multiple animations on one screen | One animated proof per viewport. The rest is still. |
 | ❌ "Built with React" / "Powered by" badges | We're a product, not a tech stack |
+| ❌ "Open source" / "MIT" / "view source" / "fork" / "star on GitHub" | **OpenFlow is closed-source.** Differentiation = creative + BYOK, not OSS |
 
 ---
 
