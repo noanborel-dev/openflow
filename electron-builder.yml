@@ -30,6 +30,9 @@ asarUnpack:
 
 mac:
   category: public.app-category.productivity
+  # Wordmark-pill icon. Generated via scripts/generate-icon.html →
+  # scripts/png-to-icns.sh from a 1024×1024 PNG render.
+  icon: assets/icon.icns
   target:
     - target: dmg
       arch: [x64, arm64]

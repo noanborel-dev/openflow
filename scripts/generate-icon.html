@@ -1,0 +1,126 @@
+<!doctype html>
+<!--
+  Open this in any browser, screenshot the canvas at 1024×1024, save as
+  icon.png, then run scripts/png-to-icns.sh to produce assets/icon.icns.
+  Or use the export button below to download icon.png directly.
+
+  This is the same wordmark pill the app uses internally, just at icon
+  scale. macOS clips icons to a rounded square; we render to a fully-
+  rounded pill on a transparent background and let the OS handle the
+  squircle clip.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenFlow Icon Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f2efe8; font-family: -apple-system, system-ui, sans-serif; gap: 18px; padding: 24px; }
+  canvas { background: transparent; border: 1px dashed rgba(0,0,0,0.18); border-radius: 18px; }
+  .row { display: flex; gap: 12px; }
+  button { padding: 10px 22px; border-radius: 999px; background: #0a0a0a; color: #faf8f0; border: none; font: inherit; font-weight: 500; font-size: 14px; cursor: pointer; }
+  button:hover { opacity: 0.9; }
+  p { font-size: 13px; color: rgba(0,0,0,0.6); margin: 0; max-width: 520px; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <canvas id="c" width="1024" height="1024"></canvas>
+  <div class="row">
+    <button onclick="download(1024)">Download 1024×1024 PNG</button>
+    <button onclick="download(512)">Download 512×512</button>
+  </div>
+  <p>Save as <code>assets/icon.png</code>, then run <code>scripts/png-to-icns.sh</code> from the repo root to produce <code>assets/icon.icns</code>.</p>
+
+<script>
+const c = document.getElementById('c')
+const ctx = c.getContext('2d')
+
+function draw(size) {
+  c.width = size; c.height = size
+  ctx.clearRect(0, 0, size, size)
+
+  // The pill — full-bleed, vertically centered. macOS clips icons to a
+  // squircle so we go edge-to-edge and let the OS do the rounding.
+  const W = size
+  const H = size * 0.7    // pill takes 70% of the height
+  const Y = (size - H) / 2
+  const r = H / 2
+
+  // Charcoal gradient with subtle bottom darkening, matching the
+  // Wordmark component's CSS gradient.
+  const grad = ctx.createLinearGradient(0, Y, 0, Y + H)
+  grad.addColorStop(0, '#10131a')
+  grad.addColorStop(1, '#06080d')
+  ctx.fillStyle = grad
+  roundRect(0, Y, W, H, r)
+  ctx.fill()
+
+  // Top refractive highlight — single-pixel white at very low opacity
+  // running along the top arc.
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+  ctx.lineWidth = size * 0.004
+  roundRect(0, Y, W, H, r)
+  ctx.stroke()
+
+  // Recording dot — left side, vertically centered within the pill.
+  const dotR = H * 0.13
+  const dotX = W * 0.155
+  const dotY = Y + H / 2
+  // Glow halo.
+  const haloGrad = ctx.createRadialGradient(dotX, dotY, dotR * 0.4, dotX, dotY, dotR * 2.4)
+  haloGrad.addColorStop(0, 'rgba(232,74,58,0.45)')
+  haloGrad.addColorStop(1, 'rgba(232,74,58,0)')
+  ctx.fillStyle = haloGrad
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR * 2.4, 0, Math.PI * 2)
+  ctx.fill()
+  // Dot.
+  ctx.fillStyle = '#e84a3a'
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Wordmark — Instrument Serif italic, white, vertically centered.
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `400 italic ${Math.round(H * 0.5)}px "Instrument Serif", "Cormorant Garamond", Georgia, serif`
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'
+  ctx.shadowBlur = size * 0.008
+  ctx.shadowOffsetY = size * 0.003
+  ctx.fillText('OpenFlow', dotX + dotR * 2.4, dotY + size * 0.005)
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.arcTo(x + w, y, x + w, y + r, r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+  ctx.lineTo(x + r, y + h)
+  ctx.arcTo(x, y + h, x, y + h - r, r)
+  ctx.lineTo(x, y + r)
+  ctx.arcTo(x, y, x + r, y, r)
+  ctx.closePath()
+}
+
+function download(size) {
+  draw(size)
+  const link = document.createElement('a')
+  link.download = `icon-${size}.png`
+  link.href = c.toDataURL('image/png')
+  link.click()
+  draw(1024)  // restore preview
+}
+
+// Wait for the font to load before first render so the wordmark isn't
+// initially drawn in Times.
+document.fonts.ready.then(() => draw(1024))
+</script>
+</body>
+</html>
