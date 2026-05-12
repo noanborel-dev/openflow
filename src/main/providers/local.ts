@@ -3,20 +3,49 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { Whisper } from 'smart-whisper'
+import { initWhisper, toggleNativeLog } from '@fugood/whisper.node'
+import type { WhisperContext, TranscribeResult } from '@fugood/whisper.node'
 import type { TranscriptionProvider } from './types'
 import { NoSpeechError } from '../errors'
 import { logInfo, logError } from '../log'
 import { whisperModelDownloaded, whisperModelPath } from '../local-models'
 import { ffmpegPath, ffmpegAvailable } from '../local-binaries'
 
-// We classify a clip as a likely silence-hallucination using the avg
-// token probability that smart-whisper returns in `format: 'detail'`.
-// Whisper outputs confident-looking tokens on real speech (>0.65 avg);
-// on near-silent audio it spits low-confidence multilingual word-salad
-// (<0.50). The 0.55 threshold is conservative — empty/single-segment
-// runs are also caught by the isLikelySilence pass in pipeline.ts.
-const MIN_CONFIDENCE = 0.55
+// Whisper-cpp hallucinates these strings on silent / near-silent
+// audio. Same heuristic the cloud pipeline uses (see pipeline.ts'
+// HALLUCINATIONS set) — kept local because the fugood binding doesn't
+// expose per-token confidence so we can't replicate the confidence-
+// based guard used by the Groq provider. Pipeline.ts' isLikelySilence
+// also catches these; this is a belt-and-braces check for the cases
+// where the cloud pipeline's check isn't applied.
+const HALLUCINATION_STRINGS = new Set([
+  '',
+  '.',
+  '...',
+  'thanks for watching',
+  'thanks for watching!',
+  'thank you',
+  'thank you.',
+  'thanks',
+  'you',
+  'bye',
+  'bye.',
+  '[blank_audio]',
+  '[silence]',
+  '[music]',
+  '[no audio]',
+  '(silence)',
+  '(soft music)',
+])
+
+// Disable the native log spam from whisper.cpp. We still emit our own
+// structured `logInfo` lines for the timing data we care about. This
+// has to fire once globally, not per-context — the toggle is global
+// across all WhisperContext / WhisperVadContext instances. Fire-and-
+// forget: toggleNativeLog is async (it loads the platform-specific
+// module) but we don't care about awaiting it; the very first
+// transcribe will trigger module load anyway.
+void toggleNativeLog(false).catch(() => { /* ignore */ })
 
 export class LocalModelMissingError extends Error {
   constructor() {
@@ -37,47 +66,58 @@ export class LocalBinaryMissingError extends Error {
   }
 }
 
-// Persistent Whisper instance. Loaded lazily on the first dictation so
-// app startup stays fast for users who don't pick Local; held in memory
-// thereafter so every subsequent dictation skips the ~700ms model-load
-// cost. Freed when the user uninstalls the model or switches providers
-// AND the app is idle (we don't free aggressively — RAM is cheap, the
-// alternative is 700ms penalty on every cold dictation after idle).
-let whisperInstance: Whisper | null = null
-let whisperInstancePath: string | null = null
+// Persistent WhisperContext — the whole point of the @fugood/whisper.node
+// switch over smart-whisper. fugood uses whisper_full() not
+// whisper_full_with_state(), so the Metal compute buffers (~1GB worth)
+// and shader pipelines are allocated once at context init and reused
+// across every transcribe call. smart-whisper allocated a fresh
+// whisper_state per call, which made every dictation eat ~600ms of
+// pure Metal re-init.
+let whisperContext: WhisperContext | null = null
+let whisperContextPath: string | null = null
+let loadingPromise: Promise<WhisperContext> | null = null
 
-async function getWhisper(): Promise<Whisper> {
+async function getContext(): Promise<WhisperContext> {
   const modelPath = whisperModelPath()
-  if (whisperInstance && whisperInstancePath === modelPath) return whisperInstance
-  // Path changed (re-download to a different filename, or first load).
-  // Free old instance before creating a new one to avoid double-load
-  // RAM spike.
-  if (whisperInstance) {
-    try {
-      await whisperInstance.free()
-    } catch {
-      // ignore — best-effort cleanup
-    }
-    whisperInstance = null
+  if (whisperContext && whisperContextPath === modelPath) return whisperContext
+  if (loadingPromise) return loadingPromise
+
+  // Path changed (download to a new filename, model swap) — release
+  // the prior context first to avoid double-allocating ~1GB of GPU
+  // buffers during the swap.
+  if (whisperContext) {
+    try { await whisperContext.release() } catch { /* best-effort */ }
+    whisperContext = null
+    whisperContextPath = null
   }
+
   const start = Date.now()
-  whisperInstance = new Whisper(modelPath, { gpu: true })
-  whisperInstancePath = modelPath
-  logInfo('Local whisper model loaded', { ms: Date.now() - start, path: modelPath })
-  return whisperInstance
+  loadingPromise = initWhisper({
+    filePath: modelPath,
+    useGpu: true,
+  }).then((ctx) => {
+    whisperContext = ctx
+    whisperContextPath = modelPath
+    logInfo('Local whisper context ready', { ms: Date.now() - start, path: modelPath })
+    loadingPromise = null
+    return ctx
+  }).catch((err) => {
+    loadingPromise = null
+    throw err
+  })
+  return loadingPromise
 }
 
-// Force-free the model. Called from the IPC uninstall handler so the
-// file isn't held open while we try to delete it.
+// Force-release the loaded context. Called from the uninstall IPC
+// handler before we delete the model file so the file isn't held open
+// across the unlink (Windows EBUSY, mac orphaned-RAM).
 export async function freeLocalWhisper(): Promise<void> {
-  if (whisperInstance) {
-    try {
-      await whisperInstance.free()
-    } catch (err) {
-      logError('Local whisper free failed', { error: String(err) })
+  if (whisperContext) {
+    try { await whisperContext.release() } catch (err) {
+      logError('Local whisper release failed', { error: String(err) })
     }
-    whisperInstance = null
-    whisperInstancePath = null
+    whisperContext = null
+    whisperContextPath = null
   }
 }
 
@@ -91,11 +131,11 @@ function runProcess(cmd: string, args: string[]): Promise<{ code: number; stderr
   })
 }
 
-// Convert the renderer's WebM/Opus buffer to 16kHz mono Float32 PCM
-// in-memory. ffmpeg writes raw f32le samples to a tmp file; we mmap-
-// read them into a Float32Array. Skips the WAV header / decoder
-// roundtrip that the old whisper-cli pipeline forced.
-async function webmToFloat32(audio: Buffer): Promise<Float32Array> {
+// Convert the renderer's WebM/Opus blob to a 16-bit signed PCM
+// ArrayBuffer at 16kHz mono — the exact shape fugood's transcribeData
+// expects. Writes a temp raw file because ffmpeg's stdout-piping can
+// fragment on large clips; the file write costs ~5ms.
+async function webmToPcm16(audio: Buffer): Promise<ArrayBuffer> {
   const tmp = path.join(os.tmpdir(), `openflow-${crypto.randomUUID()}`)
   const inPath = `${tmp}.webm`
   const outPath = `${tmp}.raw`
@@ -105,8 +145,8 @@ async function webmToFloat32(audio: Buffer): Promise<Float32Array> {
     '-i', inPath,
     '-ar', '16000',
     '-ac', '1',
-    '-f', 'f32le',
-    '-acodec', 'pcm_f32le',
+    '-f', 's16le',
+    '-acodec', 'pcm_s16le',
     outPath,
   ])
   fs.unlink(inPath).catch(() => {})
@@ -116,35 +156,17 @@ async function webmToFloat32(audio: Buffer): Promise<Float32Array> {
   }
   const buf = await fs.readFile(outPath)
   fs.unlink(outPath).catch(() => {})
-  // Wrap the underlying ArrayBuffer; the byteOffset/byteLength keep
-  // alignment safe across Node Buffer pool reuse.
-  return new Float32Array(
-    buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-  )
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
 }
 
-// Whisper's encoder cost scales with audio_ctx (max 1500 for 30s
-// model context). For shorter clips we can cap audio_ctx and shave the
-// encoder pass — a 3s clip with audio_ctx=256 runs ~150ms vs ~600ms at
-// the default 1500. We round up to a multiple of 64 for graph-cache
-// stability (mismatched ctx forces whisper.cpp to reserve new compute
-// buffers, which costs ~100ms) and add a 1s safety margin so the
-// transcript doesn't get truncated near the end of the clip.
-//
-// Empirical mapping from the audio_ctx sweep:
-//   ctx=256  → safe up to ~4s of audio
-//   ctx=512  → safe up to ~9s
-//   ctx=768  → unreliable (hallucinated repetitions) — skip
-//   ctx=1024 → safe up to ~19s
-//   ctx=1500 → full 30s
-//
-// We bucket into known-good values rather than picking arbitrary numbers
-// to avoid the audio_ctx=768 bug zone.
-function audioCtxFor(seconds: number): number {
-  if (seconds <= 4) return 256
-  if (seconds <= 9) return 512
-  if (seconds <= 18) return 1024
-  return 1500
+function isLikelyHallucination(text: string): boolean {
+  const cleaned = text.trim().toLowerCase().replace(/[.!?,]+$/g, '')
+  if (cleaned.length === 0) return true
+  if (HALLUCINATION_STRINGS.has(cleaned)) return true
+  // Single-character output (after punctuation trim) is almost
+  // certainly silence-induced.
+  if (cleaned.length < 2) return true
+  return false
 }
 
 export function createLocalWhisperProvider(): TranscriptionProvider {
@@ -155,87 +177,56 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
       if (!whisperModelDownloaded()) throw new LocalModelMissingError()
 
       const ffmpegStart = Date.now()
-      const pcm = await webmToFloat32(audio)
+      const pcm = await webmToPcm16(audio)
       const ffmpegMs = Date.now() - ffmpegStart
-      const seconds = pcm.length / 16000
-      const audioCtx = audioCtxFor(seconds)
+      const seconds = pcm.byteLength / 2 / 16000
 
-      const whisper = await getWhisper()
+      const ctx = await getContext()
       const dict = options.dictionary ?? []
       const prompt = dict.length > 0 ? dict.join(', ') : undefined
 
       const inferStart = Date.now()
-      const task = await whisper.transcribe(pcm, {
-        // Single-segment for short dictations — skips the segmentation
-        // pass and shaves ~30ms. Long clips still produce reasonable
-        // output; whisper.cpp falls back to internal chunking when the
-        // audio overruns audio_ctx.
-        single_segment: true,
+      const { promise } = ctx.transcribeData(pcm, {
         // Greedy decoding (beam=1, best_of=1, temp=0) is faster AND
-        // more deterministic than the default beam=5 — dictation
-        // benefits from determinism (same audio → same transcript)
-        // and the accuracy delta on clean speech is negligible.
-        beam_size: 1,
-        best_of: 1,
+        // more deterministic than the default beam=5. Dictation values
+        // determinism (same audio → same transcript) and the accuracy
+        // delta on clean speech is negligible.
+        beamSize: 1,
+        bestOf: 1,
         temperature: 0,
-        n_threads: 8,
-        audio_ctx: audioCtx,
-        // Default 'simple' format drops per-token confidence. 'detail'
-        // gives us the `confidence` field we use for the hallucination
-        // check below.
-        format: 'detail',
-        // Use the dictionary as Whisper's `initial_prompt` to bias the
-        // transcript toward known spellings — same role as the Groq
-        // provider's `prompt` parameter.
-        ...(prompt ? { initial_prompt: prompt } : {}),
-        // Auto-detect language by passing 'auto' — important so users
-        // who dictate in multiple languages aren't forced into one.
-        // (Cloud Groq does the same.)
+        maxThreads: 8,
+        // Auto-detect when no explicit language. Critical for users
+        // who dictate in multiple languages — forcing 'en' produces
+        // phonetic garbage on Spanish / French.
         ...(options.language ? { language: options.language } : { language: 'auto' }),
+        // The dictionary becomes Whisper's initial prompt — biases
+        // toward known spellings (Claude vs cloud, etc.). Same role
+        // as the cloud Groq provider's `prompt` parameter.
+        ...(prompt ? { prompt } : {}),
       })
-      const segs = await task.result
+      const result: TranscribeResult = await promise
       const inferMs = Date.now() - inferStart
 
       logInfo('Local whisper inference', {
         ffmpegMs,
         inferMs,
         seconds: Number(seconds.toFixed(2)),
-        audioCtx,
       })
 
-      // segs is the detail format — each entry has .text and .confidence.
-      // smart-whisper returns a single segment for single_segment: true.
-      type DetailSeg = { text?: string; confidence?: number; lang?: string }
-      const detailSegs = segs as unknown as DetailSeg[]
-      const text = detailSegs.map((s) => s.text ?? '').join('').trim()
-
-      if (detailSegs.length > 0) {
-        // Min confidence across segments — even one low-confidence
-        // segment is a hallucination signal.
-        const minConfidence = detailSegs.reduce(
-          (m, x) => Math.min(m, x.confidence ?? 1),
-          1
-        )
-        if (minConfidence < MIN_CONFIDENCE) {
-          logInfo('Local whisper hallucination rejected', {
-            minConfidence: Number(minConfidence.toFixed(3)),
-            language: detailSegs[0]?.lang,
-            preview: text.slice(0, 60),
-          })
-          throw new NoSpeechError()
-        }
+      const text = result.result.trim()
+      if (isLikelyHallucination(text)) {
+        logInfo('Local whisper hallucination rejected', { preview: text.slice(0, 60) })
+        throw new NoSpeechError()
       }
-
       return text
     },
   }
 }
 
-// Surfaced to the renderer via IPC. Three independent prerequisites:
-// the ffmpeg binary, the model file, and (transitively) the smart-
-// whisper NAPI addon, which we assume loaded successfully — if it
-// didn't, the import at top would have thrown and the app wouldn't
-// have started. So we don't have a runtime "binding loaded" check.
+// Surfaced to the renderer via IPC. Two prerequisites since the
+// switch to @fugood/whisper.node: the ffmpeg binary and the model
+// file. The native addon itself loads at import time and would have
+// crashed the main process by now if it weren't working.
 export interface LocalReadiness {
   ready: boolean
   whisperCli: boolean   // kept for IPC compat — always true now

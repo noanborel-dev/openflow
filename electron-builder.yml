@@ -28,17 +28,18 @@ extraResources:
 # resolve real filesystem paths:
 #   - node-global-key-listener: precompiled MacKeyServer helper
 #   - ffmpeg-static: per-platform ffmpeg binary (used by Local provider)
-#   - smart-whisper: NAPI addon (.node) that loads libwhisper at runtime
+#   - @fugood/whisper.node + per-platform `@fugood/node-whisper-*`
+#     packages: prebuilt NAPI addons that load libwhisper at runtime.
+#     The .node binary lives in @fugood/node-whisper-darwin-arm64/index.node
+#     (and equivalents per arch). No source compilation needed at install
+#     or pack time — we just need the .node file on disk where dlopen
+#     can find it.
 asarUnpack:
   - node_modules/node-global-key-listener/**/*
   - node_modules/ffmpeg-static/ffmpeg
   - node_modules/ffmpeg-static/ffmpeg.exe
-  - node_modules/smart-whisper/**/*
-
-# electron-builder runs @electron/rebuild on native dependencies during
-# packaging by default. We pin it explicitly so the build doesn't
-# silently skip it on a future config change.
-npmRebuild: true
+  - node_modules/@fugood/whisper.node/**/*
+  - node_modules/@fugood/node-whisper-*/**/*
 
 mac:
   category: public.app-category.productivity
@@ -58,7 +59,8 @@ mac:
   # Paths are relative to Contents/ inside the .app.
   binaries:
     - Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg
-    - Resources/app.asar.unpacked/node_modules/smart-whisper/build/Release/smart-whisper.node
+    - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-arm64/index.node
+    - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-x64/index.node
   hardenedRuntime: true
   gatekeeperAssess: false
   # Surfaced when macOS first prompts for permissions. Without these

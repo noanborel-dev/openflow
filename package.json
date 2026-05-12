@@ -26,6 +26,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
     "@electron-toolkit/utils": "^4.0.0",
+    "@fugood/whisper.node": "^1.0.18",
     "electron-store": "^8.2.0",
     "ffmpeg-static": "^5.3.0",
     "groq-sdk": "^0.3.3",
@@ -33,11 +34,9 @@
     "openai": "^4.28.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "simple-icons": "^16.18.0",
-    "smart-whisper": "^0.8.1"
+    "simple-icons": "^16.18.0"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.4",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
