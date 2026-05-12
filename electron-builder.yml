@@ -4,26 +4,50 @@ copyright: Copyright © 2026 OpenFlow Contributors
 
 directories:
   output: dist
+  buildResources: build
 
 files:
   - out/**/*
   - package.json
-  - node_modules/ffmpeg-static/**/*
-  - node_modules/@xenova/**/*
-  - node_modules/onnxruntime-web/**/*
+
+extraResources:
+  - from: assets/
+    to: assets/
+
+# node-global-key-listener ships a precompiled native helper that needs
+# to live outside the asar so the spawned subprocess can find it.
+asarUnpack:
+  - node_modules/node-global-key-listener/**/*
 
 mac:
   category: public.app-category.productivity
   target:
     - target: dmg
       arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: true
   gatekeeperAssess: false
+  # Surfaced when macOS first prompts for permissions. Without these
+  # strings the OS shows a generic "wants to use the microphone"
+  # without app context.
+  extendInfo:
+    NSMicrophoneUsageDescription: >-
+      OpenFlow records audio when you press your hotkey, then sends it
+      to your chosen API provider for transcription.
+    NSAppleEventsUsageDescription: >-
+      OpenFlow uses Apple Events to paste your dictated text into the
+      focused app.
+    # LSUIElement makes OpenFlow a tray-only app — no Dock icon, no
+    # menu bar. The recording pill + tray menu are the entire surface.
+    LSUIElement: true
+  notarize: false
 
 dmg:
-  title: OpenFlow
+  title: ${productName} ${version}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 
 win:
   target: nsis
