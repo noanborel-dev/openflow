@@ -1,6 +1,7 @@
 import { clipboard } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
+import { logInfo } from './log'
 
 const exec = promisify(execFile)
 
@@ -48,13 +49,8 @@ function pasteViaHelper(): boolean {
 
 // AX roles where firing ⌘V is meaningless — the focused element is a
 // button, image, list row, etc. that can't accept text. Hitting paste
-// against these is the most common reason a dictation "succeeds" but
-// nothing visible appears: keystroke "v" fires fine, the OS just has
-// nowhere to put it.
-//
-// Permissive on purpose — when we're not sure (empty string, unknown
-// role, Electron/web app that reports AXGroup), we still attempt paste.
-// Only block when we're confident there's no text destination.
+// against these used to be the most common reason a dictation
+// "succeeded" but nothing visible appeared.
 const NON_PASTEABLE_ROLES = new Set([
   'AXButton', 'AXLink', 'AXMenuItem', 'AXMenuBar', 'AXMenu', 'AXMenuButton',
   'AXImage', 'AXIcon', 'AXStaticText',
@@ -66,17 +62,27 @@ const NON_PASTEABLE_ROLES = new Set([
 ])
 
 // Ask System Events for the AX role of whatever currently has keyboard
-// focus inside the frontmost app. Returns 'unknown' on any error (no
-// focused element, AX permission denied, AppleScript barfed) — callers
-// treat unknown as "go ahead and try paste".
+// focus inside the frontmost app. The nested try lets us distinguish:
+//
+//   "no-focus"     — frontmost app exists but has no focused element
+//                    (Desktop, Finder window with nothing selected,
+//                    app with focus on a non-AX surface). NOT pasteable.
+//   "script-error" — AppleScript itself blew up (AX denied, etc.).
+//                    Treated as permissive so we don't break paste
+//                    behind a transient script issue.
+//   AXFoo          — actual role string, looked up in the denylist.
 const FOCUSED_ROLE_SCRIPT = `
 tell application "System Events"
   try
     set frontApp to first application process whose frontmost is true
-    set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
-    return value of attribute "AXRole" of focusedEl
+    try
+      set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
+      return value of attribute "AXRole" of focusedEl
+    on error
+      return "no-focus"
+    end try
   on error
-    return "unknown"
+    return "script-error"
   end try
 end tell
 `
@@ -84,14 +90,20 @@ end tell
 async function getFocusedAXRole(): Promise<string> {
   try {
     const { stdout } = await exec('osascript', ['-e', FOCUSED_ROLE_SCRIPT])
-    return stdout.trim() || 'unknown'
+    return stdout.trim() || 'script-error'
   } catch {
-    return 'unknown'
+    return 'script-error'
   }
 }
 
 function canPasteIntoRole(role: string): boolean {
-  if (!role || role === 'unknown') return true
+  // No focused element at all — Desktop, Finder, app without focus →
+  // there is nowhere to paste, route to the fallback popup.
+  if (role === 'no-focus' || role === '') return false
+  // Script error → AX permission probably denied. We've already given
+  // up trying to be clever; let the actual paste attempt happen and
+  // surface whatever error it produces.
+  if (role === 'script-error') return true
   return !NON_PASTEABLE_ROLES.has(role)
 }
 
@@ -103,11 +115,13 @@ export async function pasteText(text: string): Promise<{ method: 'paste' | 'clip
   }
 
   // Pre-check: if the focused element clearly isn't a text destination
-  // (button, list row, image, etc.), don't fire keystroke "v" into the
-  // void. Returning 'clipboard' here is what triggers the paste-fallback
-  // popup downstream so the user sees their text + a retry button.
+  // (no focused element, button, list row, image, etc.), don't fire
+  // keystroke "v" into the void. Returning 'clipboard' here is what
+  // triggers the paste-fallback popup downstream.
   const role = await getFocusedAXRole()
-  if (!canPasteIntoRole(role)) {
+  const canPaste = canPasteIntoRole(role)
+  logInfo('Paste pre-check', { focusedAXRole: role, canPaste })
+  if (!canPaste) {
     return { method: 'clipboard' }
   }
 
