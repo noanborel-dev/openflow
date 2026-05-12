@@ -1,21 +1,36 @@
-import { app, utilityProcess, type UtilityProcess } from 'electron'
+import { app } from 'electron'
+import { fork, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { logInfo, logError } from './log'
 import type { TranscribeOptions } from '@fugood/whisper.node'
 
-// Host-side wrapper around the whisper utility process. Spawns the
-// worker lazily on first transcribe, holds the singleton, dispatches
-// transcribe requests via message-id correlation. The worker handles
-// all NAPI interaction with @fugood/whisper.node so the main process
-// stays free of GPU work (and the Chromium QoS downgrade that comes
-// with it — see whisper-worker.ts).
+// Host-side wrapper around the whisper worker child process.
+//
+// We use Node's `child_process.fork()` instead of Electron's
+// `utilityProcess.fork()` for one specific reason: utilityProcess
+// inherits Chromium's macOS QoS policy (THREAD_QOS_UTILITY), which
+// lands whisper threads on E-cores at reduced clock speed. The end
+// result was deterministically 2x slower whisper inference inside
+// Electron vs standalone Node. utilityProcess.fork() couldn't escape
+// the throttle even with --disable-features=MacUtilityProcessQoSPolicy.
+//
+// child_process.fork() spawns a plain Node runtime — by setting
+// ELECTRON_RUN_AS_NODE=1, Electron's own binary acts as `node` (it
+// ships a Node runtime internally). The child gets default user QoS,
+// no Chromium baggage, no GPU/sandbox arbitration.
+//
+// IPC is Node's built-in `child.send` / `process.send` with JSON
+// serialization. PCM ArrayBuffers go over as base64-encoded strings
+// because Node's IPC channel doesn't accept TypedArrays / ArrayBuffers
+// directly. ~200KB of PCM base64-encodes to ~270KB and round-trips in
+// well under 5ms — negligible against the ~500ms inference.
 
 interface PendingRequest {
   resolve: (result: { text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }) => void
   reject: (err: Error) => void
 }
 
-let proc: UtilityProcess | null = null
+let proc: ChildProcess | null = null
 let readyPromise: Promise<void> | null = null
 let loadedModelPath: string | null = null
 let loadingModelPath: string | null = null
@@ -25,30 +40,28 @@ const pending = new Map<number, PendingRequest>()
 let nextRequestId = 1
 
 function workerScriptPath(): string {
-  // After electron-vite build, main is emitted to out/main/index.js
-  // and the worker module is emitted alongside it. Resolve relative
-  // to the running entry so packaged builds and `npm run dev` both
-  // work without a special-case path.
+  // electron-vite emits the worker next to main's index.js.
   return path.join(__dirname, 'whisper-worker.js')
 }
 
 function ensureProc(): Promise<void> {
   if (readyPromise) return readyPromise
   readyPromise = new Promise<void>((resolve, reject) => {
-    const child = utilityProcess.fork(workerScriptPath(), [], {
-      serviceName: 'OpenFlow Whisper Worker',
-      // We deliberately do NOT inherit Chromium QoS — that's the
-      // whole point. utilityProcess runs at default user QoS unless
-      // we explicitly downgrade it.
-      stdio: 'inherit',
+    // ELECTRON_RUN_AS_NODE=1 turns the Electron binary into a Node
+    // runtime for this child. No Chromium init, no QoS shaping,
+    // no GPU process. process.execPath is Electron itself, which is
+    // exactly what we want — same Node ABI as main, so the precompiled
+    // @fugood/whisper.node binaries load correctly.
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    const child = fork(workerScriptPath(), [], {
+      env,
+      // stdio: inherit so the worker's whisper.cpp logs surface in
+      // the dev terminal for debugging. The 'ipc' entry is required
+      // for the message channel.
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+      execPath: process.execPath,
     })
     proc = child
-
-    child.on('spawn', () => {
-      // We get a 'ready' message after the worker module finishes
-      // its synchronous setup; that's what we actually await. spawn
-      // alone isn't enough — the NAPI module needs a tick to load.
-    })
 
     child.on('message', (msg: unknown) => {
       handleWorkerMessage(msg as Record<string, unknown>, resolve, reject)
@@ -56,10 +69,6 @@ function ensureProc(): Promise<void> {
 
     child.on('exit', (code) => {
       logError('Whisper worker exited', { code })
-      // Drop all pending requests and reset state — next call
-      // re-spawns. We don't reject the readyPromise if it already
-      // resolved; otherwise the caller of ensureProc() would never
-      // see the error.
       for (const [, req] of pending) {
         req.reject(new Error(`Whisper worker exited (code ${code})`))
       }
@@ -73,6 +82,11 @@ function ensureProc(): Promise<void> {
         loadReject = null
         loadResolve = null
       }
+    })
+
+    child.on('error', (err) => {
+      logError('Whisper worker spawn error', { error: String(err) })
+      reject(err)
     })
   })
   return readyPromise
@@ -122,8 +136,6 @@ function handleWorkerMessage(
       }
       return
     }
-    // Load-time or worker-global error — surface to the load promise
-    // if one is in flight.
     if (loadReject) {
       loadReject(new Error(message))
       loadReject = null
@@ -139,8 +151,6 @@ async function loadModel(modelPath: string): Promise<void> {
   await ensureProc()
   if (loadedModelPath === modelPath) return
   if (loadingModelPath === modelPath && loadResolve) {
-    // Another concurrent loadModel call is already in flight for the
-    // same path — wait on its promise.
     return new Promise<void>((resolve, reject) => {
       const priorResolve = loadResolve!
       const priorReject = loadReject!
@@ -148,14 +158,12 @@ async function loadModel(modelPath: string): Promise<void> {
       loadReject = (err: Error) => { priorReject(err); reject(err) }
     })
   }
-  // A different model is loaded (or loading) — issue a new load. The
-  // worker handles swap by releasing the prior context first.
   loadingModelPath = modelPath
   const loadPromise = new Promise<void>((resolve, reject) => {
     loadResolve = resolve
     loadReject = reject
   })
-  proc!.postMessage({ type: 'load', modelPath })
+  proc!.send({ type: 'load', modelPath })
   await loadPromise
 }
 
@@ -169,26 +177,21 @@ export async function workerTranscribe(
   const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
     pending.set(id, { resolve, reject })
   })
-  // utilityProcess.postMessage's transfer list only accepts
-  // MessagePortMain objects — NOT raw ArrayBuffers. So we
-  // structured-clone the PCM across the boundary. For typical
-  // dictation clips (32-200 KB PCM16), the copy is sub-millisecond
-  // and negligible vs the 470ms inference. Don't try to optimize
-  // this with `[pcm]` as a transferList — it'll crash the worker
-  // because the runtime can't coerce ArrayBuffer to MessagePortMain.
-  proc!.postMessage({ type: 'transcribe', id, pcm, options })
+  // Node IPC can't send ArrayBuffer directly. Buffer.from(pcm) wraps
+  // it, then we encode as base64 in the message envelope. Worker
+  // decodes back to ArrayBuffer. ~5ms encode + decode for 200KB of
+  // PCM, vs ~1000ms inference — negligible.
+  const pcmBase64 = Buffer.from(pcm).toString('base64')
+  proc!.send({ type: 'transcribe', id, pcmBase64, options })
   return result
 }
 
 export async function workerFree(): Promise<void> {
   if (!proc) return
-  proc.postMessage({ type: 'free' })
+  proc.send({ type: 'free' })
   loadedModelPath = null
 }
 
-// Best-effort shutdown on app quit so we don't leave the helper
-// process running. The exit handler in ensureProc takes care of
-// cleanup if the worker dies on its own.
 app.on('will-quit', () => {
   if (proc) {
     try { proc.kill() } catch { /* ignore */ }

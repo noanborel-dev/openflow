@@ -1,22 +1,21 @@
-// Whisper transcription utility process.
+// Whisper transcription worker process.
 //
-// Why this exists: when whisper.cpp runs in Electron's main process,
-// it inherits Chromium's macOS QoS class downgrade (especially under
-// LSUIElement-tagged apps launched from a terminal). Metal command-
-// buffer scheduling defers GPU work submitted from background-QoS
-// threads behind foreground apps' work — deterministically ~2x
-// slower. We confirmed this matches the observed gap (470ms
-// standalone Node vs 970ms Electron main).
+// Why this exists: when whisper.cpp runs in Electron's main process
+// OR utility process, it inherits Chromium's macOS QoS class downgrade
+// (especially under LSUIElement). Metal command-buffer scheduling
+// defers GPU work submitted from background-QoS threads — ~2x slower.
 //
-// utilityProcess is a fresh `node` fork that does NOT inherit
-// Chromium's QoS shaping. Running whisper here gets us back to the
-// standalone-Node speed envelope.
+// child_process.fork() with ELECTRON_RUN_AS_NODE=1 starts the Electron
+// binary as plain Node (no Chromium init, no QoS shaping, no sandbox).
+// The forked process runs at default user QoS like any other Node
+// process, which is the only environment where we hit the standalone-
+// Node speed envelope (~470ms warm for large-v3-turbo on M5 Pro).
 //
-// Wire protocol over parentPort:
+// Wire protocol over Node IPC (child_process.send / process.send):
 //
 //   main → worker:
 //     { type: 'load', modelPath: string }
-//     { type: 'transcribe', id: number, pcm: ArrayBuffer, options: {...} }
+//     { type: 'transcribe', id: number, pcmBase64: string, options: {...} }
 //     { type: 'free' }
 //
 //   worker → main:
@@ -25,10 +24,8 @@
 //     { type: 'result', id: number, text: string, segments: [...], ms: number }
 //     { type: 'error', id: number | null, message: string }
 //
-// We use numeric request ids so the host can multiplex multiple
-// in-flight transcribes against a single response stream. Today the
-// host only fires one transcribe at a time, but command-mode +
-// dictation could overlap in the future.
+// Node IPC serializes payloads as JSON, so PCM travels as base64.
+// Worker decodes back to Buffer → ArrayBuffer before calling fugood.
 
 import { initWhisper, toggleNativeLog } from '@fugood/whisper.node'
 import type { WhisperContext, TranscribeOptions } from '@fugood/whisper.node'
@@ -40,7 +37,7 @@ interface LoadMsg {
 interface TranscribeMsg {
   type: 'transcribe'
   id: number
-  pcm: ArrayBuffer
+  pcmBase64: string
   options: TranscribeOptions
 }
 interface FreeMsg {
@@ -48,19 +45,17 @@ interface FreeMsg {
 }
 type IncomingMsg = LoadMsg | TranscribeMsg | FreeMsg
 
-interface OutgoingResult {
-  type: 'result'
-  id: number
-  text: string
-  segments: Array<{ text: string; t0: number; t1: number }>
-  ms: number
-}
-
 let ctx: WhisperContext | null = null
 let loadingPromise: Promise<WhisperContext> | null = null
 let currentModelPath: string | null = null
 
 void toggleNativeLog(false).catch(() => { /* ignore */ })
+
+function send(msg: Record<string, unknown>): void {
+  if (process.send) {
+    process.send(msg)
+  }
+}
 
 async function load(modelPath: string): Promise<WhisperContext> {
   if (ctx && currentModelPath === modelPath) return ctx
@@ -78,7 +73,7 @@ async function load(modelPath: string): Promise<WhisperContext> {
   }).then((c) => {
     ctx = c
     loadingPromise = null
-    process.parentPort.postMessage({ type: 'loaded', ms: Date.now() - start })
+    send({ type: 'loaded', ms: Date.now() - start })
     return c
   }).catch((err: unknown) => {
     loadingPromise = null
@@ -94,7 +89,7 @@ async function handle(msg: IncomingMsg): Promise<void> {
       await load(msg.modelPath)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      process.parentPort.postMessage({ type: 'error', id: null, message })
+      send({ type: 'error', id: null, message })
     }
     return
   }
@@ -107,34 +102,35 @@ async function handle(msg: IncomingMsg): Promise<void> {
     return
   }
   if (msg.type === 'transcribe') {
-    const { id, pcm, options } = msg
+    const { id, pcmBase64, options } = msg
     try {
       if (!ctx || !currentModelPath) {
         throw new Error('Worker received transcribe before load')
       }
+      // Decode base64 → Buffer → ArrayBuffer slice. The slice() is
+      // important because Node's Buffer wraps a shared pool — passing
+      // buf.buffer directly would hand fugood a reference to MUCH
+      // more memory than we intend.
+      const buf = Buffer.from(pcmBase64, 'base64')
+      const pcm = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
       const start = Date.now()
-      // PCM arrives structured-cloned from main (utilityProcess's
-      // postMessage doesn't support ArrayBuffer transfer — see
-      // whisper-host.ts). Sub-ms copy cost for typical clips.
       const result = await ctx.transcribeData(pcm, options).promise
-      const out: OutgoingResult = {
+      send({
         type: 'result',
         id,
         text: result.result,
         segments: result.segments,
         ms: Date.now() - start,
-      }
-      process.parentPort.postMessage(out)
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      process.parentPort.postMessage({ type: 'error', id, message })
+      send({ type: 'error', id, message })
     }
   }
 }
 
-process.parentPort.on('message', (event) => {
-  // utilityProcess's parentPort wraps the payload in { data }.
-  void handle(event.data as IncomingMsg)
+process.on('message', (msg: IncomingMsg) => {
+  void handle(msg)
 })
 
-process.parentPort.postMessage({ type: 'ready' })
+send({ type: 'ready' })
