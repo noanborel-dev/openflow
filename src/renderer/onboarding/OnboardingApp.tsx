@@ -3,6 +3,7 @@ import type { CategoryStrictness, Provider, Settings, Strictness } from '../../s
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
+import { Wordmark } from '../shared/ui/Wordmark'
 import { siAnthropic, siGmail, siImessage, siNotion } from 'simple-icons'
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6
@@ -181,10 +182,9 @@ export default function OnboardingApp() {
       />
 
       <header className="px-5 pt-5 flex items-center justify-between">
-        <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-pill bg-card border border-ink-08 shadow-sm">
-          <div className="w-5 h-5 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[10px] font-bold">O</div>
-          <span className="text-[13px] font-semibold tracking-tight">OpenFlow</span>
-          <span className="font-mono text-[10.5px] text-ink-45 ml-2 tabular-nums">
+        <div className="inline-flex items-center gap-3">
+          <Wordmark size="button" />
+          <span className="font-mono text-[10.5px] text-ink-45 tabular-nums">
             {String(step).padStart(2, '0')} / {String(TOTAL_STEPS).padStart(2, '0')}
           </span>
         </div>

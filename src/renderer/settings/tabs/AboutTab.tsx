@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Settings } from '../../../shared/types'
+import { Wordmark } from '../../shared/ui/Wordmark'
 
 const VERSION = '0.1.0'
 const BUILD = '218'   // build number stamped at package time; placeholder for now
@@ -23,11 +24,8 @@ export default function AboutTab() {
                'radial-gradient(circle at 100% 0%, rgba(43,127,255,0.05), transparent 50%)',
            }}>
         <div className="flex items-center gap-5">
-          <div className="w-[72px] h-[72px] rounded-[16px] bg-ink text-paper flex items-center justify-center shrink-0">
-            <span className="font-display italic text-[42px] leading-none -mt-1">O</span>
-          </div>
+          <Wordmark size="hero" />
           <div className="flex-1 min-w-0">
-            <div className="text-[24px] font-semibold tracking-tight leading-none mb-1.5">OpenFlow</div>
             <div className="text-[11.5px] font-mono text-ink-60">
               v{VERSION} · Build {BUILD} · macOS
             </div>

@@ -6,6 +6,7 @@ import AIProviderTab from './tabs/AIProviderTab'
 import DictionaryTab from './tabs/DictionaryTab'
 import PolishTab from './tabs/PolishTab'
 import AboutTab from './tabs/AboutTab'
+import { Wordmark } from '../shared/ui/Wordmark'
 
 const TABS = ['Provider', 'Hotkey', 'Polish', 'Dictionary', 'General', 'About'] as const
 type Tab = typeof TABS[number]
@@ -40,9 +41,8 @@ export default function SettingsApp() {
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
       <aside className="w-[200px] bg-[#F2F0E8] border-r border-ink-08 pt-9 px-3 flex flex-col shrink-0">
-        <div className="flex items-center gap-2 px-2 pb-4 mb-3 border-b border-ink-08">
-          <div className="w-6 h-6 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[11px] font-bold font-display italic">O</div>
-          <span className="text-[13.5px] font-semibold tracking-tight">OpenFlow</span>
+        <div className="flex items-center px-1 pb-4 mb-3 border-b border-ink-08">
+          <Wordmark size="inline" />
         </div>
         <nav className="flex flex-col gap-0.5">
           {TABS.map((t) => {
