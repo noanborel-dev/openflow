@@ -5,3 +5,7 @@ dist/
 *.log
 .superpowers/
 .worktrees/
+
+# Python bytecode caches from .claude/skills/*/scripts
+__pycache__/
+*.pyc
