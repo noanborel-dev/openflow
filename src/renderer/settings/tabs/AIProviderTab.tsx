@@ -1,19 +1,9 @@
 import { useEffect, useState } from 'react'
-import { siAnthropic } from 'simple-icons'
+import { BrandLogo } from '../../shared/ui/BrandLogo'
 import type { Settings, Provider } from '../../../shared/types'
 import { MODELS } from '../../../shared/constants'
 import { Pill } from '../../shared/ui/Pill'
 import { SectionHero } from '../../shared/ui/SectionHero'
-
-interface BrandRef { title: string; hex: string; path: string }
-
-function BrandIcon({ icon, size = 20, fill }: { icon: BrandRef; size?: number; fill?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-label={icon.title}>
-      <path d={icon.path} fill={fill ?? `#${icon.hex}`} />
-    </svg>
-  )
-}
 
 interface ProviderInfo {
   value: Provider
@@ -192,9 +182,9 @@ function AudioFlowDiagram({ apiKeyMasked }: { apiKeyMasked: string }) {
 }
 
 function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' }) {
-  if (brand === 'anthropic') return <BrandIcon icon={siAnthropic as BrandRef} fill="#fff" />
-  // OpenAI and Groq aren't in simple-icons (trademark removals). Stylized
-  // monogram marks keep the row consistent without a missing-icon hole.
+  if (brand === 'anthropic') return <BrandLogo brand="claude" size={22} />
+  // OpenAI and Groq aren't in our brand-asset folder yet — stylized
+  // monogram marks keep the provider row consistent without a hole.
   if (brand === 'openai') {
     return (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">

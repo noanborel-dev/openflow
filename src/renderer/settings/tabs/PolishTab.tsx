@@ -1,17 +1,7 @@
 import { useEffect, useState } from 'react'
-import { siGmail, siImessage, siNotion } from 'simple-icons'
 import type { CategoryStrictness, Settings, Strictness } from '../../../shared/types'
 import { SectionHero } from '../../shared/ui/SectionHero'
-
-interface BrandRef { title: string; hex: string; path: string }
-
-function BrandIcon({ icon, size = 24 }: { icon: BrandRef; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-label={icon.title}>
-      <path d={icon.path} fill={`#${icon.hex}`} />
-    </svg>
-  )
-}
+import { BrandLogo, type BrandSlug } from '../../shared/ui/BrandLogo'
 
 function TerminalIcon({ size = 22, className = 'text-ink-60' }: { size?: number; className?: string }) {
   return (
@@ -27,15 +17,10 @@ function TerminalIcon({ size = 22, className = 'text-ink-60' }: { size?: number;
 type Bucket = keyof CategoryStrictness
 type HoverCtx = Bucket | 'code' | null
 
-const META: Record<Bucket, { title: string; sub: string; icon: 'imessage' | 'gmail' | 'notion' }> = {
+const META: Record<Bucket, { title: string; sub: string; icon: BrandSlug }> = {
   personal: { title: 'Personal messaging', sub: 'iMessage · WhatsApp · Telegram', icon: 'imessage' },
   work:     { title: 'Work messaging',     sub: 'Slack · Discord · Gmail · Outlook', icon: 'gmail' },
   writing:  { title: 'Writing & AI',       sub: 'Notion · Google Docs · Claude · ChatGPT', icon: 'notion' },
-}
-const ICONS: Record<'imessage' | 'gmail' | 'notion', BrandRef> = {
-  imessage: siImessage as BrandRef,
-  gmail:    siGmail as BrandRef,
-  notion:   siNotion as BrandRef,
 }
 
 const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 'Strict' }
@@ -173,7 +158,7 @@ export default function PolishTab() {
             >
               <div className="w-9 h-9 rounded-[10px] flex items-center justify-center"
                    style={{ background: 'rgba(0,0,0,0.03)' }}>
-                <BrandIcon icon={ICONS[meta.icon]} size={22} />
+                <BrandLogo brand={meta.icon} size={22} />
               </div>
               <div className="min-w-0">
                 <div className="text-[13.5px] font-semibold leading-tight">{meta.title}</div>
@@ -298,11 +283,11 @@ function RegisterBubbles() {
 
 // ─── App-specific mocks ─────────────────────────────────────────────
 
-function MockChrome({ icon, label, children }: { icon?: BrandRef; label: string; children: React.ReactNode }) {
+function MockChrome({ brand, label, children }: { brand?: BrandSlug; label: string; children: React.ReactNode }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2 px-1">
-        {icon && <BrandIcon icon={icon} size={13} />}
+        {brand && <BrandLogo brand={brand} size={14} />}
         <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45">{label}</div>
       </div>
       <div className="bg-card rounded-[12px] border border-ink-08 shadow-sm overflow-hidden">
@@ -315,7 +300,7 @@ function MockChrome({ icon, label, children }: { icon?: BrandRef; label: string;
 function IMessageMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
-    <MockChrome icon={siImessage as BrandRef} label="iMessage">
+    <MockChrome brand="imessage" label="iMessage">
       <div className="px-3 py-3">
         <div className="text-center text-[10px] text-ink-45 mb-2.5 font-mono">Today 2:14 PM</div>
         <div className="flex justify-start mb-2">
@@ -337,7 +322,7 @@ function IMessageMock({ raw, cleaned }: { raw: string; cleaned: string }) {
 function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
-    <MockChrome icon={siGmail as BrandRef} label="Gmail · Compose">
+    <MockChrome brand="gmail" label="Gmail · Compose">
       <div className="px-4 py-2.5 border-b border-ink-08 bg-paper/40">
         <div className="text-[11px] text-ink-45">To: <span className="text-ink">alex@company.com</span></div>
         <div className="text-[11px] text-ink-45 mt-1">Subject: <span className="text-ink">Quick follow-up</span></div>
@@ -358,7 +343,7 @@ function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
 function NotionMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
-    <MockChrome icon={siNotion as BrandRef} label="Notion · Page">
+    <MockChrome brand="notion" label="Notion · Page">
       <div className="px-5 pt-4 pb-2 border-b border-ink-08">
         <div className="text-[15px] font-semibold leading-tight">Untitled</div>
       </div>

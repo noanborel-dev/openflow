@@ -4,7 +4,7 @@ import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
 import { Wordmark } from '../shared/ui/Wordmark'
-import { siAnthropic, siGmail, siImessage, siNotion } from 'simple-icons'
+import { BrandLogo } from '../shared/ui/BrandLogo'
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6
 
@@ -510,8 +510,6 @@ function LiveMicMeter({ deviceId }: { deviceId: string | null }) {
 
 // ─── Step 3: Provider ───────────────────────────────────────────────
 
-interface ProviderRef { title: string; hex: string; path: string }
-
 interface ProviderInfo {
   value: Provider
   name: string
@@ -648,12 +646,7 @@ function StepProvider({
 
 function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' }) {
   if (brand === 'anthropic') {
-    const a = siAnthropic as ProviderRef
-    return (
-      <svg width="20" height="20" viewBox="0 0 24 24" aria-label="Anthropic">
-        <path d={a.path} fill="#fff" />
-      </svg>
-    )
+    return <BrandLogo brand="claude" size={22} />
   }
   if (brand === 'openai') {
     return (
@@ -898,16 +891,6 @@ function StepHotkey({
 
 // ─── Step 5: Strictness — 3-substep side-by-side flow ──────────────
 
-interface BrandRef { title: string; hex: string; path: string }
-
-function BrandIcon({ icon, size = 22 }: { icon: BrandRef; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-label={icon.title}>
-      <path d={icon.path} fill={`#${icon.hex}`} />
-    </svg>
-  )
-}
-
 type StrictCat = keyof CategoryStrictness
 const SUBSTEP_ORDER: StrictCat[] = ['personal', 'work', 'writing']
 
@@ -1087,10 +1070,10 @@ function StepStrictness({
 
 // ─── Step 5 visual mocks ───────────────────────────────────────────
 
-function MockHeader({ icon, label }: { icon?: BrandRef; label: string }) {
+function MockHeader({ brand, label }: { brand?: 'imessage' | 'gmail' | 'notion' | 'slack' | 'claude'; label: string }) {
   return (
     <div className="flex items-center gap-2 mb-2.5 px-1">
-      {icon && <BrandIcon icon={icon} size={14} />}
+      {brand && <BrandLogo brand={brand} size={14} />}
       <div className="text-[10.5px] font-mono uppercase tracking-wider text-ink-45">{label}</div>
     </div>
   )
@@ -1100,7 +1083,7 @@ function IMessageMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
     <div>
-      <MockHeader icon={siImessage as BrandRef} label="iMessage" />
+      <MockHeader brand="imessage" label="iMessage" />
       <div className="bg-card rounded-card border border-ink-08 px-3 py-3 shadow-sm">
         <div className="text-center text-[10px] text-ink-45 mb-3 font-mono">Today 2:14 PM</div>
         {/* Received bubble — what you said, gray */}
@@ -1125,7 +1108,7 @@ function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
     <div>
-      <MockHeader icon={siGmail as BrandRef} label="Gmail · Compose" />
+      <MockHeader brand="gmail" label="Gmail · Compose" />
       <div className="bg-card rounded-card border border-ink-08 shadow-sm overflow-hidden">
         <div className="px-4 py-2.5 border-b border-ink-08 bg-paper/40">
           <div className="text-[11px] text-ink-45">To: <span className="text-ink">alex@company.com</span></div>
@@ -1149,7 +1132,7 @@ function DocMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   const typed = useTypewriter(cleaned)
   return (
     <div>
-      <MockHeader icon={siNotion as BrandRef} label="Notion · Page" />
+      <MockHeader brand="notion" label="Notion · Page" />
       <div className="bg-card rounded-card border border-ink-08 shadow-sm overflow-hidden">
         <div className="px-5 pt-4 pb-2 border-b border-ink-08">
           <div className="text-[15px] font-semibold leading-tight">Untitled</div>
