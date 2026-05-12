@@ -133,6 +133,16 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
 
       const dict = options.dictionary ?? []
       const prompt = dict.length > 0 ? dict.join(', ') : undefined
+      // `.en` models are English-only — Whisper skips the language-
+      // detection pass entirely when we force language='en', shaving
+      // ~30-80ms off short clips. Auto-detect on English-only models
+      // is pure waste (we see p=0.01 garbage detections like "af",
+      // "ca" in the logs anyway — the model still transcribes English).
+      // For the multilingual large-v3-turbo we keep auto-detect so
+      // non-English speakers get correct routing.
+      const isEnglishOnlyModel = modelId === 'base.en' || modelId === 'small.en'
+      const language = options.language
+        ?? (isEnglishOnlyModel ? 'en' : 'auto')
 
       // Inference runs in the whisper utility process — see
       // src/main/whisper-host.ts and src/main/whisper-worker.ts.
@@ -156,9 +166,7 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
           // 4 threads ties 8 threads on M5 Pro standalone and leaves
           // headroom for the rest of the app.
           maxThreads: 4,
-          // Auto-detect when no explicit language. Critical for
-          // users who dictate in multiple languages.
-          ...(options.language ? { language: options.language } : { language: 'auto' }),
+          language,
           // Dictionary becomes Whisper's initial prompt — biases
           // toward known spellings.
           ...(prompt ? { prompt } : {}),

@@ -8,6 +8,19 @@ import {
   screen,
   shell,
 } from 'electron'
+
+// Chromium switches that affect on-device whisper inference. Set
+// BEFORE app.whenReady() — they're parsed by Chromium at startup.
+//   - force-high-performance-gpu: tells macOS to use the high-perf
+//     GPU partition for this process (no-op on M-series single-GPU
+//     SoCs but documented good practice for cross-arch builds).
+//   - disable-features=MacUtilityProcessQoSPolicy: prevents Chromium
+//     from applying its utility-process QoS downgrade to our whisper
+//     worker. Without this the worker inherits THREAD_QOS_UTILITY
+//     which lands on E-cores, halving whisper.cpp throughput on
+//     M-series (4 threads can hit 2x E-cores instead of all P-cores).
+app.commandLine.appendSwitch('force-high-performance-gpu')
+app.commandLine.appendSwitch('disable-features', 'MacUtilityProcessQoSPolicy')
 import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
 import { registerHotkey, unregisterAll } from './hotkeys'
