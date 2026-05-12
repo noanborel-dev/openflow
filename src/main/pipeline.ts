@@ -12,6 +12,7 @@ import {
   createOpenAICleanupProvider,
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
+import { createLocalWhisperProvider } from './providers/local'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { pasteText, probeFocusedAXRole } from './paste'
 import { logInfo, logError } from './log'
@@ -59,6 +60,24 @@ function buildProviders(
 ): { transcription: TranscriptionProvider; cleanup: CleanupProvider } {
   const { provider, groqKey, openaiKey, anthropicKey, transcriptionModel, cleanupModel } =
     settings.provider
+
+  if (provider === 'local') {
+    // Local Whisper for transcription; cleanup still needs an LLM, so we
+    // delegate to whichever cloud key the user has configured. Prefer
+    // Groq (fastest 8B-instant), then OpenAI, then Anthropic. If they
+    // have NO cleanup key at all we still attempt Groq — the cleanup
+    // call will surface a clear error rather than running a silent local
+    // identity pass, which would skip filler/stutter cleanup entirely.
+    const cleanup =
+      groqKey ? createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+      : openaiKey ? createOpenAICleanupProvider(openaiKey, MODELS.openai.cleanup)
+      : anthropicKey ? createAnthropicCleanupProvider(anthropicKey, MODELS.anthropic.cleanup)
+      : createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+    return {
+      transcription: createLocalWhisperProvider(),
+      cleanup,
+    }
+  }
 
   if (provider === 'groq') {
     return {

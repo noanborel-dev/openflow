@@ -134,6 +134,14 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
     transcription: 'whisper-large-v3',
     cleanup: 'claude-3-haiku-20240307',
   },
+  local: {
+    // whisper.cpp model filename (without path). The model lives in
+    // userData/models/ and is downloaded on demand — see
+    // src/main/local-models.ts. Cleanup is delegated to whichever cloud
+    // key the user has configured; local LLM cleanup is out of scope.
+    transcription: 'ggml-large-v3-turbo-q5_0.bin',
+    cleanup: '',
+  },
 }
 
 export const HISTORY_LIMIT = 10
