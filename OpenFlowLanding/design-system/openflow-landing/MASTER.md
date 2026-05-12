@@ -201,14 +201,18 @@ Sources: Gretchen McCulloch *Because Internet*, Penn State period-as-passive-agg
 All logos live in `/assets/logos/`. Filenames are normalized — no spaces, lowercase:
 
 ```
+# App targets (hero + Section 5 + dictionary)
 slack.png         imessage.png        gmail.webp
+claudecode.png    cursor.png          chatgpt.png
 claude.png        notion.png
+
+# Wordmarks (footer / fallback)
 slack-wordmark.png  notion-wordmark.png  claude-wordmark.png  gmail-wordmark.webp
 ```
 
 Inside `<img>` tags, set `width:` explicitly. Never load logos from CDN — they're licensed for editorial use only and must ship with the repo.
 
-To add more (parked for the "Built for AI coding" section): `cursor.png`, `chatgpt.png`, `terminal.png`, plus `groq.png` / `openai.png` / `anthropic.png` for the provider section.
+Still missing (parked): `terminal.png` (using `›_` placeholder is fine — it's the actual macOS Terminal idiom), plus `groq.png` / `openai.png` / `anthropic.png` for the provider section if needed later.
 
 ---
 
