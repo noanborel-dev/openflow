@@ -3,49 +3,68 @@ import { promisify } from 'util'
 
 const exec = promisify(execFile)
 
-// Module-level cache populated by captureSelectedText() at hotkey press
-// time. AUDIO_DONE reads it synchronously to decide whether the user is
-// dictating-into-a-field (normal mode) or editing-a-selection
-// (command mode).
-let cached: string = ''
+// Module-level cache populated by captureFocusedContext() at hotkey
+// press time. AUDIO_DONE + the paste pre-check read these synchronously,
+// so by the time we're ready to paste there's no osascript on the hot
+// path — the call already finished while the user was still speaking.
+let cachedSelection: string = ''
+let cachedAXRole: string = 'script-error'
 
-// AXSelectedText returns whatever text is currently selected inside the
-// frontmost app's focused UI element. Empty string when nothing is
-// selected, when the focused element doesn't expose the attribute, or
-// when AX permission has been denied — all of which are correctly
-// interpreted as "not command mode" downstream.
-const SELECTED_TEXT_SCRIPT = `
+// Single osascript that captures both the AX role of the focused
+// element AND any selected text inside it. Querying both attributes
+// off the same focused element in one round-trip is ~2× faster than
+// two separate osascript spawns.
+//
+// Returns "<role>\x1F<selection>" using ASCII Unit Separator (0x1F)
+// because it can't appear in normal text. Role is "no-focus" when
+// the frontmost app has no focused element, "script-error" when the
+// AppleScript itself fails (e.g. AX permission denied).
+const CONTEXT_SCRIPT = `
 tell application "System Events"
   try
     set frontApp to first application process whose frontmost is true
-    set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
-    return value of attribute "AXSelectedText" of focusedEl
+    try
+      set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
+      set roleStr to value of attribute "AXRole" of focusedEl
+      try
+        set selText to value of attribute "AXSelectedText" of focusedEl
+      on error
+        set selText to ""
+      end try
+      return roleStr & character id 31 & selText
+    on error
+      return "no-focus" & character id 31 & ""
+    end try
   on error
-    return ""
+    return "script-error" & character id 31 & ""
   end try
 end tell
 `
 
-export async function captureSelectedText(): Promise<void> {
+export async function captureFocusedContext(): Promise<void> {
   // Reset eagerly so a stale value from the previous session can never
-  // trigger command mode if this osascript call fails or is slow.
-  cached = ''
+  // leak into the next pipeline if this osascript fails or is slow.
+  cachedSelection = ''
+  cachedAXRole = 'script-error'
   if (process.platform !== 'darwin') return
   try {
-    const { stdout } = await exec('osascript', ['-e', SELECTED_TEXT_SCRIPT])
-    cached = stdout.trim()
+    const { stdout } = await exec('osascript', ['-e', CONTEXT_SCRIPT])
+    const [role, ...rest] = stdout.split('\x1F')
+    cachedAXRole = role.trim() || 'script-error'
+    cachedSelection = rest.join('\x1F').trim()
   } catch {
-    cached = ''
+    /* keep defaults */
   }
 }
 
-// Synchronous read of the captured selection. Cheap.
 export function getSelectedText(): string {
-  return cached
+  return cachedSelection
 }
 
-// Clear the cache after the pipeline has consumed it, so a subsequent
-// dictation without a selection definitively reads empty.
+export function getFocusedAXRoleCached(): string {
+  return cachedAXRole
+}
+
 export function clearSelectedText(): void {
-  cached = ''
+  cachedSelection = ''
 }

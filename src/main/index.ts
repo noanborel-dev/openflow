@@ -14,7 +14,7 @@ import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
-import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
+import { captureFocusedContext, clearSelectedText, getSelectedText } from './selection'
 import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
@@ -319,12 +319,14 @@ function setupHotkeys(): void {
     onStart: () => {
       sessionId++
       audioChunks.length = 0
-      // Warm the focused-app cache + the selected-text cache in parallel
-      // while the user is speaking. AUDIO_DONE reads both synchronously
-      // to decide between dictation mode (no selection) and command
-      // mode (selection exists → rewrite it with the dictated instruction).
+      // Warm focused-app + focused-element context (AX role + selected
+      // text) in parallel while the user speaks. By AUDIO_DONE / paste
+      // time, both osascript calls have long since finished — so the
+      // hot path doesn't pay another roundtrip. captureFocusedContext
+      // bundles AXRole + AXSelectedText into one osascript instead of
+      // two, saving another ~50ms.
       captureFocusedApp()
-      captureSelectedText()
+      captureFocusedContext()
       // Re-position to the user's current display in case they've moved
       // monitors since the last recording. The window itself stays
       // always-visible across Spaces — no show/hide.

@@ -3,6 +3,7 @@ import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
 import { logInfo } from './log'
 import { getFocusedApp } from './focused-app'
+import { getFocusedAXRoleCached } from './selection'
 
 const exec = promisify(execFile)
 
@@ -62,41 +63,6 @@ const NON_PASTEABLE_ROLES = new Set([
   'AXDisclosureTriangle',
 ])
 
-// Ask System Events for the AX role of whatever currently has keyboard
-// focus inside the frontmost app. The nested try lets us distinguish:
-//
-//   "no-focus"     — frontmost app exists but has no focused element
-//                    (Desktop, Finder window with nothing selected,
-//                    app with focus on a non-AX surface). NOT pasteable.
-//   "script-error" — AppleScript itself blew up (AX denied, etc.).
-//                    Treated as permissive so we don't break paste
-//                    behind a transient script issue.
-//   AXFoo          — actual role string, looked up in the denylist.
-const FOCUSED_ROLE_SCRIPT = `
-tell application "System Events"
-  try
-    set frontApp to first application process whose frontmost is true
-    try
-      set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
-      return value of attribute "AXRole" of focusedEl
-    on error
-      return "no-focus"
-    end try
-  on error
-    return "script-error"
-  end try
-end tell
-`
-
-async function getFocusedAXRole(): Promise<string> {
-  try {
-    const { stdout } = await exec('osascript', ['-e', FOCUSED_ROLE_SCRIPT])
-    return stdout.trim() || 'script-error'
-  } catch {
-    return 'script-error'
-  }
-}
-
 // Apps where AXGroup / AXScrollArea / generic roles mean "no text
 // destination". For these we require an EXPLICIT text-input role
 // before allowing paste; everything else routes to the fallback.
@@ -140,11 +106,11 @@ export async function pasteText(text: string): Promise<{ method: 'paste' | 'clip
     return { method: 'clipboard' }
   }
 
-  // Pre-check: if the focused element clearly isn't a text destination
-  // (no focused element, button, list row, image, etc.), don't fire
-  // keystroke "v" into the void. Returning 'clipboard' here is what
-  // triggers the paste-fallback popup downstream.
-  const role = await getFocusedAXRole()
+  // Pre-check uses the AX role captured at hotkey-press time (see
+  // selection.ts → captureFocusedContext). That osascript already ran
+  // and resolved while the user was speaking, so this lookup is
+  // synchronous — zero hot-path roundtrip.
+  const role = getFocusedAXRoleCached()
   const { bundleId } = getFocusedApp()
   const canPaste = canPasteIntoRole(role, bundleId)
   logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })
