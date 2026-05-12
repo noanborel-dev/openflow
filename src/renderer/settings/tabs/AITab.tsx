@@ -359,16 +359,17 @@ function IMessageMock({ instruction }: { instruction: string }) {
             <span className="text-ink-45 text-[12px]">🎙</span>
           </div>
 
-          {/* OpenFlow pill at the bottom, overlaid on the thread */}
-          <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-9 pointer-events-none">
-            <MiniPill />
-          </div>
-          {/* Spoken instruction floats above the pill */}
-          <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[78px] pointer-events-none">
-            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
-              "{instruction}"
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* OpenFlow pill — always pinned to bottom-center of the mock,
+          regardless of which app is showing. Instruction floats above. */}
+      <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-4 pointer-events-none">
+        <MiniPill />
+      </div>
+      <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[52px] pointer-events-none">
+        <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+          "{instruction}"
         </div>
       </div>
     </div>
@@ -478,15 +479,16 @@ function GmailMock({ instruction }: { instruction: string }) {
             </div>
           </div>
 
-          {/* OpenFlow pill overlaid mid-screen, above the composer */}
-          <div className="mock-pill absolute left-1/2 -translate-x-1/2 top-[44%] pointer-events-none">
-            <MiniPill />
-          </div>
-          <div className="mock-instr absolute left-1/2 -translate-x-1/2 top-[28%] pointer-events-none">
-            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
-              "{instruction}"
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* Pill + instruction pinned to bottom-center of the mock. */}
+      <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-4 pointer-events-none">
+        <MiniPill />
+      </div>
+      <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[52px] pointer-events-none">
+        <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+          "{instruction}"
         </div>
       </div>
     </div>
@@ -586,15 +588,16 @@ function NotionMock({ instruction }: { instruction: string }) {
             </div>
           </div>
 
-          {/* Pill + instruction */}
-          <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-8 pointer-events-none">
-            <MiniPill />
-          </div>
-          <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[68px] pointer-events-none">
-            <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
-              "{instruction}"
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* Pill + instruction pinned to bottom-center of the mock. */}
+      <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-4 pointer-events-none">
+        <MiniPill />
+      </div>
+      <div className="mock-instr absolute left-1/2 -translate-x-1/2 bottom-[52px] pointer-events-none">
+        <div className="bg-[#1c1c1e]/90 text-white text-[10px] px-2.5 py-1 rounded-pill whitespace-nowrap shadow-lg">
+          "{instruction}"
         </div>
       </div>
     </div>
