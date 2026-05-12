@@ -33,10 +33,11 @@ contextBridge.exposeInMainWorld('openflow', {
 
   // Local Whisper model management.
   getLocalModelStatus: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_STATUS),
-  downloadLocalModel: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_DOWNLOAD),
+  downloadLocalModel: (modelId: string) => ipcRenderer.invoke(IPC.LOCAL_MODEL_DOWNLOAD, modelId),
   cancelLocalModel: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_CANCEL),
-  uninstallLocalModel: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_UNINSTALL),
+  uninstallLocalModel: (modelId: string) => ipcRenderer.invoke(IPC.LOCAL_MODEL_UNINSTALL, modelId),
   onLocalModelProgress: (cb: (progress: {
+    modelId: string
     status: 'starting' | 'downloading' | 'done' | 'error' | 'idle'
     receivedBytes: number
     totalBytes: number

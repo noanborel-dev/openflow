@@ -1,6 +1,7 @@
 import ElectronStore from 'electron-store'
 import type { Settings, Strictness } from '../shared/types'
 import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS, MODELS } from '../shared/constants'
+import { DEFAULT_LOCAL_MODEL } from './local-models'
 
 const defaults: Settings = {
   firstRun: true,
@@ -11,6 +12,7 @@ const defaults: Settings = {
     anthropicKey: '',
     transcriptionModel: MODELS.groq.transcription,
     cleanupModel: MODELS.groq.cleanup,
+    localModel: DEFAULT_LOCAL_MODEL,
   },
   hotkeys: DEFAULT_HOTKEYS,
   perAppRules: [],

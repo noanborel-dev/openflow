@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CategoryStrictness, Provider, Settings, Strictness } from '../../shared/types'
+import type { CategoryStrictness, LocalModelId, Provider, Settings, Strictness } from '../../shared/types'
 import type { LocalModelProgress, LocalModelReadiness } from '../global'
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
@@ -37,7 +37,8 @@ export default function OnboardingApp() {
   const [listening, setListening] = useState(false)
   // Per-provider state so users can pick Groq / OpenAI / Anthropic and
   // each has its own key field. Matches the Settings → Provider tab.
-  const [provider, setProvider] = useState<Provider>('groq')
+  const [provider, setProvider] = useState<Provider>('local')
+  const [localModel, setLocalModel] = useState<LocalModelId>('small.en')
   const [groqKey, setGroqKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
@@ -135,7 +136,8 @@ export default function OnboardingApp() {
   async function handleSaveProvider() {
     setSaving(true)
     // Anthropic transcription falls back to Groq, so we keep whatever
-    // Groq key was entered alongside the Anthropic one.
+    // Groq key was entered alongside the Anthropic one. Local stores
+    // the picked model tier separately under `localModel`.
     await window.openflow.setSettings({
       provider: {
         provider,
@@ -144,6 +146,7 @@ export default function OnboardingApp() {
         anthropicKey: anthropicKey.trim(),
         transcriptionModel: MODELS[provider].transcription,
         cleanupModel: MODELS[provider].cleanup,
+        localModel,
       },
     })
     setSaving(false)
@@ -219,6 +222,8 @@ export default function OnboardingApp() {
           <StepProvider
             provider={provider}
             onProviderChange={setProvider}
+            localModel={localModel}
+            onLocalModelChange={setLocalModel}
             groqKey={groqKey}
             openaiKey={openaiKey}
             anthropicKey={anthropicKey}
@@ -532,6 +537,8 @@ const ONBOARDING_PROVIDERS: ProviderInfo[] = [
 function StepProvider({
   provider,
   onProviderChange,
+  localModel,
+  onLocalModelChange,
   groqKey,
   openaiKey,
   anthropicKey,
@@ -543,6 +550,8 @@ function StepProvider({
 }: {
   provider: Provider
   onProviderChange: (p: Provider) => void
+  localModel: LocalModelId
+  onLocalModelChange: (id: LocalModelId) => void
   groqKey: string
   openaiKey: string
   anthropicKey: string
@@ -552,20 +561,26 @@ function StepProvider({
   saving: boolean
   onContinue: () => void
 }) {
-  // Local-model state mirrors the Settings tab — readiness drives whether
-  // the user can advance past this step.
+  // Local-model state mirrors the Settings tab — readiness drives
+  // whether the user can advance. Per-model progress map lets each
+  // card render its own state.
   const [localReadiness, setLocalReadiness] = useState<LocalModelReadiness | null>(null)
-  const [localProgress, setLocalProgress] = useState<LocalModelProgress | null>(null)
+  const [localProgress, setLocalProgress] = useState<Record<string, LocalModelProgress>>({})
+  const [localDownloaded, setLocalDownloaded] = useState<Record<string, boolean>>({})
   useEffect(() => {
-    window.openflow.getLocalModelStatus().then((s) => {
-      setLocalReadiness(s.readiness)
-      setLocalProgress(s.progress)
-    })
+    function refresh() {
+      window.openflow.getLocalModelStatus().then((s) => {
+        setLocalReadiness(s.readiness)
+        setLocalDownloaded(s.downloaded)
+        const seed: Record<string, LocalModelProgress> = {}
+        for (const p of s.progress) seed[p.modelId] = p
+        setLocalProgress(seed)
+      })
+    }
+    refresh()
     const off = window.openflow.onLocalModelProgress((p) => {
-      setLocalProgress(p)
-      if (p.status === 'done') {
-        window.openflow.getLocalModelStatus().then((s) => setLocalReadiness(s.readiness))
-      }
+      setLocalProgress((prev) => ({ ...prev, [p.modelId]: p }))
+      if (p.status === 'done') refresh()
     })
     return off
   }, [])
@@ -585,8 +600,12 @@ function StepProvider({
     provider === 'anthropic' ? onAnthropicKeyChange :
     () => {}
   const info = ONBOARDING_PROVIDERS.find((p) => p.value === provider)!
+  // For Local: need ffmpeg available AND the user's chosen model
+  // downloaded. The user might have downloaded `small.en` but selected
+  // `base.en`, so we check the specific selected model's downloaded
+  // state — not just any model.
   const ready = provider === 'local'
-    ? Boolean(localReadiness?.ready)
+    ? Boolean(localReadiness?.ffmpeg && localDownloaded[localModel])
     : keyValue.trim().length > 0
 
   return (
@@ -639,7 +658,13 @@ function StepProvider({
 
       <div className="max-w-[520px] mb-5">
         {provider === 'local' ? (
-          <OnboardingLocalPanel readiness={localReadiness} progress={localProgress} />
+          <OnboardingLocalPanel
+            readiness={localReadiness}
+            progress={localProgress}
+            downloaded={localDownloaded}
+            selectedModel={localModel}
+            onSelectModel={onLocalModelChange}
+          />
         ) : (
           <>
             <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1.5">
@@ -713,20 +738,38 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-// Onboarding-step version of the Settings panel — same three-state
-// rendering (missing-binary | not-downloaded | downloading | ready) but
-// laid out for the narrower onboarding column. Continue is gated on
-// `localReadiness.ready` upstream.
+// Onboarding-step version of the model picker. Same three-tier
+// (Fast / Balanced / Accurate) layout as the Settings tab but laid
+// out for the narrower onboarding column. Continue is gated on
+// (ffmpeg available && the selected model is downloaded), checked by
+// the parent — we just render UI.
+interface OnboardingModelMeta {
+  id: LocalModelId
+  name: string
+  speed: string
+  size: string
+  hint: string
+  recommended?: boolean
+}
+const ONBOARDING_MODELS: OnboardingModelMeta[] = [
+  { id: 'base.en',         name: 'Fast',     speed: '~80 ms',  size: '57 MB',  hint: 'English. Tiny + fastest.' },
+  { id: 'small.en',        name: 'Balanced', speed: '~200 ms', size: '181 MB', hint: 'English. Sub-300ms warm.', recommended: true },
+  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~900 ms', size: '547 MB', hint: 'Multilingual. Slower.' },
+]
+
 function OnboardingLocalPanel({
   readiness,
   progress,
+  downloaded,
+  selectedModel,
+  onSelectModel,
 }: {
   readiness: LocalModelReadiness | null
-  progress: LocalModelProgress | null
+  progress: Record<string, LocalModelProgress>
+  downloaded: Record<string, boolean>
+  selectedModel: LocalModelId
+  onSelectModel: (id: LocalModelId) => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   if (!readiness) return <div className="text-[11px] text-ink-45">Loading model status…</div>
 
   if (!readiness.ffmpeg) {
@@ -740,56 +783,104 @@ function OnboardingLocalPanel({
     )
   }
 
-  const downloading = progress?.status === 'starting' || progress?.status === 'downloading'
-  const downloaded = readiness.modelDownloaded && progress?.status !== 'downloading'
+  return (
+    <div className="space-y-2">
+      <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1">
+        Pick a model size
+      </div>
+      {ONBOARDING_MODELS.map((m) => (
+        <OnboardingModelCard
+          key={m.id}
+          meta={m}
+          selected={selectedModel === m.id}
+          downloaded={!!downloaded[m.id]}
+          progress={progress[m.id]}
+          onSelect={() => onSelectModel(m.id)}
+        />
+      ))}
+    </div>
+  )
+}
 
-  async function startDownload() {
+function OnboardingModelCard({
+  meta,
+  selected,
+  downloaded,
+  progress,
+  onSelect,
+}: {
+  meta: OnboardingModelMeta
+  selected: boolean
+  downloaded: boolean
+  progress: LocalModelProgress | undefined
+  onSelect: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const downloading = progress?.status === 'starting' || progress?.status === 'downloading'
+  const pct = (downloading && progress!.totalBytes > 0)
+    ? Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100)
+    : 0
+
+  async function startDownload(e: React.MouseEvent) {
+    e.stopPropagation()
     setBusy(true)
     setError(null)
-    const result = await window.openflow.downloadLocalModel()
+    const result = await window.openflow.downloadLocalModel(meta.id)
     setBusy(false)
     if (!result.ok) setError(result.error ?? 'Download failed')
   }
 
-  if (downloaded) {
-    return (
-      <div className="bg-card border border-ok/30 rounded-card px-4 py-3.5">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ok mb-1">✓ Model ready</div>
-        <p className="text-[11.5px] text-ink-60">large-v3-turbo q5_0 · stored on this Mac · no key needed.</p>
-      </div>
-    )
-  }
-
-  if (downloading) {
-    const pct = progress!.totalBytes > 0 ? Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100) : 0
-    return (
-      <div className="bg-card border border-ink-08 rounded-card px-4 py-3.5">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-2">
-          Downloading model… {pct.toFixed(0)}%
+  const canSelect = downloaded
+  return (
+    <button
+      type="button"
+      onClick={canSelect ? onSelect : undefined}
+      disabled={!canSelect}
+      className={[
+        'w-full text-left bg-card border rounded-card px-4 py-3 transition-all duration-150',
+        selected
+          ? 'border-ink ring-1 ring-ink shadow-sm'
+          : canSelect
+            ? 'border-ink-08 hover:border-ink-45 cursor-pointer'
+            : 'border-ink-08 cursor-default',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[12.5px] font-semibold">{meta.name}</span>
+            <span className="text-[10px] font-mono text-ink-45">{meta.speed} · {meta.size}</span>
+            {meta.recommended && (
+              <span className="text-[9px] font-mono uppercase tracking-wider text-volt bg-volt-muted px-1.5 py-0.5 rounded">
+                recommended
+              </span>
+            )}
+          </div>
+          <div className="text-[10.5px] text-ink-60 mt-0.5">{meta.hint}</div>
         </div>
-        <div className="h-1.5 bg-ink-08 rounded-full overflow-hidden">
+        <div className="shrink-0">
+          {downloading ? (
+            <span className="text-[10.5px] font-mono text-ink-45">{pct.toFixed(0)}%</span>
+          ) : downloaded ? (
+            <span className={`text-[10.5px] font-mono ${selected ? 'text-ok' : 'text-ink-45'}`}>
+              {selected ? '✓ active' : 'ready'}
+            </span>
+          ) : (
+            <Pill variant="primary" onClick={startDownload} disabled={busy}>
+              {busy ? '…' : 'Download'}
+            </Pill>
+          )}
+        </div>
+      </div>
+      {downloading && (
+        <div className="h-1 bg-ink-08 rounded-full overflow-hidden mt-2">
           <div className="h-full bg-volt transition-[width] duration-200" style={{ width: `${pct}%` }} />
         </div>
-        <div className="text-[10.5px] font-mono text-ink-45 mt-2">
-          {formatBytes(progress!.receivedBytes)} / {formatBytes(progress!.totalBytes)} · downloads once, then offline forever
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-card border border-ink-08 rounded-card px-4 py-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-0.5">One-time download</div>
-          <p className="text-[11.5px] text-ink-60">large-v3-turbo q5_0 · ~547 MB · then everything runs offline.</p>
-        </div>
-        <Pill variant="primary" onClick={startDownload} disabled={busy}>
-          {busy ? '…' : 'Download'}
-        </Pill>
-      </div>
-      {error && <p className="text-[11px] text-danger mt-2.5">✗ {error}</p>}
-    </div>
+      )}
+      {error && <p className="text-[10.5px] text-danger mt-2">✗ {error}</p>}
+    </button>
   )
 }
 

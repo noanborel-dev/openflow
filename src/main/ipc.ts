@@ -1,6 +1,7 @@
 import { app, ipcMain, systemPreferences, shell } from 'electron'
 import { IPC } from '../shared/types'
-import type { DictationResult } from '../shared/types'
+import type { DictationResult, LocalModelId } from '../shared/types'
+import { localModelDownloaded } from './local-models'
 import { getSettings, setSettings } from './store'
 import { testGroqKey } from './providers/groq'
 import { testOpenAIKey } from './providers/openai'
@@ -88,17 +89,25 @@ export function registerIpcHandlers(): void {
     app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true })
   })
 
-  // Local model management. Status returns the three-prong readiness +
-  // last-known download progress so the Settings card can render the
-  // right state on mount without waiting for the next progress event.
+  // Local model management. Status returns the three-prong readiness
+  // for the currently-selected model + last-known progress for every
+  // model that's ever started downloading, so the Settings UI can
+  // render all three cards with their actual state on mount.
   ipcMain.handle(IPC.LOCAL_MODEL_STATUS, () => ({
     readiness: localWhisperReadiness(),
+    // getLocalModelProgress() with no arg returns the array of all
+    // known per-model progress entries.
     progress: getLocalModelProgress(),
+    downloaded: {
+      'base.en': localModelDownloaded('base.en'),
+      'small.en': localModelDownloaded('small.en'),
+      'large-v3-turbo': localModelDownloaded('large-v3-turbo'),
+    },
   }))
 
-  ipcMain.handle(IPC.LOCAL_MODEL_DOWNLOAD, async () => {
+  ipcMain.handle(IPC.LOCAL_MODEL_DOWNLOAD, async (_e, modelId: LocalModelId) => {
     try {
-      await downloadWhisperModel()
+      await downloadWhisperModel(modelId)
       return { ok: true }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'
@@ -110,11 +119,12 @@ export function registerIpcHandlers(): void {
     cancelDownload()
   })
 
-  ipcMain.handle(IPC.LOCAL_MODEL_UNINSTALL, async () => {
+  ipcMain.handle(IPC.LOCAL_MODEL_UNINSTALL, async (_e, modelId: LocalModelId) => {
     // Release the in-memory whisper instance before deleting the
     // model file — keeping the file open across unlink would orphan
-    // RAM and (on Windows) fail the delete with EBUSY.
+    // RAM and (on Windows) fail the delete with EBUSY. The provider
+    // will reload on next dictation.
     await freeLocalWhisper()
-    await uninstallWhisperModel()
+    await uninstallWhisperModel(modelId)
   })
 }

@@ -1,4 +1,4 @@
-import type { Settings } from '../shared/types'
+import type { Settings, LocalModelId } from '../shared/types'
 
 export interface LocalModelReadiness {
   ready: boolean
@@ -8,10 +8,17 @@ export interface LocalModelReadiness {
 }
 
 export interface LocalModelProgress {
+  modelId: LocalModelId
   status: 'starting' | 'downloading' | 'done' | 'error' | 'idle'
   receivedBytes: number
   totalBytes: number
   error?: string
+}
+
+export interface LocalModelStatus {
+  readiness: LocalModelReadiness
+  progress: LocalModelProgress[]
+  downloaded: Record<LocalModelId, boolean>
 }
 
 declare global {
@@ -31,10 +38,10 @@ declare global {
       getLaunchAtLogin: () => Promise<boolean>
       setLaunchAtLogin: (enabled: boolean) => Promise<void>
       onStateChange: (cb: (state: string) => void) => () => void
-      getLocalModelStatus: () => Promise<{ readiness: LocalModelReadiness; progress: LocalModelProgress }>
-      downloadLocalModel: () => Promise<{ ok: boolean; error?: string }>
+      getLocalModelStatus: () => Promise<LocalModelStatus>
+      downloadLocalModel: (modelId: LocalModelId) => Promise<{ ok: boolean; error?: string }>
       cancelLocalModel: () => Promise<void>
-      uninstallLocalModel: () => Promise<void>
+      uninstallLocalModel: (modelId: LocalModelId) => Promise<void>
       onLocalModelProgress: (cb: (progress: LocalModelProgress) => void) => () => void
     }
   }

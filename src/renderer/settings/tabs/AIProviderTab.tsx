@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react'
 import { BrandLogo } from '../../shared/ui/BrandLogo'
-import type { Settings, Provider } from '../../../shared/types'
+import type { Settings, Provider, LocalModelId } from '../../../shared/types'
 import type { LocalModelProgress, LocalModelReadiness } from '../../global'
 import { MODELS } from '../../../shared/constants'
 import { Pill } from '../../shared/ui/Pill'
 import { SectionHero } from '../../shared/ui/SectionHero'
+
+interface LocalModelMeta {
+  id: LocalModelId
+  name: string
+  speed: string
+  size: string
+  description: string
+  recommended?: boolean
+}
+
+const LOCAL_MODEL_META: LocalModelMeta[] = [
+  { id: 'base.en',         name: 'Fast',     speed: '~80 ms',  size: '57 MB',  description: 'English only. Tiny + ultra-fast. Some mistakes on names and acronyms.' },
+  { id: 'small.en',        name: 'Balanced', speed: '~200 ms', size: '181 MB', description: 'Sub-300ms warm. English only. Near-perfect for dictation.', recommended: true },
+  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~900 ms', size: '547 MB', description: 'Highest accuracy. Multilingual. Slower — best for non-English or noisy audio.' },
+]
 
 interface ProviderInfo {
   value: Provider
@@ -27,20 +42,28 @@ export default function AIProviderTab() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null)
   const [localReadiness, setLocalReadiness] = useState<LocalModelReadiness | null>(null)
-  const [localProgress, setLocalProgress] = useState<LocalModelProgress | null>(null)
+  // Per-model download progress, keyed by model id. Each card looks up
+  // its own state.
+  const [localProgress, setLocalProgress] = useState<Record<string, LocalModelProgress>>({})
+  const [downloaded, setDownloaded] = useState<Record<string, boolean>>({})
+
+  function refreshStatus() {
+    window.openflow.getLocalModelStatus().then((s) => {
+      setLocalReadiness(s.readiness)
+      setDownloaded(s.downloaded)
+      const seed: Record<string, LocalModelProgress> = {}
+      for (const p of s.progress) seed[p.modelId] = p
+      setLocalProgress(seed)
+    })
+  }
 
   useEffect(() => {
     window.openflow.getSettings().then(setSettings)
-    window.openflow.getLocalModelStatus().then((s) => {
-      setLocalReadiness(s.readiness)
-      setLocalProgress(s.progress)
-    })
+    refreshStatus()
     const off = window.openflow.onLocalModelProgress((p) => {
-      setLocalProgress(p)
+      setLocalProgress((prev) => ({ ...prev, [p.modelId]: p }))
       if (p.status === 'done') {
-        // Re-pull readiness so the card flips to "✓ Ready" without
-        // requiring the user to navigate away and back.
-        window.openflow.getLocalModelStatus().then((s) => setLocalReadiness(s.readiness))
+        refreshStatus()
       }
     })
     return off
@@ -137,7 +160,13 @@ export default function AIProviderTab() {
       </div>
 
       {provider === 'local' ? (
-        <LocalModelPanel readiness={localReadiness} progress={localProgress} />
+        <LocalModelPanel
+          readiness={localReadiness}
+          progress={localProgress}
+          downloaded={downloaded}
+          selectedModel={settings.provider.localModel}
+          onSelectModel={(id) => save({ localModel: id })}
+        />
       ) : (
         <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
           <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-2">
@@ -189,20 +218,20 @@ function formatBytes(n: number): string {
 function LocalModelPanel({
   readiness,
   progress,
+  downloaded,
+  selectedModel,
+  onSelectModel,
 }: {
   readiness: LocalModelReadiness | null
-  progress: LocalModelProgress | null
+  progress: Record<string, LocalModelProgress>
+  downloaded: Record<string, boolean>
+  selectedModel: LocalModelId
+  onSelectModel: (id: LocalModelId) => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   if (!readiness) {
     return <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4 text-[11px] text-ink-45">Loading model status…</div>
   }
 
-  // ffmpeg is the only runtime binary we still need now that whisper
-  // runs in-process via the smart-whisper NAPI addon. Surface its
-  // absence clearly so users (and devs) know exactly what to fix.
   if (!readiness.ffmpeg) {
     return (
       <div className="bg-card border border-danger/40 rounded-[14px] px-4 py-4">
@@ -214,79 +243,137 @@ function LocalModelPanel({
     )
   }
 
-  const downloading = progress?.status === 'starting' || progress?.status === 'downloading'
-  const downloaded = readiness.modelDownloaded && progress?.status !== 'downloading'
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1">
+        Local model · pick one
+      </div>
+      {LOCAL_MODEL_META.map((m) => (
+        <LocalModelCard
+          key={m.id}
+          meta={m}
+          selected={selectedModel === m.id}
+          downloaded={!!downloaded[m.id]}
+          progress={progress[m.id]}
+          onSelect={() => onSelectModel(m.id)}
+        />
+      ))}
+    </div>
+  )
+}
 
-  async function startDownload() {
+function LocalModelCard({
+  meta,
+  selected,
+  downloaded,
+  progress,
+  onSelect,
+}: {
+  meta: LocalModelMeta
+  selected: boolean
+  downloaded: boolean
+  progress: LocalModelProgress | undefined
+  onSelect: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const downloading = progress?.status === 'starting' || progress?.status === 'downloading'
+  const pct = (downloading && progress!.totalBytes > 0)
+    ? Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100)
+    : 0
+
+  async function startDownload(e: React.MouseEvent) {
+    e.stopPropagation()
     setBusy(true)
     setError(null)
-    const result = await window.openflow.downloadLocalModel()
+    const result = await window.openflow.downloadLocalModel(meta.id)
     setBusy(false)
     if (!result.ok) setError(result.error ?? 'Download failed')
   }
 
-  async function uninstall() {
+  async function uninstall(e: React.MouseEvent) {
+    e.stopPropagation()
     setBusy(true)
     setError(null)
-    await window.openflow.uninstallLocalModel()
+    await window.openflow.uninstallLocalModel(meta.id)
     setBusy(false)
   }
 
-  function cancel() {
+  function cancel(e: React.MouseEvent) {
+    e.stopPropagation()
     window.openflow.cancelLocalModel()
   }
 
-  if (downloaded) {
-    return (
-      <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ok mb-1">✓ Model ready</div>
-            <p className="text-[11.5px] text-ink-60">large-v3-turbo q5_0 · {formatBytes(progress?.totalBytes ?? 574_041_856)} · stored locally</p>
+  // The whole card is clickable when downloaded — pick this model.
+  // When not downloaded, clicking is a no-op (the Download button does
+  // the work) so users can't end up selecting a model they can't use.
+  const canSelect = downloaded
+  return (
+    <button
+      type="button"
+      onClick={canSelect ? onSelect : undefined}
+      disabled={!canSelect}
+      className={[
+        'w-full text-left bg-card border rounded-[14px] px-4 py-3.5 transition-all duration-150',
+        selected
+          ? 'border-ink ring-1 ring-ink shadow-sm'
+          : canSelect
+            ? 'border-ink-08 hover:border-ink-45 cursor-pointer'
+            : 'border-ink-08 cursor-default',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3.5">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[13.5px] font-semibold">{meta.name}</span>
+            <span className="text-[10.5px] font-mono text-ink-45">{meta.id}</span>
+            {meta.recommended && (
+              <span className="text-[9.5px] font-mono uppercase tracking-wider text-volt bg-volt-muted px-1.5 py-0.5 rounded">
+                recommended
+              </span>
+            )}
           </div>
-          <Pill onClick={uninstall} disabled={busy}>
-            {busy ? '…' : 'Uninstall'}
-          </Pill>
+          <div className="text-[11px] text-ink-60 mt-0.5">{meta.description}</div>
+          <div className="text-[10.5px] font-mono text-ink-45 mt-1.5">
+            {meta.speed} · {meta.size}
+          </div>
         </div>
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          {downloading ? (
+            <>
+              <div className="text-[10.5px] font-mono text-ink-45">{pct.toFixed(0)}%</div>
+              <Pill onClick={cancel}>Cancel</Pill>
+            </>
+          ) : downloaded ? (
+            <>
+              {selected && <span className="text-[10.5px] font-mono text-ok">✓ active</span>}
+              <Pill onClick={uninstall} disabled={busy}>
+                {busy ? '…' : 'Uninstall'}
+              </Pill>
+            </>
+          ) : (
+            <Pill variant="primary" onClick={startDownload} disabled={busy}>
+              {busy ? '…' : 'Download'}
+            </Pill>
+          )}
+        </div>
+        <span className={[
+          'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0',
+          selected ? 'bg-ink border-ink' : 'border-ink-08',
+        ].join(' ')}>
+          {selected && <span className="w-2 h-2 rounded-full bg-paper" />}
+        </span>
       </div>
-    )
-  }
-
-  if (downloading) {
-    const pct = progress!.totalBytes > 0 ? Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100) : 0
-    return (
-      <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45">
-            Downloading model… {pct.toFixed(0)}%
-          </div>
-          <Pill onClick={cancel}>Cancel</Pill>
-        </div>
-        <div className="h-1.5 bg-ink-08 rounded-full overflow-hidden">
+      {downloading && (
+        <div className="h-1.5 bg-ink-08 rounded-full overflow-hidden mt-3">
           <div className="h-full bg-volt transition-[width] duration-200" style={{ width: `${pct}%` }} />
         </div>
-        <div className="text-[10.5px] font-mono text-ink-45 mt-2">
-          {formatBytes(progress!.receivedBytes)} / {formatBytes(progress!.totalBytes)}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1">Model not downloaded</div>
-          <p className="text-[11.5px] text-ink-60">large-v3-turbo q5_0 · ~547 MB · one-time download</p>
-        </div>
-        <Pill variant="primary" onClick={startDownload} disabled={busy}>
-          {busy ? '…' : 'Download model'}
-        </Pill>
-      </div>
+      )}
       {error && (
         <p className="text-[11px] text-danger mt-2.5">✗ {error}</p>
       )}
-    </div>
+    </button>
   )
 }
 

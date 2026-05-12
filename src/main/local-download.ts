@@ -1,39 +1,49 @@
 import { app, BrowserWindow } from 'electron'
 import fs from 'node:fs'
-import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import {
-  DEFAULT_WHISPER_MODEL,
-  DEFAULT_WHISPER_MODEL_URL,
-  DEFAULT_WHISPER_MODEL_BYTES,
+  LOCAL_MODELS,
   modelsDir,
-  whisperModelPath,
+  localModelPath,
 } from './local-models'
+import type { LocalModelId } from '../shared/types'
 import { logInfo, logError } from './log'
 
-// Model download progress event payload broadcast to all renderer
-// windows over the LOCAL_MODEL_PROGRESS channel.
+// Per-model progress payload broadcast over LOCAL_MODEL_PROGRESS. The
+// `modelId` lets the Settings UI map a progress event back to the
+// specific card that issued the download — necessary now that users
+// can download multiple model tiers and even queue them.
 export interface ModelDownloadProgress {
+  modelId: LocalModelId
   status: 'starting' | 'downloading' | 'done' | 'error' | 'idle'
   receivedBytes: number
   totalBytes: number
   error?: string
 }
 
-let currentDownload: AbortController | null = null
-let lastProgress: ModelDownloadProgress = {
-  status: 'idle',
-  receivedBytes: 0,
-  totalBytes: DEFAULT_WHISPER_MODEL_BYTES,
-}
+let currentDownload: { abort: AbortController; modelId: LocalModelId } | null = null
+// Last-known progress per model — so the renderer can fetch the
+// initial state of all three cards on mount without waiting for the
+// next stream event.
+const lastProgress: Map<LocalModelId, ModelDownloadProgress> = new Map()
 
-export function getLocalModelProgress(): ModelDownloadProgress {
-  return lastProgress
+export function getLocalModelProgress(modelId?: LocalModelId): ModelDownloadProgress | ModelDownloadProgress[] {
+  if (modelId) {
+    return lastProgress.get(modelId) ?? {
+      modelId,
+      status: 'idle',
+      receivedBytes: 0,
+      totalBytes: LOCAL_MODELS[modelId].bytes,
+    }
+  }
+  // Return all known states; callers that just want one model pass
+  // a modelId, callers that render multiple cards pass nothing.
+  return Array.from(lastProgress.values())
 }
 
 function broadcast(progress: ModelDownloadProgress): void {
-  lastProgress = progress
+  lastProgress.set(progress.modelId, progress)
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('local-model:progress', progress)
@@ -41,24 +51,26 @@ function broadcast(progress: ModelDownloadProgress): void {
   }
 }
 
-// Download the default Whisper model from HuggingFace to a `.partial`
+// Download a specific whisper model from HuggingFace to a `.partial`
 // file, then atomically rename when complete. Concurrent calls are
-// rejected — the AbortController in `currentDownload` is the lock.
+// rejected — the AbortController lock prevents two downloads from
+// trampling each other's progress reporting.
 //
 // Progress is broadcast over IPC every ~250ms (throttled inside the
-// write loop) so the renderer's progress bar can update without firing
-// thousands of IPC messages on a fast connection.
-export async function downloadWhisperModel(): Promise<void> {
+// write loop) so the renderer's progress bar updates smoothly without
+// firing thousands of IPC messages on a fast connection.
+export async function downloadWhisperModel(modelId: LocalModelId): Promise<void> {
   if (currentDownload) {
     throw new Error('A model download is already in progress.')
   }
 
+  const info = LOCAL_MODELS[modelId]
   const abort = new AbortController()
-  currentDownload = abort
+  currentDownload = { abort, modelId }
 
   const dir = modelsDir()
   await fs.promises.mkdir(dir, { recursive: true })
-  const finalPath = whisperModelPath()
+  const finalPath = localModelPath(modelId)
   const partialPath = `${finalPath}.partial`
 
   // Resume: if there's a .partial from a prior aborted run, pick up
@@ -73,13 +85,15 @@ export async function downloadWhisperModel(): Promise<void> {
   }
 
   broadcast({
+    modelId,
     status: 'starting',
     receivedBytes: resumeFrom,
-    totalBytes: DEFAULT_WHISPER_MODEL_BYTES,
+    totalBytes: info.bytes,
   })
 
   logInfo('Local model download starting', {
-    url: DEFAULT_WHISPER_MODEL_URL,
+    modelId,
+    url: info.url,
     target: finalPath,
     resumeFrom,
   })
@@ -90,7 +104,7 @@ export async function downloadWhisperModel(): Promise<void> {
     }
     if (resumeFrom > 0) headers.range = `bytes=${resumeFrom}-`
 
-    const res = await fetch(DEFAULT_WHISPER_MODEL_URL, {
+    const res = await fetch(info.url, {
       headers,
       signal: abort.signal,
     })
@@ -101,11 +115,11 @@ export async function downloadWhisperModel(): Promise<void> {
       throw new Error('Empty response body')
     }
 
-    // Resolve the expected total from Content-Length on a fresh download
+    // Resolve expected total from Content-Length on a fresh download
     // or Content-Range on a resumed one. Fall back to the hardcoded
     // estimate if neither is present (HF usually sets both).
     const contentRange = res.headers.get('content-range')
-    let totalBytes = DEFAULT_WHISPER_MODEL_BYTES
+    let totalBytes = info.bytes
     if (contentRange) {
       const m = /\/(\d+)$/.exec(contentRange)
       if (m) totalBytes = Number(m[1])
@@ -127,6 +141,7 @@ export async function downloadWhisperModel(): Promise<void> {
       if (now - lastBroadcast > 250) {
         lastBroadcast = now
         broadcast({
+          modelId,
           status: 'downloading',
           receivedBytes: received,
           totalBytes,
@@ -135,31 +150,34 @@ export async function downloadWhisperModel(): Promise<void> {
     })
     await pipeline(readable, sink)
 
-    // Sanity check before rename — if the server hung up early or we
-    // somehow ended up with a stub file, surface that as an error
-    // rather than silently flipping the state to "ready".
+    // Sanity check before rename — reject anything below 80% of the
+    // expected size as a truncated download.
     const finalSize = fs.statSync(partialPath).size
-    if (finalSize < 100 * 1024 * 1024) {
+    if (finalSize < info.bytes * 0.8) {
       throw new Error(`Downloaded file too small (${finalSize} bytes) — likely truncated`)
     }
 
     await fs.promises.rename(partialPath, finalPath)
     broadcast({
+      modelId,
       status: 'done',
       receivedBytes: finalSize,
       totalBytes: finalSize,
     })
     logInfo('Local model download complete', {
+      modelId,
       bytes: finalSize,
       path: finalPath,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
-    logError('Local model download failed', { error: message })
+    logError('Local model download failed', { modelId, error: message })
+    const prior = lastProgress.get(modelId)
     broadcast({
+      modelId,
       status: 'error',
-      receivedBytes: lastProgress.receivedBytes,
-      totalBytes: lastProgress.totalBytes,
+      receivedBytes: prior?.receivedBytes ?? 0,
+      totalBytes: prior?.totalBytes ?? info.bytes,
       error: message,
     })
     throw err
@@ -170,20 +188,23 @@ export async function downloadWhisperModel(): Promise<void> {
 
 export function cancelDownload(): void {
   if (currentDownload) {
-    currentDownload.abort()
+    const { abort, modelId } = currentDownload
+    abort.abort()
     currentDownload = null
     broadcast({
+      modelId,
       status: 'idle',
       receivedBytes: 0,
-      totalBytes: DEFAULT_WHISPER_MODEL_BYTES,
+      totalBytes: LOCAL_MODELS[modelId].bytes,
     })
   }
 }
 
-// Delete the model file and (best-effort) any .partial. Called from
-// the "Uninstall model" button in Settings.
-export async function uninstallWhisperModel(): Promise<void> {
-  const target = whisperModelPath()
+// Delete a specific model file and (best-effort) its .partial. Other
+// downloaded tiers are left alone — users may keep e.g. small.en AND
+// large-v3-turbo around to switch between them.
+export async function uninstallWhisperModel(modelId: LocalModelId): Promise<void> {
+  const target = localModelPath(modelId)
   try {
     await fs.promises.unlink(target)
   } catch (err) {
@@ -194,17 +215,11 @@ export async function uninstallWhisperModel(): Promise<void> {
   } catch {
     // ignore — .partial may not exist
   }
-  logInfo('Local model uninstalled', { path: target })
+  logInfo('Local model uninstalled', { modelId, path: target })
   broadcast({
+    modelId,
     status: 'idle',
     receivedBytes: 0,
-    totalBytes: DEFAULT_WHISPER_MODEL_BYTES,
+    totalBytes: LOCAL_MODELS[modelId].bytes,
   })
-}
-
-// Surfaced to renderer's BrandLogo / "✓ Ready" badge.
-export const MODEL_FILENAME = DEFAULT_WHISPER_MODEL
-export const MODEL_DIR = modelsDir
-export function modelFilePath(): string {
-  return whisperModelPath()
 }

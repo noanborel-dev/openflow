@@ -6,10 +6,12 @@ import crypto from 'node:crypto'
 import { initWhisper, toggleNativeLog } from '@fugood/whisper.node'
 import type { WhisperContext, TranscribeResult } from '@fugood/whisper.node'
 import type { TranscriptionProvider } from './types'
+import type { LocalModelId } from '../../shared/types'
 import { NoSpeechError } from '../errors'
 import { logInfo, logError } from '../log'
-import { whisperModelDownloaded, whisperModelPath } from '../local-models'
+import { localModelDownloaded, localModelPath, DEFAULT_LOCAL_MODEL } from '../local-models'
 import { ffmpegPath, ffmpegAvailable } from '../local-binaries'
+import { getSettings } from '../store'
 
 // Whisper-cpp hallucinates these strings on silent / near-silent
 // audio. Same heuristic the cloud pipeline uses (see pipeline.ts'
@@ -68,22 +70,33 @@ export class LocalBinaryMissingError extends Error {
 
 // Persistent WhisperContext — the whole point of the @fugood/whisper.node
 // switch over smart-whisper. fugood uses whisper_full() not
-// whisper_full_with_state(), so the Metal compute buffers (~1GB worth)
-// and shader pipelines are allocated once at context init and reused
-// across every transcribe call. smart-whisper allocated a fresh
-// whisper_state per call, which made every dictation eat ~600ms of
-// pure Metal re-init.
+// whisper_full_with_state(), so the Metal compute buffers and shader
+// pipelines are allocated once at context init and reused across every
+// transcribe call. smart-whisper allocated a fresh whisper_state per
+// call, which made every dictation eat ~600ms of pure Metal re-init.
+//
+// We key the cache on (modelPath) so swapping the selected model in
+// Settings transparently releases the old context and loads the new
+// one on the next dictation.
 let whisperContext: WhisperContext | null = null
 let whisperContextPath: string | null = null
 let loadingPromise: Promise<WhisperContext> | null = null
 
+function selectedModelId(): LocalModelId {
+  try {
+    return getSettings().provider.localModel ?? DEFAULT_LOCAL_MODEL
+  } catch {
+    return DEFAULT_LOCAL_MODEL
+  }
+}
+
 async function getContext(): Promise<WhisperContext> {
-  const modelPath = whisperModelPath()
+  const modelPath = localModelPath(selectedModelId())
   if (whisperContext && whisperContextPath === modelPath) return whisperContext
   if (loadingPromise) return loadingPromise
 
-  // Path changed (download to a new filename, model swap) — release
-  // the prior context first to avoid double-allocating ~1GB of GPU
+  // Path changed (model swap, re-download to a different filename) —
+  // release the prior context first so we don't double-allocate GPU
   // buffers during the swap.
   if (whisperContext) {
     try { await whisperContext.release() } catch { /* best-effort */ }
@@ -174,7 +187,7 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
     name: 'Local',
     async transcribe(audio, options = {}) {
       if (!ffmpegAvailable()) throw new LocalBinaryMissingError('ffmpeg')
-      if (!whisperModelDownloaded()) throw new LocalModelMissingError()
+      if (!localModelDownloaded(selectedModelId())) throw new LocalModelMissingError()
 
       const ffmpegStart = Date.now()
       const pcm = await webmToPcm16(audio)
@@ -236,7 +249,10 @@ export interface LocalReadiness {
 
 export function localWhisperReadiness(): LocalReadiness {
   const ffmpeg = ffmpegAvailable()
-  const modelDownloaded = whisperModelDownloaded()
+  // Readiness reflects the currently-selected model — swapping models
+  // in Settings should immediately flip the panel back to "Download
+  // model" if the new pick isn't downloaded yet.
+  const modelDownloaded = localModelDownloaded(selectedModelId())
   return {
     whisperCli: true,
     ffmpeg,

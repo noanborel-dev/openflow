@@ -4,6 +4,13 @@ export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'err
 
 export type Provider = 'groq' | 'openai' | 'anthropic' | 'local'
 
+// On-device whisper model tier. See src/main/local-models.ts for the
+// full info per tier. Default `small.en` is the speed/accuracy sweet
+// spot for English dictation — ~200ms warm, 181 MB. Users who need
+// multilingual or maximum accuracy switch to `large-v3-turbo`; users
+// who want minimum disk / latency switch to `base.en`.
+export type LocalModelId = 'base.en' | 'small.en' | 'large-v3-turbo'
+
 export interface ProviderSettings {
   provider: Provider
   groqKey: string
@@ -11,6 +18,7 @@ export interface ProviderSettings {
   anthropicKey: string
   transcriptionModel: string
   cleanupModel: string
+  localModel: LocalModelId
 }
 
 export interface HotkeySettings {
