@@ -2,6 +2,7 @@ import { clipboard } from 'electron'
 import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
 import { logInfo } from './log'
+import { getFocusedApp } from './focused-app'
 
 const exec = promisify(execFile)
 
@@ -96,7 +97,23 @@ async function getFocusedAXRole(): Promise<string> {
   }
 }
 
-function canPasteIntoRole(role: string): boolean {
+// Apps where AXGroup / AXScrollArea / generic roles mean "no text
+// destination". For these we require an EXPLICIT text-input role
+// before allowing paste; everything else routes to the fallback.
+//
+// Finder is the canonical case: it returns AXGroup when a window is
+// focused but no text field is being edited. Paste would fire into
+// the file list and do nothing visible. Add more bundle IDs here as
+// we discover other "non-text-app" cases.
+const STRICT_PASTE_APPS = new Set<string>([
+  'com.apple.finder',
+])
+
+const EXPLICIT_TEXT_ROLES = new Set([
+  'AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField',
+])
+
+function canPasteIntoRole(role: string, bundleId: string): boolean {
   // No focused element at all — Desktop, Finder, app without focus →
   // there is nowhere to paste, route to the fallback popup.
   if (role === 'no-focus' || role === '') return false
@@ -104,7 +121,16 @@ function canPasteIntoRole(role: string): boolean {
   // up trying to be clever; let the actual paste attempt happen and
   // surface whatever error it produces.
   if (role === 'script-error') return true
-  return !NON_PASTEABLE_ROLES.has(role)
+  if (NON_PASTEABLE_ROLES.has(role)) return false
+  // Strict apps: require an explicit text-input role. Catches Finder
+  // (and similar) where AXGroup focus means "no text field anywhere".
+  if (STRICT_PASTE_APPS.has(bundleId)) {
+    return EXPLICIT_TEXT_ROLES.has(role)
+  }
+  // Permissive default — most apps with AXGroup/AXScrollArea focus
+  // (Slack, Discord, Notion, Chrome) really DO have a focused
+  // contenteditable underneath.
+  return true
 }
 
 export async function pasteText(text: string): Promise<{ method: 'paste' | 'clipboard' }> {
@@ -119,8 +145,9 @@ export async function pasteText(text: string): Promise<{ method: 'paste' | 'clip
   // keystroke "v" into the void. Returning 'clipboard' here is what
   // triggers the paste-fallback popup downstream.
   const role = await getFocusedAXRole()
-  const canPaste = canPasteIntoRole(role)
-  logInfo('Paste pre-check', { focusedAXRole: role, canPaste })
+  const { bundleId } = getFocusedApp()
+  const canPaste = canPasteIntoRole(role, bundleId)
+  logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })
   if (!canPaste) {
     return { method: 'clipboard' }
   }
