@@ -15,11 +15,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # Compile whisper-cli for both Mac archs so the extraResources
-      # glob in electron-builder.yml resolves a real binary into
-      # Resources/bin/whisper-cli for each arch's DMG.
-      - run: PLATFORM=darwin ARCH=arm64 ./scripts/build-whisper-cli.sh
-      - run: PLATFORM=darwin ARCH=x64 ./scripts/build-whisper-cli.sh
       - run: npm run build
       - run: npx electron-builder --mac --publish never
         env:
@@ -38,22 +33,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      # Windows whisper-cli — official whisper.cpp releases ship a
-      # prebuilt whisper-bin-x64.zip. Faster than compiling from source
-      # and avoids the MSVC toolchain dance.
-      - name: Download whisper-cli (Windows x64)
-        shell: pwsh
-        run: |
-          $rel = Invoke-RestMethod -Headers @{Accept='application/vnd.github+json'} `
-            'https://api.github.com/repos/ggml-org/whisper.cpp/releases/tags/v1.8.4'
-          $asset = $rel.assets | Where-Object { $_.name -eq 'whisper-bin-x64.zip' } | Select-Object -First 1
-          $tmp = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/whisper-bin" -Force
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$tmp/bundle.zip"
-          Expand-Archive "$tmp/bundle.zip" -DestinationPath "$tmp/extracted"
-          $exe = Get-ChildItem -Path "$tmp/extracted" -Recurse -Filter 'whisper-cli.exe' | Select-Object -First 1
-          if (-not $exe) { throw "whisper-cli.exe not found in upstream release zip" }
-          New-Item -ItemType Directory -Path 'bin/win32-x64' -Force | Out-Null
-          Copy-Item $exe.FullName 'bin/win32-x64/whisper-cli.exe'
       - run: npm run build
       - run: npx electron-builder --win --publish never
         env:

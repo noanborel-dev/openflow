@@ -22,24 +22,23 @@ files:
 extraResources:
   - from: assets/
     to: assets/
-  # Local Whisper binaries. `whisper-cli` is compiled in CI from
-  # whisper.cpp and committed to bin/<platform>-<arch>/ — see
-  # scripts/build-whisper-cli.sh and the release.yml workflow. The
-  # ffmpeg binary comes from the ffmpeg-static npm package below and
-  # rides asarUnpack instead.
-  - from: bin/${platform}-${arch}/
-    to: bin/
-    filter:
-      - whisper-cli
-      - whisper-cli.exe
 
-# node-global-key-listener ships a precompiled native helper that needs
-# to live outside the asar so the spawned subprocess can find it.
-# ffmpeg-static ships per-platform ffmpeg binaries — same reason.
+# Native modules and external binaries that the main process spawns
+# or dlopen()s must live outside the asar archive so the runtime can
+# resolve real filesystem paths:
+#   - node-global-key-listener: precompiled MacKeyServer helper
+#   - ffmpeg-static: per-platform ffmpeg binary (used by Local provider)
+#   - smart-whisper: NAPI addon (.node) that loads libwhisper at runtime
 asarUnpack:
   - node_modules/node-global-key-listener/**/*
   - node_modules/ffmpeg-static/ffmpeg
   - node_modules/ffmpeg-static/ffmpeg.exe
+  - node_modules/smart-whisper/**/*
+
+# electron-builder runs @electron/rebuild on native dependencies during
+# packaging by default. We pin it explicitly so the build doesn't
+# silently skip it on a future config change.
+npmRebuild: true
 
 mac:
   category: public.app-category.productivity
@@ -53,13 +52,13 @@ mac:
       arch: [x64, arm64]
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Bundled helpers (whisper-cli, ffmpeg) get individually code-signed
-  # before the app is sealed — `codesign --deep` is deprecated by
-  # Apple, listing the binaries explicitly is the supported approach.
+  # Bundled native code gets individually code-signed before the app
+  # is sealed — `codesign --deep` is deprecated by Apple, listing
+  # binaries explicitly is the supported pattern.
   # Paths are relative to Contents/ inside the .app.
   binaries:
-    - Resources/bin/whisper-cli
     - Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg
+    - Resources/app.asar.unpacked/node_modules/smart-whisper/build/Release/smart-whisper.node
   hardenedRuntime: true
   gatekeeperAssess: false
   # Surfaced when macOS first prompts for permissions. Without these

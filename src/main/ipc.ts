@@ -5,7 +5,7 @@ import { getSettings, setSettings } from './store'
 import { testGroqKey } from './providers/groq'
 import { testOpenAIKey } from './providers/openai'
 import { testAnthropicKey } from './providers/anthropic'
-import { localWhisperReadiness } from './providers/local'
+import { localWhisperReadiness, freeLocalWhisper } from './providers/local'
 import {
   downloadWhisperModel,
   cancelDownload,
@@ -111,6 +111,10 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.LOCAL_MODEL_UNINSTALL, async () => {
+    // Release the in-memory whisper instance before deleting the
+    // model file — keeping the file open across unlink would orphan
+    // RAM and (on Windows) fail the delete with EBUSY.
+    await freeLocalWhisper()
     await uninstallWhisperModel()
   })
 }

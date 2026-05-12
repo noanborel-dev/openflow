@@ -200,18 +200,9 @@ function LocalModelPanel({
     return <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4 text-[11px] text-ink-45">Loading model status…</div>
   }
 
-  // Three independent gates. Surface each that's failing so the user
-  // knows which knob to turn rather than getting a generic "Not ready".
-  if (!readiness.whisperCli) {
-    return (
-      <div className="bg-card border border-danger/40 rounded-[14px] px-4 py-4">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">whisper-cli not found</div>
-        <p className="text-[11.5px] text-ink-60 leading-relaxed">
-          In dev: <code className="font-mono">brew install whisper-cpp</code>. In a packaged build: this means the binary failed to bundle — re-download the .app.
-        </p>
-      </div>
-    )
-  }
+  // ffmpeg is the only runtime binary we still need now that whisper
+  // runs in-process via the smart-whisper NAPI addon. Surface its
+  // absence clearly so users (and devs) know exactly what to fix.
   if (!readiness.ffmpeg) {
     return (
       <div className="bg-card border border-danger/40 rounded-[14px] px-4 py-4">

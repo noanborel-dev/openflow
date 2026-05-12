@@ -729,15 +729,12 @@ function OnboardingLocalPanel({
 
   if (!readiness) return <div className="text-[11px] text-ink-45">Loading model status…</div>
 
-  if (!readiness.whisperCli || !readiness.ffmpeg) {
-    const which = !readiness.whisperCli ? 'whisper-cli' : 'ffmpeg'
+  if (!readiness.ffmpeg) {
     return (
       <div className="bg-card border border-danger/40 rounded-card px-4 py-3.5">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">{which} not found</div>
+        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">ffmpeg not found</div>
         <p className="text-[11.5px] text-ink-60 leading-relaxed">
-          {which === 'whisper-cli'
-            ? 'In dev: `brew install whisper-cpp`. In a packaged build this means a broken install — re-download the .app.'
-            : 'Run `npm install` to pull ffmpeg-static, or reinstall OpenFlow.'}
+          Run <code className="font-mono">npm install</code> to pull ffmpeg-static, or reinstall OpenFlow.
         </p>
       </div>
     )
