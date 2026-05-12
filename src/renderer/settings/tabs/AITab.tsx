@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { SectionHero } from '../../shared/ui/SectionHero'
 import { BrandLogo } from '../../shared/ui/BrandLogo'
+import { MiniPill } from '../../shared/ui/MiniPill'
 
 // AI tab — two visual mocks.
 //
@@ -219,46 +220,7 @@ function MacCursor() {
   )
 }
 
-// Mini replica of the actual indicator pill. Shows the listening state
-// while the user is dictating, with a six-bar cobalt waveform.
-function MiniPill({ state = 'listening' }: { state?: 'listening' | 'polishing' }) {
-  return (
-    <div
-      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill text-white"
-      style={{
-        background: 'linear-gradient(180deg, rgba(18,20,26,0.92) 0%, rgba(14,16,22,0.88) 100%)',
-        border: '1px solid rgba(255,255,255,0.14)',
-        boxShadow:
-          'inset 0 1px 0 rgba(255,255,255,0.36), inset 0 -1px 0 rgba(0,0,0,0.4), ' +
-          '0 6px 14px -6px rgba(0,0,0,0.55)',
-      }}
-    >
-      {state === 'listening' ? (
-        <>
-          <span className="w-1.5 h-1.5 rounded-full bg-[#E84A3A]" style={{ boxShadow: '0 0 6px rgba(232,74,58,0.7)' }} />
-          <div className="flex items-end gap-[1.5px] h-2.5">
-            <span className="mini-bar mini-bar-1 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
-            <span className="mini-bar mini-bar-2 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
-            <span className="mini-bar mini-bar-3 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
-            <span className="mini-bar mini-bar-4 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
-            <span className="mini-bar mini-bar-5 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
-          </div>
-        </>
-      ) : (
-        <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-white/30 border-t-[#5A8FE8] animate-spin" />
-      )}
-      <span
-        className="text-[10px] leading-none ml-0.5"
-        style={{
-          fontStyle: 'italic',
-          fontFamily: '"Instrument Serif", Georgia, serif',
-        }}
-      >
-        {state}
-      </span>
-    </div>
-  )
-}
+// MiniPill is now exported from shared/ui/MiniPill for reuse across tabs.
 
 // All app mocks share this animation timeline so they read as the same
 // flow at different surfaces:

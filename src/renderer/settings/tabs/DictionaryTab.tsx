@@ -95,20 +95,132 @@ export default function DictionaryTab() {
   )
 }
 
-// Floating example card in the hero, showing how a dictionary entry
-// looks once it's been recognized in real transcripts.
+// Hero visual — a live-transcription mock showing how OpenFlow correctly
+// recognizes dictionary terms. Cycles through three transcripts every
+// 4.5s. Within each transcript, the "without" version (left side, with
+// red-strikethrough mistranscriptions) cross-fades into the "with"
+// version (clean text with cobalt-underlined dictionary hits).
+import { MiniPill } from '../../shared/ui/MiniPill'
+
+interface TranscriptSample {
+  /** What Whisper might output without dictionary biasing — common
+   *  mishearings of brand names. */
+  without: Array<{ text: string; wrong?: boolean }>
+  /** Cleaned with dictionary — the wrong segments map to the right
+   *  ones, dictionary hits get a cobalt underline. */
+  with: Array<{ text: string; hit?: boolean }>
+}
+
+const TRANSCRIPTS: TranscriptSample[] = [
+  {
+    without: [
+      { text: 'send to ' },
+      { text: 'Anthrope', wrong: true },
+      { text: ' about ' },
+      { text: 'Cloud', wrong: true },
+      { text: ' Sonnet' },
+    ],
+    with: [
+      { text: 'Send to ' },
+      { text: 'Anthropic', hit: true },
+      { text: ' about ' },
+      { text: 'Claude', hit: true },
+      { text: ' Sonnet.' },
+    ],
+  },
+  {
+    without: [
+      { text: 'push to ' },
+      { text: 'Get Hub', wrong: true },
+      { text: ' and run ' },
+      { text: 'koob control', wrong: true },
+    ],
+    with: [
+      { text: 'Push to ' },
+      { text: 'GitHub', hit: true },
+      { text: ' and run ' },
+      { text: 'kubectl', hit: true },
+      { text: '.' },
+    ],
+  },
+  {
+    without: [
+      { text: 'update the ' },
+      { text: 'OH-auth', wrong: true },
+      { text: ' flow in ' },
+      { text: 'next JS', wrong: true },
+    ],
+    with: [
+      { text: 'Update the ' },
+      { text: 'OAuth', hit: true },
+      { text: ' flow in ' },
+      { text: 'Next.js', hit: true },
+      { text: '.' },
+    ],
+  },
+]
+
 function DictionaryExample() {
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setIdx((i) => (i + 1) % TRANSCRIPTS.length), 4500)
+    return () => window.clearInterval(id)
+  }, [])
+  const t = TRANSCRIPTS[idx]
   return (
-    <div className="bg-paper border border-ink-08 rounded-[12px] px-4 py-3.5 w-full max-w-[260px] shadow-sm">
-      <div className="flex items-baseline justify-between mb-1.5">
-        <span className="text-[14px] font-semibold">Anthropic</span>
-        <span className="text-[9.5px] font-mono uppercase tracking-[0.14em] bg-[rgba(43,127,255,0.1)] text-[#2B7FFF] px-2 py-0.5 rounded-full">
-          company
-        </span>
+    <div className="relative w-[300px] h-[200px] rounded-[14px] overflow-hidden bg-white border border-ink-08 flex flex-col">
+      <style>{`
+        @keyframes dict-without { 0%, 38% { opacity: 1; } 48%, 100% { opacity: 0; } }
+        @keyframes dict-with    { 0%, 44% { opacity: 0; } 56%, 100% { opacity: 1; } }
+        @keyframes dict-hit     { 0%, 56% { background-color: rgba(43,127,255,0); } 62%, 80% { background-color: rgba(43,127,255,0.18); } 92%, 100% { background-color: rgba(43,127,255,0); } }
+        .dict-without { animation: dict-without 4.5s ease-in-out infinite; }
+        .dict-with    { animation: dict-with    4.5s ease-in-out infinite; }
+        .dict-hit     { animation: dict-hit     4.5s ease-in-out infinite; }
+      `}</style>
+
+      {/* Window chrome with mini pill */}
+      <div className="px-3 py-2 border-b border-ink-08 bg-card flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className="w-[8px] h-[8px] rounded-full bg-[#FF5F57]" />
+          <span className="w-[8px] h-[8px] rounded-full bg-[#FEBC2E]" />
+          <span className="w-[8px] h-[8px] rounded-full bg-[#28C840]" />
+        </div>
+        <MiniPill state="listening" />
       </div>
-      <div className="text-[11px] font-mono text-ink-60 mb-3">an-THROW-pic</div>
-      <div className="text-[10.5px] text-ink-45">
-        recognized in 12 transcripts this week
+
+      <div key={idx} className="flex-1 px-4 py-4 relative animate-stepIn">
+        {/* "Without dictionary" — red strikethroughs on misheard parts */}
+        <div className="dict-without text-[12.5px] leading-relaxed text-ink-60">
+          {t.without.map((seg, i) => (
+            <span key={i} className={seg.wrong ? 'line-through decoration-[#C94A2A] text-[#C94A2A]/85' : ''}>
+              {seg.text}
+            </span>
+          ))}
+        </div>
+
+        {/* "With dictionary" — dictionary hits get a cobalt highlight pulse */}
+        <div className="dict-with absolute inset-0 px-4 py-4 text-[12.5px] leading-relaxed text-ink font-medium">
+          {t.with.map((seg, i) => (
+            <span
+              key={i}
+              className={seg.hit ? 'dict-hit rounded-[2px] px-0.5 underline decoration-[#2B7FFF] decoration-2 underline-offset-2' : ''}
+            >
+              {seg.text}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-3 py-1.5 border-t border-ink-08 bg-paper/40 flex items-center gap-1.5">
+        {TRANSCRIPTS.map((_, i) => (
+          <span
+            key={i}
+            className={[
+              'h-1 rounded-full transition-all duration-300',
+              i === idx ? 'w-4 bg-ink' : 'w-1 bg-ink-08',
+            ].join(' ')}
+          />
+        ))}
       </div>
     </div>
   )

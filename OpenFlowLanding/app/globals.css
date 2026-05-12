@@ -135,7 +135,7 @@ body {
   border-radius: 1px;
   background: var(--cobalt);
   box-shadow: 0 0 6px rgba(90, 143, 232, 0.65);
-  transition: height 75ms ease-out;
+  transition: height 200ms ease-out;
   height: 3px;
 }
 

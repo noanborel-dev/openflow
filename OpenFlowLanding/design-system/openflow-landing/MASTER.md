@@ -124,6 +124,8 @@ Pill states (cycle):
 
 No timer in the pill. Bars are 6, not 4, 2px wide with 1px radius, max-height 15px.
 
+**Bars pacing (matches the real macOS app):** randomize heights on a **220ms** tick. CSS transition is **200ms ease-out**. This produces a gentle, breathing visualization, not a frantic spectrum analyzer. Don't speed it up.
+
 ### 2. Buttons
 
 | Variant | Use |

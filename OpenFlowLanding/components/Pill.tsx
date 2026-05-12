@@ -37,7 +37,7 @@ export function Pill({ state, label }: PillProps) {
       spans.forEach((s) => {
         (s as HTMLElement).style.height = `${3 + Math.random() * 11}px`;
       });
-    }, 90);
+    }, 220);
     return () => clearInterval(interval);
   }, [state]);
 
