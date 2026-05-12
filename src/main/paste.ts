@@ -46,6 +46,55 @@ function pasteViaHelper(): boolean {
   }
 }
 
+// AX roles where firing ⌘V is meaningless — the focused element is a
+// button, image, list row, etc. that can't accept text. Hitting paste
+// against these is the most common reason a dictation "succeeds" but
+// nothing visible appears: keystroke "v" fires fine, the OS just has
+// nowhere to put it.
+//
+// Permissive on purpose — when we're not sure (empty string, unknown
+// role, Electron/web app that reports AXGroup), we still attempt paste.
+// Only block when we're confident there's no text destination.
+const NON_PASTEABLE_ROLES = new Set([
+  'AXButton', 'AXLink', 'AXMenuItem', 'AXMenuBar', 'AXMenu', 'AXMenuButton',
+  'AXImage', 'AXIcon', 'AXStaticText',
+  'AXOutline', 'AXTable', 'AXRow', 'AXCell', 'AXColumn',
+  'AXBrowser', 'AXList', 'AXTabGroup', 'AXTab',
+  'AXSlider', 'AXProgressIndicator',
+  'AXCheckBox', 'AXRadioButton', 'AXPopUpButton',
+  'AXDisclosureTriangle',
+])
+
+// Ask System Events for the AX role of whatever currently has keyboard
+// focus inside the frontmost app. Returns 'unknown' on any error (no
+// focused element, AX permission denied, AppleScript barfed) — callers
+// treat unknown as "go ahead and try paste".
+const FOCUSED_ROLE_SCRIPT = `
+tell application "System Events"
+  try
+    set frontApp to first application process whose frontmost is true
+    set focusedEl to value of attribute "AXFocusedUIElement" of frontApp
+    return value of attribute "AXRole" of focusedEl
+  on error
+    return "unknown"
+  end try
+end tell
+`
+
+async function getFocusedAXRole(): Promise<string> {
+  try {
+    const { stdout } = await exec('osascript', ['-e', FOCUSED_ROLE_SCRIPT])
+    return stdout.trim() || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+function canPasteIntoRole(role: string): boolean {
+  if (!role || role === 'unknown') return true
+  return !NON_PASTEABLE_ROLES.has(role)
+}
+
 export async function pasteText(text: string): Promise<{ method: 'paste' | 'clipboard' }> {
   clipboard.writeText(text)
 
@@ -53,14 +102,17 @@ export async function pasteText(text: string): Promise<{ method: 'paste' | 'clip
     return { method: 'clipboard' }
   }
 
+  // Pre-check: if the focused element clearly isn't a text destination
+  // (button, list row, image, etc.), don't fire keystroke "v" into the
+  // void. Returning 'clipboard' here is what triggers the paste-fallback
+  // popup downstream so the user sees their text + a retry button.
+  const role = await getFocusedAXRole()
+  if (!canPasteIntoRole(role)) {
+    return { method: 'clipboard' }
+  }
+
   // Lazily start the helper on first paste, then reuse it forever.
   if (!helper) startHelper()
-
-  // No clipboard-propagation sleep here. clipboard.writeText is synchronous
-  // and macOS NSPasteboard is updated before the call returns; the legacy
-  // 30ms padding was conservative and unnecessary on modern macOS. If we
-  // ever see paste-the-old-clipboard regressions, reintroduce a small (<10ms)
-  // sleep here.
 
   if (pasteViaHelper()) {
     return { method: 'paste' }
