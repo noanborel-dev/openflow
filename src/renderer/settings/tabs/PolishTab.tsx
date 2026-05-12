@@ -13,10 +13,10 @@ function BrandIcon({ icon, size = 24 }: { icon: BrandRef; size?: number }) {
   )
 }
 
-function TerminalIcon({ size = 22 }: { size?: number }) {
+function TerminalIcon({ size = 22, className = 'text-ink-60' }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-ink-60">
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <rect x="2.5" y="4.5" width="19" height="15" rx="3" />
       <path d="M7 10l3 2-3 2" />
       <line x1="13" y1="14" x2="17" y2="14" />
@@ -25,6 +25,7 @@ function TerminalIcon({ size = 22 }: { size?: number }) {
 }
 
 type Bucket = keyof CategoryStrictness
+type HoverCtx = Bucket | 'code' | null
 
 const META: Record<Bucket, { title: string; sub: string; icon: 'imessage' | 'gmail' | 'notion' }> = {
   personal: { title: 'Personal messaging', sub: 'iMessage · WhatsApp · Telegram', icon: 'imessage' },
@@ -38,46 +39,73 @@ const ICONS: Record<'imessage' | 'gmail' | 'notion', BrandRef> = {
 }
 
 const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 'Strict' }
-// Light = very-casual, Balanced = casual, Strict = formal. Mapped 1:1
-// so users can think in either language.
 const LEVEL_REGISTER: Record<Strictness, string> = { 1: 'Very-casual', 2: 'Casual', 3: 'Formal' }
 const ORDER: Bucket[] = ['personal', 'work', 'writing']
 
-// Per-context example dictation + cleaned output at each level. Same
-// content the onboarding uses so users see consistent examples
-// between flows.
-const EXAMPLES: Record<Bucket, Record<Strictness, string>> = {
+// Per-context example dictation + cleaned output at each level. Used
+// both by the abstract bubble view and the app-style mocks.
+const EXAMPLES: Record<Bucket, { raw: string; outputs: Record<Strictness, string> }> = {
   personal: {
-    1: "yo so are we still on for tomorrow or like did that move",
-    2: "are we still on for tomorrow or did that move",
-    3: "Are we still on for tomorrow, or has it moved?",
+    raw: "yo um so are we still on for tomorrow or like did that move",
+    outputs: {
+      1: "yo so are we still on for tomorrow or like did that move",
+      2: "are we still on for tomorrow or did that move",
+      3: "Are we still on for tomorrow, or has it moved?",
+    },
   },
   work: {
-    1: "hey just wanted to follow up on the proposal can you let me know if you got a chance to look at it",
-    2: "Just following up on the proposal — can you let me know if you've had a chance to look?",
-    3: "Hi — following up on the proposal. Could you let me know once you've had a chance to review it?",
+    raw: "hey just wanted to follow up on the proposal um can you let me know if you got a chance to look at it",
+    outputs: {
+      1: "hey just wanted to follow up on the proposal can you let me know if you got a chance to look at it",
+      2: "Just following up on the proposal — can you let me know if you've had a chance to look?",
+      3: "Hi — following up on the proposal. Could you let me know once you've had a chance to review it?",
+    },
   },
   writing: {
-    1: "so the main idea is that we want users to feel like the app is responding to them and like adapting",
-    2: "The main idea is that we want users to feel the app is responding to them and adapting.",
-    3: "The core idea: users should feel the app responds and adapts to them.",
+    raw: "so the main idea is that um we want users to feel like the app is responding to them and like adapting",
+    outputs: {
+      1: "so the main idea is that we want users to feel like the app is responding to them and like adapting",
+      2: "The main idea is that we want users to feel the app is responding to them and adapting.",
+      3: "The core idea: users should feel the app responds and adapts to them.",
+    },
   },
 }
 
-// Bubble palette per level. Order top-to-bottom in the hero is Strict
-// (formal cool gray) → Balanced (casual warm pink) → Light (very-casual
-// deep purple), descending from most to least polished.
+// Code is FAITHFUL — single example, single output, never level-dependent.
+const CODE_EXAMPLE = {
+  raw: "git commit dash m fix the um the bug in user auth",
+  output: "git commit -m \"fix the bug in user auth\"",
+}
+
 const BUBBLE_STYLES: Record<Strictness, { bg: string; fg: string }> = {
-  3: { bg: '#E5E1F0', fg: '#1F1B2E' },  // Formal
-  2: { bg: '#F5DCDA', fg: '#2A1A18' },  // Casual
-  1: { bg: '#3F2570', fg: '#F0E6FF' },  // Very-casual
+  3: { bg: '#E5E1F0', fg: '#1F1B2E' },
+  2: { bg: '#F5DCDA', fg: '#2A1A18' },
+  1: { bg: '#3F2570', fg: '#F0E6FF' },
+}
+
+// Char-by-char typewriter for cleaned-output renders inside mocks.
+function useTypewriter(text: string, msPerChar = 14): string {
+  const [shown, setShown] = useState('')
+  useEffect(() => {
+    setShown('')
+    let i = 0
+    const id = window.setInterval(() => {
+      i++
+      setShown(text.slice(0, i))
+      if (i >= text.length) window.clearInterval(id)
+    }, msPerChar)
+    return () => window.clearInterval(id)
+  }, [text, msPerChar])
+  return shown
 }
 
 export default function PolishTab() {
   const [strictness, setStrictness] = useState<CategoryStrictness | null>(null)
-  // Which bucket's examples the hero is showing. Hovering or clicking a
-  // row updates this, and the hero re-renders with that bucket's
-  // dictation + cleaned outputs. Selected level is highlighted.
+  // hoverCtx is the row the pointer is over right now; activeBucket is
+  // the row whose level pills you most recently touched. When the pointer
+  // leaves all rows, the hero falls back to the abstract register-bubble
+  // view tied to activeBucket.
+  const [hoverCtx, setHoverCtx] = useState<HoverCtx>(null)
   const [activeBucket, setActiveBucket] = useState<Bucket>('personal')
 
   useEffect(() => {
@@ -94,8 +122,10 @@ export default function PolishTab() {
 
   if (!strictness) return <div className="text-ink-45 text-sm">Loading…</div>
 
-  const activeLevel = strictness[activeBucket]
-  const activeExamples = EXAMPLES[activeBucket]
+  // Decide what the hero shows. Hover wins; otherwise fall back to the
+  // resting register-bubble view for activeBucket.
+  const showMock = hoverCtx !== null
+  const heroBucketForBody = hoverCtx === 'code' ? null : (hoverCtx ?? activeBucket)
 
   return (
     <div className="max-w-[760px]">
@@ -104,32 +134,39 @@ export default function PolishTab() {
         accent="violet"
         headline={<>One voice, <em className="font-display italic">three</em> registers.</>}
         body={
-          <>
-            Same content, calibrated to context. Picking a level on a row below highlights it here — that's the register
-            your <span className="text-ink font-medium">{META[activeBucket].title.toLowerCase()}</span> goes out as.
-          </>
+          heroBucketForBody
+            ? <>Same content, calibrated to context. Hovering a row shows what {META[heroBucketForBody].title.toLowerCase()} looks like inside the actual app — at the level you've picked.</>
+            : <>Same content, calibrated to context. Code &amp; Terminal stay faithful — words are never dropped there. Hover a row below to preview.</>
         }
-        visual={<RegisterBubbles bucket={activeBucket} examples={activeExamples} activeLevel={activeLevel} />}
+        visual={
+          <HeroVisual
+            mode={showMock ? (hoverCtx === 'code' ? 'code' : 'mock') : 'resting'}
+            bucket={heroBucketForBody}
+            level={heroBucketForBody ? strictness[heroBucketForBody] : strictness[activeBucket]}
+          />
+        }
       />
 
-      {/* Per-context rows — three active + locked Code & Terminal. Each
-          row's hover/click pulls the hero's example set to that
-          context, so users can see exactly what each bucket produces
-          at each level. */}
-      <div className="bg-card border border-ink-08 rounded-[14px] overflow-hidden">
+      {/* Per-context rows. mouseEnter sets hoverCtx; mouseLeave clears
+          it. The level pills below update the saved strictness AND
+          mark this bucket as the resting-state default. */}
+      <div
+        className="bg-card border border-ink-08 rounded-[14px] overflow-hidden"
+        onMouseLeave={() => setHoverCtx(null)}
+      >
         {ORDER.map((bucket, i) => {
           const meta = META[bucket]
           const current = strictness[bucket]
           const isLast = i === ORDER.length - 1
-          const isActive = activeBucket === bucket
+          const isHovered = hoverCtx === bucket
           return (
             <div
               key={bucket}
-              onMouseEnter={() => setActiveBucket(bucket)}
+              onMouseEnter={() => setHoverCtx(bucket)}
               className={[
                 'grid grid-cols-[40px_1fr_auto] items-center gap-4 px-5 py-4 transition-colors',
                 isLast ? '' : 'border-b border-ink-08',
-                isActive ? 'bg-paper/60' : '',
+                isHovered ? 'bg-paper/60' : '',
               ].join(' ')}
             >
               <div className="w-9 h-9 rounded-[10px] flex items-center justify-center"
@@ -163,14 +200,21 @@ export default function PolishTab() {
           )
         })}
 
-        {/* Locked Code & Terminal row */}
-        <div className="grid grid-cols-[40px_1fr_auto] items-center gap-4 px-5 py-4 border-t border-ink-08 bg-paper/40">
+        {/* Code & Terminal — locked but still hoverable so users can see
+            what Faithful mode produces in a Terminal canvas. */}
+        <div
+          onMouseEnter={() => setHoverCtx('code')}
+          className={[
+            'grid grid-cols-[40px_1fr_auto] items-center gap-4 px-5 py-4 border-t border-ink-08 transition-colors',
+            hoverCtx === 'code' ? 'bg-paper/60' : 'bg-paper/40',
+          ].join(' ')}
+        >
           <div className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-ink/[0.04]">
             <TerminalIcon />
           </div>
           <div className="min-w-0">
             <div className="text-[13.5px] font-semibold leading-tight text-ink-60">Code & Terminal</div>
-            <div className="text-[11px] text-ink-45 mt-0.5">VS Code · Terminal · iTerm — faithful transcription, always.</div>
+            <div className="text-[11px] text-ink-45 mt-0.5">VS Code · Terminal · iTerm — faithful, always.</div>
           </div>
           <span className="text-[11px] font-mono text-ink-45 px-3 py-1.5">Locked</span>
         </div>
@@ -179,55 +223,173 @@ export default function PolishTab() {
   )
 }
 
-// Three labeled bubbles for the active context. Currently-selected
-// level gets a ring + checkmark + slight scale to make the connection
-// between the level pill below and the actual register output explicit.
-function RegisterBubbles({
-  bucket,
-  examples,
-  activeLevel,
+// HeroVisual handles the three states: resting (abstract bubbles), mock
+// (in-app preview for hovered bucket), code (terminal preview). Wrapping
+// in a keyed container forces React to remount on every state change
+// so the animate-stepIn keyframe replays — gives the cross-fade feel
+// without a separate transition library.
+function HeroVisual({
+  mode, bucket, level,
 }: {
-  bucket: Bucket
-  examples: Record<Strictness, string>
-  activeLevel: Strictness
+  mode: 'resting' | 'mock' | 'code'
+  bucket: Bucket | null
+  level: Strictness
 }) {
-  // Display order: Strict (3) at top, Balanced (2) middle, Light (1) bottom.
-  // Most-polished → least-polished feels like a natural reading order.
-  const levels: Strictness[] = [3, 2, 1]
+  const key = `${mode}-${bucket ?? ''}-${level}`
+  if (mode === 'code') {
+    return <div key={key} className="animate-stepIn w-full max-w-[320px]"><TerminalMock /></div>
+  }
+  if (mode === 'mock' && bucket) {
+    return (
+      <div key={key} className="animate-stepIn w-full max-w-[320px]">
+        {bucket === 'personal' && <IMessageMock raw={EXAMPLES.personal.raw} cleaned={EXAMPLES.personal.outputs[level]} />}
+        {bucket === 'work'     && <EmailMock    raw={EXAMPLES.work.raw}     cleaned={EXAMPLES.work.outputs[level]} />}
+        {bucket === 'writing'  && <NotionMock   raw={EXAMPLES.writing.raw}  cleaned={EXAMPLES.writing.outputs[level]} />}
+      </div>
+    )
+  }
   return (
-    <div key={bucket} className="flex flex-col gap-2.5 w-full max-w-[300px] animate-stepIn">
+    <div key={key} className="animate-stepIn">
+      <RegisterBubbles />
+    </div>
+  )
+}
+
+// ─── Resting state: abstract register-bubble showcase ───────────────
+
+function RegisterBubbles() {
+  const levels: Strictness[] = [3, 2, 1]
+  // Generic dictation, not tied to a specific bucket — the resting
+  // hero advertises "what the app does" without making users commit
+  // to a context yet.
+  const examples: Record<Strictness, string> = {
+    3: "Hey, are you free for lunch tomorrow?",
+    2: "Hey are you free for lunch tomorrow? Let's do 12 if that works",
+    1: "hey are you free for lunch tomorrow lets do 12 if that works",
+  }
+  return (
+    <div className="flex flex-col gap-2.5 w-full max-w-[300px]">
       {levels.map((lvl) => {
         const style = BUBBLE_STYLES[lvl]
-        const isActive = activeLevel === lvl
         return (
-          <div key={lvl} className="relative">
-            {/* Label row above each bubble */}
-            <div className="flex items-baseline justify-between mb-0.5 px-1">
-              <span className="text-[9.5px] font-mono uppercase tracking-[0.16em] text-ink-45">
-                {LEVEL_LABEL[lvl]} · {LEVEL_REGISTER[lvl]}
-              </span>
-              {isActive && (
-                <span className="text-[9.5px] font-mono uppercase tracking-[0.14em]" style={{ color: '#6B46C1' }}>
-                  ← current
-                </span>
-              )}
+          <div key={lvl}>
+            <div className="text-[9.5px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-0.5 px-1">
+              {LEVEL_LABEL[lvl]} · {LEVEL_REGISTER[lvl]}
             </div>
-            <div
-              className={[
-                'rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug transition-all duration-200',
-                isActive ? 'scale-[1.015]' : 'opacity-75',
-              ].join(' ')}
-              style={{
-                background: style.bg,
-                color: style.fg,
-                boxShadow: isActive ? '0 0 0 2px rgba(107, 70, 193, 0.55)' : 'none',
-              }}
-            >
+            <div className="rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug"
+                 style={{ background: style.bg, color: style.fg }}>
               {examples[lvl]}
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ─── App-specific mocks ─────────────────────────────────────────────
+
+function MockChrome({ icon, label, children }: { icon?: BrandRef; label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 px-1">
+        {icon && <BrandIcon icon={icon} size={13} />}
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45">{label}</div>
+      </div>
+      <div className="bg-card rounded-[12px] border border-ink-08 shadow-sm overflow-hidden">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function IMessageMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <MockChrome icon={siImessage as BrandRef} label="iMessage">
+      <div className="px-3 py-3">
+        <div className="text-center text-[10px] text-ink-45 mb-2.5 font-mono">Today 2:14 PM</div>
+        <div className="flex justify-start mb-2">
+          <div className="bg-[#e9e9eb] text-ink text-[12.5px] px-3 py-1.5 rounded-[16px] rounded-bl-[4px] max-w-[78%] leading-snug">
+            {raw}
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <div className="bg-[#0b93f6] text-white text-[12.5px] px-3 py-1.5 rounded-[16px] rounded-br-[4px] max-w-[78%] leading-snug">
+            {typed}
+            <span className="inline-block w-[2px] h-[12px] bg-white/80 ml-0.5 align-text-bottom animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </MockChrome>
+  )
+}
+
+function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <MockChrome icon={siGmail as BrandRef} label="Gmail · Compose">
+      <div className="px-4 py-2.5 border-b border-ink-08 bg-paper/40">
+        <div className="text-[11px] text-ink-45">To: <span className="text-ink">alex@company.com</span></div>
+        <div className="text-[11px] text-ink-45 mt-1">Subject: <span className="text-ink">Quick follow-up</span></div>
+      </div>
+      <div className="px-4 py-3 min-h-[120px]">
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">You said</div>
+        <div className="text-[11.5px] text-ink-45 italic mb-3 leading-snug">"{raw}"</div>
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">OpenFlow types</div>
+        <div className="text-[13px] text-ink leading-snug">
+          {typed}
+          <span className="inline-block w-[2px] h-[14px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
+        </div>
+      </div>
+    </MockChrome>
+  )
+}
+
+function NotionMock({ raw, cleaned }: { raw: string; cleaned: string }) {
+  const typed = useTypewriter(cleaned)
+  return (
+    <MockChrome icon={siNotion as BrandRef} label="Notion · Page">
+      <div className="px-5 pt-4 pb-2 border-b border-ink-08">
+        <div className="text-[15px] font-semibold leading-tight">Untitled</div>
+      </div>
+      <div className="px-5 py-4 min-h-[120px]">
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">You said</div>
+        <div className="text-[11.5px] text-ink-45 italic mb-3 leading-snug">"{raw}"</div>
+        <div className="text-[13px] text-ink leading-snug">
+          {typed}
+          <span className="inline-block w-[2px] h-[14px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
+        </div>
+      </div>
+    </MockChrome>
+  )
+}
+
+function TerminalMock() {
+  const typed = useTypewriter(CODE_EXAMPLE.output)
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 px-1">
+        <TerminalIcon size={13} className="text-ink-45" />
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45">Terminal · faithful</div>
+      </div>
+      <div className="bg-[#0E1018] rounded-[12px] border border-[#1F2330] shadow-sm overflow-hidden">
+        {/* Mac-style traffic light chrome */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[#1F2330]">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#FF5F57]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-[#FEBC2E]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-[#28C840]" />
+          <span className="ml-2 text-[10px] font-mono text-[#7C8696]">zsh — 80×24</span>
+        </div>
+        <div className="px-3 py-3 font-mono text-[11.5px] leading-[1.6]">
+          <div className="text-[#7C8696] mb-1.5">you said: <span className="italic">"{CODE_EXAMPLE.raw}"</span></div>
+          <div className="text-[#9DDC4E]">
+            <span className="text-[#7C8696]">$ </span>
+            <span className="text-white">{typed}</span>
+            <span className="inline-block w-[6px] h-[12px] bg-[#9DDC4E] ml-0.5 align-text-bottom animate-pulse" />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
