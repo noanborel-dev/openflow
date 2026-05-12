@@ -12,8 +12,9 @@ import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
-import { runDictationPipeline } from './pipeline'
-import { captureFocusedApp } from './focused-app'
+import { runCommandPipeline, runDictationPipeline } from './pipeline'
+import { captureFocusedApp, getFocusedApp } from './focused-app'
+import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
 import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
@@ -318,9 +319,12 @@ function setupHotkeys(): void {
     onStart: () => {
       sessionId++
       audioChunks.length = 0
-      // Warm the focused-app cache while the user is speaking. The
-      // pipeline reads it synchronously when AUDIO_DONE arrives.
+      // Warm the focused-app cache + the selected-text cache in parallel
+      // while the user is speaking. AUDIO_DONE reads both synchronously
+      // to decide between dictation mode (no selection) and command
+      // mode (selection exists → rewrite it with the dictated instruction).
       captureFocusedApp()
+      captureSelectedText()
       // Re-position to the user's current display in case they've moved
       // monitors since the last recording. The window itself stays
       // always-visible across Spaces — no show/hide.
@@ -385,7 +389,43 @@ function setupAudioIpc(): void {
       return
     }
 
+    // Decide between modes based on whether the user had a meaningful
+    // selection when they pressed the hotkey. The threshold (≥5 chars)
+    // protects against accidental tiny selections like a single
+    // highlighted comma triggering rewrite mode.
+    const selection = getSelectedText()
+    const commandMode = selection.trim().length >= 5
+    clearSelectedText()
+    logInfo('Pipeline mode', { mode: commandMode ? 'command' : 'dictate', selectionChars: selection.length })
+
     try {
+      if (commandMode) {
+        broadcastState('processing')
+        const rewritten = await runCommandPipeline(audioBuffer, selection, getSettings())
+        const { method } = await pasteText(rewritten)
+        const focused = getFocusedApp()
+        addToHistory({
+          id: crypto.randomUUID(),
+          transcript: '(rewrite)',
+          cleaned: rewritten,
+          appName: focused.name,
+          appCategory: focused.category,
+          timestamp: Date.now(),
+        })
+        updateTrayMenu()
+
+        if (stillLatest()) {
+          const isClipboard = method === 'clipboard'
+          broadcastState(isClipboard ? 'clipboard' : 'done')
+          if (isClipboard) showPasteFallback(rewritten)
+          const dismissAfter = isClipboard ? 2200 : 1500
+          setTimeout(() => {
+            if (stillLatest()) broadcastState('idle')
+          }, dismissAfter)
+        }
+        return
+      }
+
       const result = await runDictationPipeline(
         audioBuffer,
         getSettings(),
