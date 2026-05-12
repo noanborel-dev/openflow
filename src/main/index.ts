@@ -15,7 +15,7 @@ import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
-import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
+import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -320,14 +320,14 @@ function setupHotkeys(): void {
       sessionId++
       audioChunks.length = 0
       // Warm caches that need press-time intent: focused app (for the
-      // cleanup category prompt) and selected text (for command-mode
-      // rewrite). The AX-role check for "is the paste destination
-      // actually pasteable" happens at paste time inside the pipeline,
-      // concurrently with the cleanup LLM — that one must reflect the
-      // CURRENT focus, not the press-time focus, because the user can
-      // move between apps while dictating.
+      // cleanup category prompt), selected text (for command-mode
+      // rewrite), and the AX-role probe (for "is paste destination
+      // pasteable" gate). All three are slow osascripts (~150ms to
+      // ~1200ms each) — firing them now lets them complete during
+      // recording instead of blocking the post-transcribe paste path.
       captureFocusedApp()
       captureSelectedText()
+      captureAXRoleAtPress()
       // Re-position to the user's current display in case they've moved
       // monitors since the last recording. The window itself stays
       // always-visible across Spaces — no show/hide.
