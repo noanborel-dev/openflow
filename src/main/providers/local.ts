@@ -133,16 +133,11 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
 
       const dict = options.dictionary ?? []
       const prompt = dict.length > 0 ? dict.join(', ') : undefined
-      // `.en` models are English-only — Whisper skips the language-
-      // detection pass entirely when we force language='en', shaving
-      // ~30-80ms off short clips. Auto-detect on English-only models
-      // is pure waste (we see p=0.01 garbage detections like "af",
-      // "ca" in the logs anyway — the model still transcribes English).
-      // For the multilingual large-v3-turbo we keep auto-detect so
-      // non-English speakers get correct routing.
-      const isEnglishOnlyModel = modelId === 'base.en' || modelId === 'small.en'
-      const language = options.language
-        ?? (isEnglishOnlyModel ? 'en' : 'auto')
+      // All current local models are multilingual; auto-detect lets
+      // users switch between languages without rebinding the setting.
+      // The detection pass is fast on small/base (~10-20ms) and the
+      // wins for bilingual / trilingual users are large.
+      const language = options.language ?? 'auto'
 
       // Inference runs in the whisper utility process — see
       // src/main/whisper-host.ts and src/main/whisper-worker.ts.

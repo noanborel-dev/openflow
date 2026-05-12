@@ -99,8 +99,8 @@ export function registerIpcHandlers(): void {
     // known per-model progress entries.
     progress: getLocalModelProgress(),
     downloaded: {
-      'base.en': localModelDownloaded('base.en'),
-      'small.en': localModelDownloaded('small.en'),
+      'base': localModelDownloaded('base'),
+      'small': localModelDownloaded('small'),
       'large-v3-turbo': localModelDownloaded('large-v3-turbo'),
     },
   }))

@@ -8,30 +8,35 @@ export function modelsDir(): string {
   return path.join(app.getPath('userData'), 'models')
 }
 
-// Available local Whisper model tiers. The default is `small.en` — it
-// hits ~120ms warm on M-series for a 3s clip via whisper.cpp+Metal,
-// which is the speed Willow Voice / Wispr Flow market as their cloud
-// pitch. English accuracy is near-identical to large-v3-turbo for
-// conversational dictation (the WER gap is in noisy / accented /
-// non-English audio, which dictation rarely is).
+// Available local Whisper model tiers.
 //
-// Users who want multilingual or maximum accuracy can pick `large` in
-// Settings. Users on slow connections or older Macs can pick `base`
-// for sub-100ms with a small accuracy tradeoff.
+// We use the multilingual variants (not .en) for base and small
+// because:
+//   - The multilingual `small` is ~60ms slower than `small.en`
+//     (~200ms vs ~140ms warm on M5 Pro) but produces noticeably
+//     better English BRAND-NAME capitalization ("TypeScript" vs
+//     "type script", "TRPC" vs "trpc", "Anthropic" vs "anthropic").
+//     The .en variants were trained without the multilingual
+//     vocabulary that exposes the model to mixed-case tokens at
+//     scale.
+//   - Users who occasionally speak Spanish / French / German get
+//     reasonable transcription instead of phonetic garbage.
+//   - The latency cost (~60ms) is invisible at this scale.
 //
-// The .en variants are English-only and noticeably faster than the
-// multilingual variants of the same size. Whisper's multilingual
-// detection pass adds ~30-50ms per call.
-export type LocalModelId = 'base.en' | 'small.en' | 'large-v3-turbo'
+// Tiers map roughly to (speed × accuracy):
+//   base   ~80ms   small but rough on names
+//   small  ~200ms  near-perfect English + multilingual capable
+//   large  ~970ms  best accuracy on multilingual + technical terms
+export type LocalModelId = 'base' | 'small' | 'large-v3-turbo'
 
-// Accurate (large-v3-turbo) by default. With useFlashAttn enabled and
-// the pipeline fixes (press-time AX probe, cleanup-skip for short
-// transcripts) it hits ~500ms warm on M-series, which is the target.
-// Multilingual + best accuracy on brand names and technical terms —
-// real differences vs small.en on dictations like "Claude Code" /
-// "useEffect" / "GPT-4". The tier picker is right there for users who
-// want to trade accuracy for raw speed.
-export const DEFAULT_LOCAL_MODEL: LocalModelId = 'large-v3-turbo'
+// Balanced (small, multilingual) is the default. It hits ~200ms
+// warm on M5 Pro for typical clips, transcribes English brand names
+// with proper capitalization (TypeScript, TRPC, Anthropic), AND
+// handles Spanish / French / German for users who occasionally speak
+// non-English. Users who want maximum accuracy on heavy multilingual
+// or technical content can opt into Accurate (large-v3-turbo) in
+// Settings — it's there, just ~5x slower.
+export const DEFAULT_LOCAL_MODEL: LocalModelId = 'small'
 
 interface LocalModelInfo {
   id: LocalModelId
@@ -44,23 +49,23 @@ interface LocalModelInfo {
 }
 
 export const LOCAL_MODELS: Record<LocalModelId, LocalModelInfo> = {
-  'base.en': {
-    id: 'base.en',
-    filename: 'ggml-base.en-q5_1.bin',
-    url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin',
-    bytes: 59_721_011,
+  'base': {
+    id: 'base',
+    filename: 'ggml-base-q5_1.bin',
+    url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin',
+    bytes: 60_000_000,
     sizeLabel: '57 MB',
-    speedLabel: '~80 ms',
-    description: 'Tiny + ultra-fast. English only. Some mistakes on names and acronyms.',
+    speedLabel: '~100 ms',
+    description: 'Tiny + ultra-fast. Multilingual. Some mistakes on technical terms.',
   },
-  'small.en': {
-    id: 'small.en',
-    filename: 'ggml-small.en-q5_1.bin',
-    url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin',
-    bytes: 190_098_681,
+  'small': {
+    id: 'small',
+    filename: 'ggml-small-q5_1.bin',
+    url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin',
+    bytes: 190_085_487,
     sizeLabel: '181 MB',
     speedLabel: '~200 ms',
-    description: 'Recommended. Sub-300ms warm. English only. Near-perfect for dictation.',
+    description: 'Sub-300ms warm. Multilingual. Near-perfect for English dictation.',
   },
   'large-v3-turbo': {
     id: 'large-v3-turbo',
@@ -68,8 +73,8 @@ export const LOCAL_MODELS: Record<LocalModelId, LocalModelInfo> = {
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin',
     bytes: 574_041_856,
     sizeLabel: '547 MB',
-    speedLabel: '~900 ms',
-    description: 'Highest accuracy. Multilingual. Slower — best for non-English or noisy audio.',
+    speedLabel: '~1000 ms',
+    description: 'Highest accuracy on non-English and technical terms. Slower.',
   },
 }
 

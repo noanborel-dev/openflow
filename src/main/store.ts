@@ -74,6 +74,17 @@ export function getSettings(): Settings {
     strictness,
   }
 
+  // Migrate legacy .en model IDs to their multilingual equivalents.
+  // Earlier builds shipped base.en / small.en; we switched to the
+  // multilingual variants because they give better English brand-
+  // name capitalization AND multilingual capability at the same
+  // speed. The model file on disk has a different name so the user
+  // will need to re-download — that's surfaced naturally in the
+  // Settings card (showing "Download" instead of "✓ active").
+  const legacyModel = merged.provider.localModel as unknown as string
+  if (legacyModel === 'small.en') merged.provider.localModel = 'small'
+  if (legacyModel === 'base.en') merged.provider.localModel = 'base'
+
   // Migrate stale cleanup model. Persist the new value so the next
   // read sees it without re-running this branch.
   const persisted = merged.provider.cleanupModel
