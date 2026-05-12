@@ -2,6 +2,15 @@ appId: app.openflow
 productName: OpenFlow
 copyright: Copyright © 2026 OpenFlow Contributors
 
+# Where electron-builder uploads artifacts when --publish is on. The
+# GitHub provider matches the repo from the GIT_REPO env var or
+# package.json "repository" field, and the asset names below mean the
+# landing page can link directly at
+# https://github.com/<owner>/<repo>/releases/latest/download/<assetName>
+publish:
+  provider: github
+  releaseType: release
+
 directories:
   output: dist
   buildResources: build
@@ -47,7 +56,11 @@ mac:
 
 dmg:
   title: ${productName} ${version}
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Versionless filenames so the landing page can hardcode:
+  #   .../releases/latest/download/OpenFlow-arm64.dmg
+  # and never break on a new release. The version is still embedded
+  # inside the .app bundle's Info.plist for auto-update + diagnostics.
+  artifactName: ${productName}-${arch}.${ext}
 
 win:
   target: nsis

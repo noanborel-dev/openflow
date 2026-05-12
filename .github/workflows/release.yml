@@ -1,0 +1,79 @@
+name: Release
+
+# Fires when you push a tag like v0.2.0. The job builds the macOS app,
+# signs + notarizes it if signing secrets are configured (gracefully
+# degrades to unsigned otherwise), and uploads the .dmg + .zip to a
+# GitHub Release matching the tag.
+#
+# Once published, the landing page can link directly to:
+#   https://github.com/OWNER/REPO/releases/latest/download/OpenFlow-arm64.dmg
+# That URL always serves the most recent release's asset by exact name.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck + build renderer
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Package + sign + notarize
+        env:
+          # All four of these are set as repository secrets. When they
+          # are missing the build still succeeds — electron-builder
+          # just skips code-signing and produces an unsigned .dmg.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # electron-builder reads this and publishes to the release
+          # that matches the tag we just pushed.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # When signing secrets are absent, disable auto-discovery so
+          # the build doesn't try (and fail) to use the runner keychain.
+          if [ -z "$CSC_LINK" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "::warning::No signing certificate provided — building unsigned"
+          fi
+          # When notarization creds are present, flip the YAML flag so
+          # electron-builder runs notarytool after signing.
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            npx --no-install electron-builder --mac --publish always \
+              -c.mac.notarize.teamId="$APPLE_TEAM_ID"
+          else
+            echo "::warning::No notarization credentials — building without notarization"
+            npx --no-install electron-builder --mac --publish always
+          fi
+
+      - name: Upload artifacts (debugging)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
+          if-no-files-found: warn
+          retention-days: 7

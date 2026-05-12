@@ -18,6 +18,11 @@
   ],
   "author": "OpenFlow Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openflow-app/openflow.git"
+  },
+  "homepage": "https://openflow.app",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
     "@electron-toolkit/utils": "^4.0.0",
