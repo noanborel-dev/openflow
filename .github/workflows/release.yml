@@ -31,6 +31,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build whisper-cli (arm64)
+        run: PLATFORM=darwin ARCH=arm64 ./scripts/build-whisper-cli.sh
+
+      - name: Build whisper-cli (x64)
+        run: PLATFORM=darwin ARCH=x64 ./scripts/build-whisper-cli.sh
+
       - name: Typecheck + build renderer
         run: |
           npm run typecheck
