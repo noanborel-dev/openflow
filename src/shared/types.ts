@@ -91,4 +91,7 @@ export const IPC = {
   REVEAL_LOG: 'reveal:log',
   LAUNCH_AT_LOGIN_GET: 'app:launch-at-login:get',
   LAUNCH_AT_LOGIN_SET: 'app:launch-at-login:set',
+  PASTE_FALLBACK_SHOW: 'paste-fallback:show',
+  PASTE_FALLBACK_RETRY: 'paste-fallback:retry',
+  PASTE_FALLBACK_DISMISS: 'paste-fallback:dismiss',
 } as const

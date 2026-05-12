@@ -15,6 +15,7 @@ export default defineConfig({
         input: {
           index: resolve('src/preload/index.ts'),
           indicator: resolve('src/preload/indicator.ts'),
+          'paste-fallback': resolve('src/preload/paste-fallback.ts'),
         }
       }
     }
@@ -26,7 +27,8 @@ export default defineConfig({
         input: {
           indicator: resolve('src/renderer/indicator/index.html'),
           settings: resolve('src/renderer/settings/index.html'),
-          onboarding: resolve('src/renderer/onboarding/index.html')
+          onboarding: resolve('src/renderer/onboarding/index.html'),
+          'paste-fallback': resolve('src/renderer/paste-fallback/index.html')
         }
       }
     },

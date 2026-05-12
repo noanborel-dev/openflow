@@ -22,7 +22,13 @@ import { IPC } from '../shared/types'
 let indicatorWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
 let onboardingWindow: BrowserWindow | null = null
+let pasteFallbackWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+
+// When paste falls back to clipboard, remember the cleaned text so the
+// fallback window's Insert button can retry the same paste. Cleared on
+// dismiss + on every successful paste.
+let lastUnpastedText: string | null = null
 
 const audioChunks: Buffer[] = []
 // Session ID bumped on every new recording start. Async hide/cleanup
@@ -180,6 +186,86 @@ function createOnboardingWindow(): BrowserWindow {
   return win
 }
 
+// Small bottom-right popup that appears whenever paste falls back to
+// clipboard — usually because Accessibility was denied, the focused app
+// doesn't accept simulated keystrokes, or focus changed mid-pipeline.
+// Created on demand, kept around until dismissed.
+function createPasteFallbackWindow(): BrowserWindow {
+  if (pasteFallbackWindow && !pasteFallbackWindow.isDestroyed()) {
+    return pasteFallbackWindow
+  }
+
+  // Position near the bottom-right of the active display so it sits out
+  // of the way of the user's text field but stays in the same screen
+  // they're typing in.
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { x: dx, y: dy, width, height } = display.workArea
+  const W = 360
+  const H = 240
+  const x = Math.round(dx + width - W - 24)
+  const y = Math.round(dy + height - H - 80)
+
+  const win = new BrowserWindow({
+    width: W,
+    height: H,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    focusable: true,   // user needs to click the Insert button
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/paste-fallback.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  // Same Spaces / fullscreen behavior as the indicator — the fallback
+  // shouldn't be lost when the user is on a non-primary Space.
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (process.platform === 'darwin') {
+    win.setAlwaysOnTop(true, 'floating')
+  }
+
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/paste-fallback/index.html`)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/paste-fallback/index.html'))
+  }
+
+  win.on('closed', () => { pasteFallbackWindow = null })
+  pasteFallbackWindow = win
+  return win
+}
+
+function showPasteFallback(text: string): void {
+  lastUnpastedText = text
+  const win = createPasteFallbackWindow()
+  const hotkey = getSettings().hotkeys.pushToTalk
+  // The renderer subscribes to 'show' events; we always push a fresh
+  // payload so a subsequent paste-failure reuses the same window.
+  const send = () => win.webContents.send(IPC.PASTE_FALLBACK_SHOW, { text, hotkey })
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
+  if (!win.isVisible()) win.showInactive()
+}
+
+function dismissPasteFallback(): void {
+  lastUnpastedText = null
+  if (pasteFallbackWindow && !pasteFallbackWindow.isDestroyed()) {
+    pasteFallbackWindow.hide()
+  }
+}
+
 function updateTrayMenu(): void {
   if (!tray) return
 
@@ -323,9 +409,14 @@ function setupAudioIpc(): void {
       if (stillLatest()) {
         const isClipboard = result.pasteMethod === 'clipboard'
         broadcastState(isClipboard ? 'clipboard' : 'done')
-        // Clipboard fallback (Accessibility denied or paste failed) needs
-        // longer so the user has time to read "press ⌘V to paste" and act.
-        const dismissAfter = isClipboard ? 6000 : 1500
+        // Clipboard fallback (Accessibility denied or paste failed) gets
+        // a dedicated popup window with a click-to-insert affordance.
+        // The pill itself dismisses on its normal short timer; the
+        // popup hangs around for 15s on its own clock.
+        if (isClipboard) {
+          showPasteFallback(result.cleaned)
+        }
+        const dismissAfter = isClipboard ? 2200 : 1500
         setTimeout(() => {
           if (stillLatest()) {
             broadcastState('idle')
@@ -366,6 +457,19 @@ function setupIpcListeners(): void {
   ipcMain.handle(IPC.REVEAL_LOG, () => {
     shell.showItemInFolder(getLogPath())
   })
+
+  // Paste fallback retry: the popup window's Insert button calls this
+  // after the user has had a chance to focus their target text field.
+  // We re-run pasteText with the stashed cleaned text; on success the
+  // popup closes itself.
+  ipcMain.handle(IPC.PASTE_FALLBACK_RETRY, async () => {
+    if (!lastUnpastedText) return false
+    const { method } = await pasteText(lastUnpastedText)
+    const success = method === 'paste'
+    if (success) dismissPasteFallback()
+    return success
+  })
+  ipcMain.on(IPC.PASTE_FALLBACK_DISMISS, () => dismissPasteFallback())
 }
 
 app.whenReady().then(() => {
