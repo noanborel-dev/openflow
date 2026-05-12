@@ -169,11 +169,14 @@ export async function workerTranscribe(
   const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
     pending.set(id, { resolve, reject })
   })
-  // Transfer the ArrayBuffer to the worker so we avoid the implicit
-  // structured-clone copy of audio data. Without transfer, sending a
-  // few hundred KB of PCM per dictation would add 5-10ms of copy
-  // overhead that's pure waste.
-  proc!.postMessage({ type: 'transcribe', id, pcm, options }, [pcm])
+  // utilityProcess.postMessage's transfer list only accepts
+  // MessagePortMain objects — NOT raw ArrayBuffers. So we
+  // structured-clone the PCM across the boundary. For typical
+  // dictation clips (32-200 KB PCM16), the copy is sub-millisecond
+  // and negligible vs the 470ms inference. Don't try to optimize
+  // this with `[pcm]` as a transferList — it'll crash the worker
+  // because the runtime can't coerce ArrayBuffer to MessagePortMain.
+  proc!.postMessage({ type: 'transcribe', id, pcm, options })
   return result
 }
 

@@ -113,8 +113,9 @@ async function handle(msg: IncomingMsg): Promise<void> {
         throw new Error('Worker received transcribe before load')
       }
       const start = Date.now()
-      // PCM arrives as a transferred ArrayBuffer — pass it straight to
-      // fugood. No copy needed.
+      // PCM arrives structured-cloned from main (utilityProcess's
+      // postMessage doesn't support ArrayBuffer transfer — see
+      // whisper-host.ts). Sub-ms copy cost for typical clips.
       const result = await ctx.transcribeData(pcm, options).promise
       const out: OutgoingResult = {
         type: 'result',
