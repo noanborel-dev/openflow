@@ -6,15 +6,13 @@ import AIProviderTab from './tabs/AIProviderTab'
 import DictionaryTab from './tabs/DictionaryTab'
 import PolishTab from './tabs/PolishTab'
 import AITab from './tabs/AITab'
-import TourTab from './tabs/TourTab'
 import AboutTab from './tabs/AboutTab'
 import { Wordmark } from '../shared/ui/Wordmark'
 
-const TABS = ['Tour', 'Provider', 'Hotkey', 'Polish', 'AI', 'Dictionary', 'General', 'About'] as const
+const TABS = ['Provider', 'Hotkey', 'Polish', 'AI', 'Dictionary', 'General', 'About'] as const
 type Tab = typeof TABS[number]
 
 const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
-  Tour:       { title: 'The',   italic: 'tour.',        sub: 'A visual reference of everything OpenFlow does' },
   Provider:   { title: 'Your',  italic: 'provider.',    sub: 'Transcription + cleanup service' },
   Hotkey:     { title: 'Your',  italic: 'hotkey.',      sub: 'Tap · hold · double-tap' },
   Polish:     { title: 'Your',  italic: 'polish.',      sub: 'Same voice — three registers per context' },
@@ -82,7 +80,6 @@ export default function SettingsApp() {
         </h1>
         <p className="text-[12px] text-ink-60 mt-2 mb-6 leading-relaxed max-w-[58ch]">{titleInfo.sub}</p>
 
-        {tab === 'Tour' && <TourTab />}
         {tab === 'Provider' && <AIProviderTab />}
         {tab === 'Hotkey' && <HotkeysTab />}
         {tab === 'Polish' && <PolishTab />}

@@ -19,6 +19,7 @@ export default function PasteFallbackApp() {
   // text is what OpenFlow tried to paste. retrying flips during the
   // brief delay between Insert-button click and the actual paste attempt.
   const [text, setText] = useState('')
+  const [hotkey, setHotkey] = useState('CTRL')
   const [retrying, setRetrying] = useState(false)
   const [retryFailed, setRetryFailed] = useState(false)
   const dismissRef = useRef<number | null>(null)
@@ -28,6 +29,7 @@ export default function PasteFallbackApp() {
   useEffect(() => {
     return window.pasteFallback.onShow((payload) => {
       setText(payload.text)
+      setHotkey(payload.hotkey)
       setRetrying(false)
       setRetryFailed(false)
       if (dismissRef.current) window.clearTimeout(dismissRef.current)
@@ -75,11 +77,13 @@ export default function PasteFallbackApp() {
         {preview}
       </div>
 
-      {/* The instruction: just the keys to press, animated. No prose. */}
-      <div className="flex items-center justify-center gap-2 mb-4">
-        <AnimatedKey label="⌘" order={0} />
-        <span className="text-ink-45 text-[12px]">+</span>
-        <AnimatedKey label="V" order={1} />
+      {/* The instruction: double-tap the hotkey to paste again. Animated
+          keycap presses twice per loop to read as a double-tap. */}
+      <div className="flex items-center justify-center gap-2 mb-1">
+        <DoubleTapKey label={keyGlyph(hotkey)} />
+      </div>
+      <div className="text-[10.5px] text-ink-45 text-center mb-4">
+        double-tap to paste
       </div>
 
       <button
@@ -95,38 +99,37 @@ export default function PasteFallbackApp() {
         </div>
       )}
       <style>{`
-        @keyframes pasteKeyPress {
-          0%, 100%      { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          /* Each key has its own press window inside a shared 2.4s loop.
-             order=0 (⌘) presses at 15-30%, order=1 (V) at 35-50%. */
-        }
-        @keyframes pressKey0 {
+        @keyframes doubleTapPress {
           0%, 100%   { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          15%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          30%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          45%        { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          10%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          22%        { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
+          32%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
+          44%        { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
         }
-        @keyframes pressKey1 {
-          0%, 100%   { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          25%        { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          40%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          55%        { transform: translateY(2px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.16), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          70%        { transform: translateY(0);   box-shadow: 0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-        }
-        .anim-key-0 { animation: pressKey0 2.4s ease-in-out infinite; }
-        .anim-key-1 { animation: pressKey1 2.4s ease-in-out infinite; }
+        .anim-double-tap { animation: doubleTapPress 2.4s ease-in-out infinite; }
       `}</style>
     </div>
   )
 }
 
-// A single keycap that "presses" on a staggered loop so ⌘ + V reads
-// as a sequence the user should mimic. Each key has its own keyframe
-// timed off the same 2.4s clock.
-function AnimatedKey({ label, order }: { label: string; order: 0 | 1 }) {
+// Render the bound hotkey as the glyph we show on the keycap. Mirrors
+// the formatter in HotkeysTab so the keycap matches what the settings
+// pane shows for the same binding.
+function keyGlyph(name: string): string {
+  if (name === 'CTRL') return '⌃'
+  if (name === 'ALT') return '⌥'
+  if (name === 'SHIFT') return '⇧'
+  if (name === 'META') return '⌘'
+  if (name === 'SPACE' || name === ' ') return 'space'
+  return name.toLowerCase()
+}
+
+// A single keycap that "presses" twice per loop, miming the double-tap
+// gesture the user should perform to re-paste.
+function DoubleTapKey({ label }: { label: string }) {
   return (
     <div
-      className={`anim-key-${order} flex items-center justify-center bg-card border border-ink-08 rounded-[10px] min-w-[42px] h-[42px] px-3 font-mono text-[16px] text-ink leading-none`}
+      className="anim-double-tap flex items-center justify-center bg-card border border-ink-08 rounded-[10px] min-w-[42px] h-[42px] px-3 font-mono text-[16px] text-ink leading-none"
       style={{ boxShadow: '0 3px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset' }}
     >
       {label}
