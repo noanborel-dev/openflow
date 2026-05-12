@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CategoryStrictness, Settings, Strictness } from '../../shared/types'
+import type { CategoryStrictness, Provider, Settings, Strictness } from '../../shared/types'
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
-import { siGmail, siImessage, siNotion } from 'simple-icons'
+import { siAnthropic, siGmail, siImessage, siNotion } from 'simple-icons'
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
+type Step = 1 | 2 | 3 | 4 | 5 | 6
 
-const TOTAL_STEPS: Step = 7
+const TOTAL_STEPS: Step = 6
 
 function eventToSingleKey(e: KeyboardEvent): string | null {
   const code = e.code
@@ -30,11 +30,15 @@ function prettifyKey(name: string): string {
 
 export default function OnboardingApp() {
   const [step, setStep] = useState<Step>(1)
-  const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [hotkey, setHotkey] = useState<string>('CTRL')
   const [listening, setListening] = useState(false)
-  const [providerChoice, setProviderChoice] = useState<'cloud' | 'local'>('cloud')
+  // Per-provider state so users can pick Groq / OpenAI / Anthropic and
+  // each has its own key field. Matches the Settings → Provider tab.
+  const [provider, setProvider] = useState<Provider>('groq')
+  const [groqKey, setGroqKey] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
+  const [anthropicKey, setAnthropicKey] = useState('')
   const [strictness, setStrictness] = useState<CategoryStrictness>({
     personal: 1,
     work: 3,
@@ -126,16 +130,18 @@ export default function OnboardingApp() {
     await window.openflow.openAccessibilitySettings()
   }
 
-  async function handleSaveKey() {
+  async function handleSaveProvider() {
     setSaving(true)
+    // Anthropic transcription falls back to Groq, so we keep whatever
+    // Groq key was entered alongside the Anthropic one.
     await window.openflow.setSettings({
       provider: {
-        provider: 'groq',
-        groqKey: apiKey.trim(),
-        openaiKey: '',
-        anthropicKey: '',
-        transcriptionModel: MODELS.groq.transcription,
-        cleanupModel: MODELS.groq.cleanup,
+        provider,
+        groqKey: groqKey.trim(),
+        openaiKey: openaiKey.trim(),
+        anthropicKey: anthropicKey.trim(),
+        transcriptionModel: MODELS[provider].transcription,
+        cleanupModel: MODELS[provider].cleanup,
       },
     })
     setSaving(false)
@@ -210,19 +216,16 @@ export default function OnboardingApp() {
 
         {step === 3 && (
           <StepProvider
-            choice={providerChoice}
-            apiKey={apiKey}
+            provider={provider}
+            onProviderChange={setProvider}
+            groqKey={groqKey}
+            openaiKey={openaiKey}
+            anthropicKey={anthropicKey}
+            onGroqKeyChange={setGroqKey}
+            onOpenaiKeyChange={setOpenaiKey}
+            onAnthropicKeyChange={setAnthropicKey}
             saving={saving}
-            onChooseCloud={() => setProviderChoice('cloud')}
-            onChooseLocal={() => setProviderChoice('local')}
-            onApiKeyChange={setApiKey}
-            onContinue={async () => {
-              if (providerChoice === 'cloud') {
-                await handleSaveKey()
-              } else {
-                next()
-              }
-            }}
+            onContinue={handleSaveProvider}
           />
         )}
 
@@ -244,11 +247,7 @@ export default function OnboardingApp() {
         )}
 
         {step === 6 && (
-          <StepVoice onContinue={next} onSkip={next} />
-        )}
-
-        {step === 7 && (
-          <StepTryIt onFinish={handleFinish} />
+          <StepDone hotkey={hotkey} onFinish={handleFinish} />
         )}
       </main>
     </div>
@@ -511,81 +510,134 @@ function LiveMicMeter({ deviceId }: { deviceId: string | null }) {
 
 // ─── Step 3: Provider ───────────────────────────────────────────────
 
+interface ProviderRef { title: string; hex: string; path: string }
+
+interface ProviderInfo {
+  value: Provider
+  name: string
+  model: string
+  description: string
+  price: string
+  keyPlaceholder: string
+  keyHint: string
+  brand: 'groq' | 'openai' | 'anthropic'
+}
+
+const ONBOARDING_PROVIDERS: ProviderInfo[] = [
+  { value: 'groq',      brand: 'groq',      name: 'Groq',      model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.', price: 'free tier',  keyPlaceholder: 'gsk_…',     keyHint: 'console.groq.com' },
+  { value: 'openai',    brand: 'openai',    name: 'OpenAI',    model: 'whisper-1',    description: 'Industry-standard. Fast, accurate, cheap.',         price: '$0.006/min', keyPlaceholder: 'sk-…',      keyHint: 'platform.openai.com/api-keys' },
+  { value: 'anthropic', brand: 'anthropic', name: 'Anthropic', model: 'claude-haiku', description: 'Best for cleanup; uses Groq for transcription.',     price: '$0.004/min', keyPlaceholder: 'sk-ant-…',  keyHint: 'console.anthropic.com' },
+]
+
 function StepProvider({
-  choice,
-  apiKey,
+  provider,
+  onProviderChange,
+  groqKey,
+  openaiKey,
+  anthropicKey,
+  onGroqKeyChange,
+  onOpenaiKeyChange,
+  onAnthropicKeyChange,
   saving,
-  onChooseCloud,
-  onChooseLocal,
-  onApiKeyChange,
   onContinue,
 }: {
-  choice: 'cloud' | 'local'
-  apiKey: string
+  provider: Provider
+  onProviderChange: (p: Provider) => void
+  groqKey: string
+  openaiKey: string
+  anthropicKey: string
+  onGroqKeyChange: (s: string) => void
+  onOpenaiKeyChange: (s: string) => void
+  onAnthropicKeyChange: (s: string) => void
   saving: boolean
-  onChooseCloud: () => void
-  onChooseLocal: () => void
-  onApiKeyChange: (s: string) => void
   onContinue: () => void
 }) {
-  const ready = choice === 'local' ? true : apiKey.trim().length > 0
+  // Which key field maps to the active provider. Anthropic needs the
+  // Anthropic key for cleanup + the Groq key for transcription — the
+  // latter is handled in a hint, not a second field, to keep the flow
+  // simple. Users can add the Groq key in Settings afterward if needed.
+  const keyValue =
+    provider === 'groq' ? groqKey :
+    provider === 'openai' ? openaiKey :
+    anthropicKey
+  const keyChange =
+    provider === 'groq' ? onGroqKeyChange :
+    provider === 'openai' ? onOpenaiKeyChange :
+    onAnthropicKeyChange
+  const info = ONBOARDING_PROVIDERS.find((p) => p.value === provider)!
+  const ready = keyValue.trim().length > 0
+
   return (
     <>
       <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Pick your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">engine.</span>
+        Pick your <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">provider.</span>
       </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
-        Cloud is fastest to set up and works on day one. Local runs offline on your machine — bigger download, no API costs.
+      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[460px] mb-6">
+        Bring your own key. OpenFlow never proxies — your audio goes straight to your provider. Keys are stored locally and never sent to OpenFlow servers.
       </p>
 
-      <div className="grid grid-cols-2 gap-3 max-w-[460px] mb-6">
-        <ProviderCard
-          title="Cloud"
-          subtitle="Groq · ~$1–3/mo"
-          tag="Recommended"
-          selected={choice === 'cloud'}
-          onClick={onChooseCloud}
-        />
-        <ProviderCard
-          title="Local"
-          subtitle="On-device · offline"
-          tag="Coming soon"
-          disabled
-          selected={choice === 'local'}
-          onClick={onChooseLocal}
-        />
+      <div className="space-y-2.5 max-w-[520px] mb-5">
+        {ONBOARDING_PROVIDERS.map((p) => {
+          const selected = p.value === provider
+          return (
+            <button
+              key={p.value}
+              onClick={() => onProviderChange(p.value)}
+              className={[
+                'w-full text-left bg-card border rounded-[14px] px-4 py-3.5 transition-all duration-150',
+                selected
+                  ? 'border-ink ring-1 ring-ink shadow-sm'
+                  : 'border-ink-08 hover:border-ink-45',
+              ].join(' ')}
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
+                     style={{ background: providerTileColor(p.brand) }}>
+                  <ProviderGlyph brand={p.brand} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[13.5px] font-semibold">{p.name}</span>
+                    <span className="text-[10.5px] font-mono text-ink-45">{p.model}</span>
+                  </div>
+                  <div className="text-[11px] text-ink-60 mt-0.5">{p.description}</div>
+                </div>
+                <span className="text-[11px] font-mono text-ink-45 mr-2 shrink-0">{p.price}</span>
+                <span className={[
+                  'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0',
+                  selected ? 'bg-ink border-ink' : 'border-ink-08',
+                ].join(' ')}>
+                  {selected && <span className="w-2 h-2 rounded-full bg-paper" />}
+                </span>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
-      {choice === 'cloud' && (
-        <div className="max-w-[420px] mb-5">
-          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-ink-45 mb-1.5">
-            Groq API Key
-          </div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => onApiKeyChange(e.target.value)}
-            placeholder="gsk_…"
-            className="w-full bg-card border border-ink-08 rounded-input px-3 py-2.5 text-[13px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
-          />
-          <a
-            onClick={() => window.open('https://console.groq.com', '_blank')}
-            className="text-[11px] text-ink-45 hover:text-ink mt-2 inline-block cursor-pointer"
-          >
-            Get a free key at console.groq.com ↗
-          </a>
+      <div className="max-w-[520px] mb-5">
+        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1.5">
+          {info.name} API Key
         </div>
-      )}
-
-      {choice === 'local' && (
-        <Card>
-          <div className="px-4 py-4 max-w-[420px]">
-            <div className="text-[12.5px] text-ink-60 leading-relaxed">
-              Local Whisper isn't shipping yet — we'll wire the model download in here. For now, pick Cloud.
-            </div>
+        <input
+          type="password"
+          value={keyValue}
+          onChange={(e) => keyChange(e.target.value)}
+          placeholder={info.keyPlaceholder}
+          className="w-full bg-card border border-ink-08 rounded-input px-3 py-2.5 text-[13px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
+        />
+        <a
+          onClick={() => window.open(`https://${info.keyHint}`, '_blank')}
+          className="text-[11px] text-ink-45 hover:text-ink mt-2 inline-block cursor-pointer"
+        >
+          Get a key at {info.keyHint} ↗
+        </a>
+        {provider === 'anthropic' && (
+          <div className="text-[11px] text-ink-45 mt-3 leading-relaxed">
+            Anthropic uses Groq for transcription. Add a Groq key in Settings → Provider after onboarding, or transcription will fall back to whichever provider is configured.
           </div>
-        </Card>
-      )}
+        )}
+      </div>
 
       <Pill variant="primary" onClick={onContinue} disabled={saving || !ready}>
         {saving ? 'Saving…' : 'Continue →'}
@@ -594,42 +646,32 @@ function StepProvider({
   )
 }
 
-function ProviderCard({
-  title,
-  subtitle,
-  tag,
-  selected,
-  disabled,
-  onClick,
-}: {
-  title: string
-  subtitle: string
-  tag?: string
-  selected: boolean
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      className={[
-        'text-left bg-card border rounded-card px-4 py-4 transition-all duration-200',
-        selected ? 'border-ink ring-2 ring-volt-muted animate-voltPulse -translate-y-0.5' : 'border-ink-08 hover:border-ink-45 hover:-translate-y-0.5',
-        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-      ].join(' ')}
-    >
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-[14px] font-semibold">{title}</div>
-        {tag && (
-          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-45 bg-paper px-1.5 py-0.5 rounded">
-            {tag}
-          </span>
-        )}
-      </div>
-      <div className="text-[11.5px] text-ink-60">{subtitle}</div>
-    </button>
-  )
+function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' }) {
+  if (brand === 'anthropic') {
+    const a = siAnthropic as ProviderRef
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-label="Anthropic">
+        <path d={a.path} fill="#fff" />
+      </svg>
+    )
+  }
+  if (brand === 'openai') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M12 2.4c-.95 0-1.85.22-2.65.61a4.78 4.78 0 0 0-3.7 6.4 4.78 4.78 0 0 0 0 6.18 4.78 4.78 0 0 0 3.7 6.4 4.78 4.78 0 0 0 6.18 1.42 4.78 4.78 0 0 0 6.4-3.7 4.78 4.78 0 0 0 0-6.18 4.78 4.78 0 0 0-3.7-6.4A4.78 4.78 0 0 0 12 2.4Z"
+          stroke="#fff" strokeWidth="1.4" fill="none"
+        />
+      </svg>
+    )
+  }
+  return <span className="text-[15px] font-bold text-white" style={{ fontFamily: 'system-ui' }}>G</span>
+}
+
+function providerTileColor(brand: 'openai' | 'anthropic' | 'groq'): string {
+  if (brand === 'openai')    return '#0F1011'
+  if (brand === 'anthropic') return '#D97757'
+  return '#F55036'
 }
 
 // ─── Step 4: Hotkey — interactive trainer ──────────────────────────
@@ -1125,54 +1167,22 @@ function DocMock({ raw, cleaned }: { raw: string; cleaned: string }) {
   )
 }
 
-// ─── Step 6: Voice enrollment (skippable) ──────────────────────────
+// ─── Step 6: Done ──────────────────────────────────────────────────
 
-function StepVoice({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
+function StepDone({ hotkey, onFinish }: { hotkey: string; onFinish: () => void }) {
+  const hotkeyHint = useMemo(() => prettifyKey(hotkey), [hotkey])
   return (
     <>
-      <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
-        Hear <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">you.</span>
-      </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
-        Optional: record ~15 seconds of your voice. OpenFlow learns your voiceprint and tunes out coworkers, TVs, and crowds.
-      </p>
-
-      <Card>
-        <div className="px-4 py-5 max-w-[440px]">
-          <div className="text-[12.5px] text-ink-60 leading-relaxed">
-            Voice enrollment isn't shipping yet — it'll record + embed your voice here. You can always set it up later in Settings.
-          </div>
-        </div>
-      </Card>
-
-      <div className="flex items-center gap-3 mt-6">
-        <Pill variant="primary" onClick={onContinue} disabled>
-          Record 15 seconds →
-        </Pill>
-        <button onClick={onSkip} className="text-[12px] text-ink-45 hover:text-ink">
-          Skip for now
-        </button>
-      </div>
-    </>
-  )
-}
-
-// ─── Step 7: Try it ─────────────────────────────────────────────────
-
-function StepTryIt({ onFinish }: { onFinish: () => void }) {
-  const hotkeyHint = useMemo(() => prettifyKey('CTRL'), [])
-  return (
-    <>
-      <h1 className="text-[42px] leading-[0.98] tracking-tight mb-4">
+      <h1 className="text-[56px] leading-[0.95] tracking-tight mb-5">
         You're <span className="font-display italic font-medium inline-block animate-heroPop origin-bottom-left">ready.</span>
       </h1>
-      <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[420px] mb-6">
-        Press <span className="font-mono text-ink">{hotkeyHint}</span> anywhere on your Mac and start talking. The indicator pill will show up where you left it.
+      <p className="text-[14.5px] text-ink-60 leading-relaxed max-w-[460px] mb-6">
+        Press <span className="font-mono text-ink bg-card border border-ink-08 px-1.5 py-0.5 rounded text-[13px]">{hotkeyHint}</span> anywhere on your Mac and start talking. The indicator pill appears where you left it.
       </p>
 
       <Card>
-        <div className="px-4 py-5 max-w-[440px] text-[12.5px] text-ink-60 leading-relaxed">
-          Live demo coming soon — for now, just close this window and try it in any app.
+        <div className="px-5 py-4 max-w-[460px] text-[12px] text-ink-60 leading-relaxed">
+          You can re-open these settings any time from the tray icon → Settings, or relaunch this welcome flow from Settings → General.
         </div>
       </Card>
 
