@@ -832,19 +832,22 @@ function OnboardingModelCard({
     if (!result.ok) setError(result.error ?? 'Download failed')
   }
 
+  // Use <div> not <button> — a disabled parent <button> would swallow
+  // click events to the Download Pill inside.
   const canSelect = downloaded
   return (
-    <button
-      type="button"
+    <div
+      role={canSelect ? 'button' : undefined}
+      tabIndex={canSelect ? 0 : -1}
       onClick={canSelect ? onSelect : undefined}
-      disabled={!canSelect}
+      onKeyDown={canSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() } : undefined}
       className={[
         'w-full text-left bg-card border rounded-card px-4 py-3 transition-all duration-150',
         selected
           ? 'border-ink ring-1 ring-ink shadow-sm'
           : canSelect
             ? 'border-ink-08 hover:border-ink-45 cursor-pointer'
-            : 'border-ink-08 cursor-default',
+            : 'border-ink-08',
       ].join(' ')}
     >
       <div className="flex items-center gap-3">
@@ -880,7 +883,7 @@ function OnboardingModelCard({
         </div>
       )}
       {error && <p className="text-[10.5px] text-danger mt-2">✗ {error}</p>}
-    </button>
+    </div>
   )
 }
 

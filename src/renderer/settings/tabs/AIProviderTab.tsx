@@ -306,21 +306,24 @@ function LocalModelCard({
   }
 
   // The whole card is clickable when downloaded — pick this model.
-  // When not downloaded, clicking is a no-op (the Download button does
-  // the work) so users can't end up selecting a model they can't use.
+  // When not downloaded, clicking the card body is a no-op (the
+  // Download button does the work). We use a <div> with role/onClick
+  // rather than a <button> because a disabled <button> would swallow
+  // child click events too, blocking the Download Pill inside.
   const canSelect = downloaded
   return (
-    <button
-      type="button"
+    <div
+      role={canSelect ? 'button' : undefined}
+      tabIndex={canSelect ? 0 : -1}
       onClick={canSelect ? onSelect : undefined}
-      disabled={!canSelect}
+      onKeyDown={canSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() } : undefined}
       className={[
         'w-full text-left bg-card border rounded-[14px] px-4 py-3.5 transition-all duration-150',
         selected
           ? 'border-ink ring-1 ring-ink shadow-sm'
           : canSelect
             ? 'border-ink-08 hover:border-ink-45 cursor-pointer'
-            : 'border-ink-08 cursor-default',
+            : 'border-ink-08',
       ].join(' ')}
     >
       <div className="flex items-center gap-3.5">
@@ -373,7 +376,7 @@ function LocalModelCard({
       {error && (
         <p className="text-[11px] text-danger mt-2.5">✗ {error}</p>
       )}
-    </button>
+    </div>
   )
 }
 
