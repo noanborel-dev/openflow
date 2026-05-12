@@ -1,0 +1,6 @@
+# Don't commit the compiled whisper-cli binaries — CI builds them
+# per release (see scripts/build-whisper-cli.sh). The directory
+# structure itself is kept tracked via .gitkeep files below so
+# electron-builder's glob doesn't fail on a fresh clone.
+whisper-cli
+whisper-cli.exe

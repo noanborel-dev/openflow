@@ -22,11 +22,24 @@ files:
 extraResources:
   - from: assets/
     to: assets/
+  # Local Whisper binaries. `whisper-cli` is compiled in CI from
+  # whisper.cpp and committed to bin/<platform>-<arch>/ — see
+  # scripts/build-whisper-cli.sh and the release.yml workflow. The
+  # ffmpeg binary comes from the ffmpeg-static npm package below and
+  # rides asarUnpack instead.
+  - from: bin/${platform}-${arch}/
+    to: bin/
+    filter:
+      - whisper-cli
+      - whisper-cli.exe
 
 # node-global-key-listener ships a precompiled native helper that needs
 # to live outside the asar so the spawned subprocess can find it.
+# ffmpeg-static ships per-platform ffmpeg binaries — same reason.
 asarUnpack:
   - node_modules/node-global-key-listener/**/*
+  - node_modules/ffmpeg-static/ffmpeg
+  - node_modules/ffmpeg-static/ffmpeg.exe
 
 mac:
   category: public.app-category.productivity
@@ -40,6 +53,13 @@ mac:
       arch: [x64, arm64]
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # Bundled helpers (whisper-cli, ffmpeg) get individually code-signed
+  # before the app is sealed — `codesign --deep` is deprecated by
+  # Apple, listing the binaries explicitly is the supported approach.
+  # Paths are relative to Contents/ inside the .app.
+  binaries:
+    - Resources/bin/whisper-cli
+    - Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg
   hardenedRuntime: true
   gatekeeperAssess: false
   # Surfaced when macOS first prompts for permissions. Without these
