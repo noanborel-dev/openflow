@@ -1,0 +1,187 @@
+@import "tailwindcss";
+
+/* ============================================================
+   OpenFlow Landing — Design Tokens
+   Source: design-system/openflow-landing/MASTER.md
+   ============================================================ */
+
+:root {
+  /* Foundations */
+  --cream:        #f6f2e7;
+  --cream-2:      #efe9d8;
+  --paper:        #fbf9f1;
+  --ink:          #15161a;
+  --ink-2:        #2a2c33;
+  --muted:        #6b6b6b;
+  --line:         #d9d2bd;
+  --line-soft:    #e9e2cb;
+
+  /* Accents */
+  --accent:       #c8553d;
+  --accent-soft:  #fff7f3;
+  --red:          #e15454;
+  --cobalt:       #5a8fe8;
+  --cobalt-soft:  rgba(90, 143, 232, 0.18);
+
+  /* Pill (Liquid Glass — DO NOT use elsewhere) */
+  --pill-bg-1:    rgba(18, 20, 26, 0.82);
+  --pill-bg-2:    rgba(14, 16, 22, 0.74);
+  --pill-dot:     #e84a3a;
+  --pill-glow:    rgba(232, 74, 58, 0.8);
+}
+
+/* Tailwind 4 theme bridge — exposes tokens as utility classes */
+@theme inline {
+  --color-cream:       var(--cream);
+  --color-cream-2:     var(--cream-2);
+  --color-paper:       var(--paper);
+  --color-ink:         var(--ink);
+  --color-ink-2:       var(--ink-2);
+  --color-muted:       var(--muted);
+  --color-line:        var(--line);
+  --color-line-soft:   var(--line-soft);
+  --color-accent:      var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-cobalt:      var(--cobalt);
+  --color-pill-dot:    var(--pill-dot);
+
+  --font-serif: var(--font-instrument-serif), Georgia, serif;
+  --font-sans:  var(--font-inter), system-ui, sans-serif;
+  --font-mono:  var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--cream);
+}
+
+/* Focus rings — required by MASTER.md accessibility floor */
+*:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ============================================================
+   The OpenFlow Pill — pulled verbatim from real macOS app source
+   ============================================================ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--pill-bg-1), var(--pill-bg-2));
+  -webkit-backdrop-filter: blur(34px) saturate(180%);
+  backdrop-filter: blur(34px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1.2px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+    0 8px 16px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+  animation: pill-breathe 3.6s ease-in-out infinite;
+}
+
+@keyframes pill-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.012); }
+}
+
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pill-dot);
+  box-shadow: 0 0 8px var(--pill-glow);
+  animation: pill-dot-pulse 1.4s ease-in-out infinite;
+}
+.pill-dot--done {
+  background: #22c55e;
+  box-shadow: none;
+  animation: none;
+}
+@keyframes pill-dot-pulse {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+
+.pill-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 15px;
+}
+.pill-bars span {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--cobalt);
+  box-shadow: 0 0 6px rgba(90, 143, 232, 0.65);
+  transition: height 75ms ease-out;
+  height: 3px;
+}
+
+.pill-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--cobalt);
+  filter: drop-shadow(0 0 3px rgba(90, 143, 232, 0.65));
+  animation: pill-spin 0.8s linear infinite;
+}
+@keyframes pill-spin { to { transform: rotate(360deg); } }
+
+.pill-check {
+  width: 13px;
+  height: 13px;
+  filter: drop-shadow(0 0 3px rgba(90, 143, 232, 0.65));
+}
+
+.pill-label {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: 0.005em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+}
+.pill-label--done {
+  color: var(--cobalt);
+}
+
+/* ============================================================
+   Reduced motion — honor the OS setting
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .pill, .pill-dot, .pill-bars span, .pill-spinner {
+    animation: none !important;
+  }
+}

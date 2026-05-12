@@ -12,9 +12,10 @@ Primary goal: **macOS downloads**. Single dominant CTA. The page should sell by 
 
 ---
 
-## Stack (when implementation begins)
+## Stack
 
-- **Framework:** Next.js (App Router) on Vercel — needed for the edge function powering Section 3's live demo
+- **Framework:** Next.js 14 (App Router) on Vercel — needed for the edge function powering Section 3's live demo
+- **Package manager:** `npm` (already installed; not bringing in pnpm for one project)
 - **Styling:** Tailwind + a small set of CSS variables for the cream/ink/accent tokens
 - **Animations:** Plain CSS keyframes + small vanilla JS for cycling demos. **No Framer Motion / GSAP** unless a section truly needs it (the existing brainstorm prototypes prove plain CSS is enough)
 - **Fonts:** Google Fonts — Instrument Serif (display + italic), Inter (UI), JetBrains Mono (mono)

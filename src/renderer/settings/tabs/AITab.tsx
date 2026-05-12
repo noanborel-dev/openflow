@@ -34,11 +34,38 @@ export default function AITab() {
   )
 }
 
-// ─── Hero: chat-input morph (unchanged) ────────────────────────────
+// ─── Hero: chat-input morph cycling through three AI surfaces ─────
+
+type ChatProvider = 'claude' | 'chatgpt' | 'cursor'
+const PROVIDER_ORDER: ChatProvider[] = ['claude', 'chatgpt', 'cursor']
+
+const PROVIDER_SCRIPTS: Record<ChatProvider, { raw: string; clean: string }> = {
+  claude: {
+    raw: "hey um can you uh write me a function that handles you know negative numbers",
+    clean: "Write a function that handles negative numbers.",
+  },
+  chatgpt: {
+    raw: "so like help me draft a quick email saying i'm gonna be late to the meeting tomorrow",
+    clean: "Draft a brief email noting I'll be late to tomorrow's meeting.",
+  },
+  cursor: {
+    raw: "okay can you refactor this so that it uses async await instead of all the promise chaining",
+    clean: "Refactor to use async/await instead of promise chaining.",
+  },
+}
 
 function ChatPromptMock() {
+  // Each provider mock holds for 5s. The internal morph (raw → clean)
+  // runs once per provider, then the cycle advances. Same 300×200 outer
+  // frame so the hero footprint never changes.
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setIdx((i) => (i + 1) % PROVIDER_ORDER.length), 5000)
+    return () => window.clearInterval(id)
+  }, [])
+  const p = PROVIDER_ORDER[idx]
   return (
-    <div className="relative w-[300px] h-[200px] bg-paper border border-ink-08 rounded-[14px] overflow-hidden flex flex-col">
+    <div className="relative w-[300px] h-[200px] rounded-[14px] overflow-hidden">
       <style>{`
         @keyframes chat-raw-fade  { 0%, 32% { opacity: 1; } 42%, 100% { opacity: 0; } }
         @keyframes chat-clean-fade { 0%, 38% { opacity: 0; transform: translateY(3px); } 50%, 100% { opacity: 1; transform: translateY(0); } }
@@ -47,21 +74,73 @@ function ChatPromptMock() {
         .chat-clean { animation: chat-clean-fade 5s ease-in-out infinite; }
         .chat-caret { animation: chat-caret      1s steps(2)      infinite; }
       `}</style>
-
-      <div className="px-3 py-2 border-b border-ink-08 bg-card flex items-center gap-2">
-        <BrandLogo brand="claude" size={14} />
-        <span className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45">Claude</span>
+      <div key={p} className="w-full h-full animate-stepIn">
+        {p === 'claude'  && <ClaudeMock  {...PROVIDER_SCRIPTS.claude}  />}
+        {p === 'chatgpt' && <ChatGPTMock {...PROVIDER_SCRIPTS.chatgpt} />}
+        {p === 'cursor'  && <CursorMock  {...PROVIDER_SCRIPTS.cursor}  />}
       </div>
+    </div>
+  )
+}
 
+// Claude — warm cream background, rust-orange Send button, serif vibe.
+function ClaudeMock({ raw, clean }: { raw: string; clean: string }) {
+  return (
+    <div className="w-full h-full bg-[#F2EEE5] border border-[#E5DDD0] flex flex-col rounded-[14px] overflow-hidden">
+      <div className="px-3 py-2 border-b border-[#E5DDD0] bg-[#F8F5EE] flex items-center gap-2">
+        <BrandLogo brand="claude" size={16} />
+        <span className="text-[11px] font-medium text-[#3D3929] tracking-tight">Claude</span>
+      </div>
       <div className="flex-1 px-3 py-3 flex items-end">
-        <div className="w-full bg-card border border-ink-08 rounded-[10px] px-3 py-2.5 min-h-[80px] relative">
-          <div className="chat-raw text-[11.5px] leading-snug text-ink-60">
-            hey um can you uh write me a function that handles you know negative numbers
+        <div className="w-full bg-white border border-[#E5DDD0] rounded-[12px] px-3 py-2.5 min-h-[80px] relative shadow-sm">
+          <div className="chat-raw text-[11.5px] leading-snug text-[#8A8576]">{raw}</div>
+          <div className="chat-clean absolute inset-0 px-3 py-2.5 text-[12px] leading-snug text-[#1F1B11] font-medium">
+            {clean}<span className="chat-caret inline-block w-[2px] h-[12px] bg-[#1F1B11] ml-0.5 align-text-bottom" />
           </div>
-          <div className="chat-clean absolute inset-0 px-3 py-2.5 text-[12px] leading-snug text-ink font-medium">
-            Write a function that handles negative numbers.
-            <span className="chat-caret inline-block w-[2px] h-[12px] bg-ink ml-0.5 align-text-bottom" />
+          <div className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-[#C96442] text-white text-[10px] flex items-center justify-center font-bold">↑</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ChatGPT — clean white with a soft gray composer, round black send button.
+function ChatGPTMock({ raw, clean }: { raw: string; clean: string }) {
+  return (
+    <div className="w-full h-full bg-white border border-ink-08 flex flex-col rounded-[14px] overflow-hidden">
+      <div className="px-3 py-2 border-b border-ink-08 bg-white flex items-center gap-2">
+        <BrandLogo brand="chatgpt" size={16} />
+        <span className="text-[11px] font-semibold text-ink tracking-tight">ChatGPT</span>
+      </div>
+      <div className="flex-1 px-3 py-3 flex items-end">
+        <div className="w-full bg-[#F4F4F4] rounded-[18px] px-3 py-2.5 min-h-[80px] relative">
+          <div className="chat-raw text-[11.5px] leading-snug text-[#888]">{raw}</div>
+          <div className="chat-clean absolute inset-0 px-3 py-2.5 text-[12px] leading-snug text-[#0D0D0D] font-medium">
+            {clean}<span className="chat-caret inline-block w-[2px] h-[12px] bg-[#0D0D0D] ml-0.5 align-text-bottom" />
           </div>
+          <div className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-[#0D0D0D] text-white text-[10px] flex items-center justify-center font-bold">↑</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Cursor — dark IDE theme, mono-leaning chat panel sliding in from the right.
+function CursorMock({ raw, clean }: { raw: string; clean: string }) {
+  return (
+    <div className="w-full h-full bg-[#1E1E1E] border border-[#2D2D2D] flex flex-col rounded-[14px] overflow-hidden">
+      <div className="px-3 py-2 border-b border-[#2D2D2D] bg-[#252526] flex items-center gap-2">
+        <BrandLogo brand="cursor" size={14} />
+        <span className="text-[11px] font-medium text-[#CCCCCC] tracking-tight">Cursor</span>
+        <span className="ml-auto text-[9px] font-mono text-[#7A7A7A]">chat</span>
+      </div>
+      <div className="flex-1 px-3 py-3 flex items-end">
+        <div className="w-full bg-[#2A2A2A] border border-[#3A3A3A] rounded-[10px] px-3 py-2.5 min-h-[80px] relative font-mono">
+          <div className="chat-raw text-[11px] leading-snug text-[#7A7A7A]">{raw}</div>
+          <div className="chat-clean absolute inset-0 px-3 py-2.5 text-[11.5px] leading-snug text-[#E4E4E4] font-medium">
+            {clean}<span className="chat-caret inline-block w-[2px] h-[12px] bg-[#E4E4E4] ml-0.5 align-text-bottom" />
+          </div>
+          <div className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-[#4A9EFF] text-white text-[10px] flex items-center justify-center font-bold">↑</div>
         </div>
       </div>
     </div>
