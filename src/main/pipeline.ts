@@ -12,7 +12,7 @@ import {
   createOpenAICleanupProvider,
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
-import { getFocusedApp } from './focused-app'
+import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { pasteText, probeFocusedAXRole } from './paste'
 import { logInfo, logError } from './log'
 import { NoSpeechError } from './errors'
@@ -252,22 +252,30 @@ export async function runDictationPipeline(
   onState('processing')
   logInfo('Pipeline start', { audioBytes: audioBuffer.length, provider: settings.provider.provider })
 
-  // Cheap synchronous read — cache populated when the hotkey fired.
-  const focusedApp = getFocusedApp()
-  logInfo('Focused app', { name: focusedApp.name, bundleId: focusedApp.bundleId })
-
   const { transcription, cleanup } = buildProviders(settings)
-
-  const category = settings.devModeApps.includes(focusedApp.bundleId)
-    ? ('code' as const)
-    : focusedApp.category
-
   const dictionary = buildDictionary(settings)
+
+  // Refresh the focused-app cache CONCURRENTLY with transcription. The
+  // press-time capture is stale if the user moved between apps while
+  // dictating (started in iMessage, released in Gmail → they want
+  // Gmail-flavored polish, not iMessage). Both the osascript and the
+  // Whisper call are async, so this adds no hot-path latency — the
+  // ~50–150ms osascript completes during transcription's network
+  // roundtrip. Read the value AFTER both have resolved.
+  const refreshFocusedApp = captureFocusedApp()
 
   const tStart = Date.now()
   const transcript = (await withRetry('Transcription', () =>
     transcription.transcribe(audioBuffer, { dictionary }))).trim()
   logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length, preview: transcript.slice(0, 60) })
+
+  await refreshFocusedApp
+  const focusedApp = getFocusedApp()
+  logInfo('Focused app at release', { name: focusedApp.name, bundleId: focusedApp.bundleId })
+
+  const category = settings.devModeApps.includes(focusedApp.bundleId)
+    ? ('code' as const)
+    : focusedApp.category
 
   // Bail out before cleanup + paste if Whisper returned nothing or a
   // known silence-hallucination. The indicator catches NoSpeechError
@@ -348,11 +356,16 @@ export async function runCommandPipeline(
   settings: Settings
 ): Promise<string> {
   const { transcription, cleanup } = buildProviders(settings)
-  const focusedApp = getFocusedApp()
   const dictionary = buildDictionary(settings)
+  // Same release-time refresh as the dictation pipeline — see comment
+  // there. The user may have moved between apps mid-recording.
+  const refreshFocusedApp = captureFocusedApp()
 
   const command = await withRetry('Transcription', () =>
     transcription.transcribe(audioBuffer, { dictionary }))
+
+  await refreshFocusedApp
+  const focusedApp = getFocusedApp()
 
   const systemPrompt = `You are a text editing assistant. The user has selected the following text and dictated an editing command.
 
