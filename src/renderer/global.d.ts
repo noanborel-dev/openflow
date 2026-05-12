@@ -1,5 +1,19 @@
 import type { Settings } from '../shared/types'
 
+export interface LocalModelReadiness {
+  ready: boolean
+  whisperCli: boolean
+  ffmpeg: boolean
+  modelDownloaded: boolean
+}
+
+export interface LocalModelProgress {
+  status: 'starting' | 'downloading' | 'done' | 'error' | 'idle'
+  receivedBytes: number
+  totalBytes: number
+  error?: string
+}
+
 declare global {
   interface Window {
     openflow: {
@@ -17,6 +31,11 @@ declare global {
       getLaunchAtLogin: () => Promise<boolean>
       setLaunchAtLogin: (enabled: boolean) => Promise<void>
       onStateChange: (cb: (state: string) => void) => () => void
+      getLocalModelStatus: () => Promise<{ readiness: LocalModelReadiness; progress: LocalModelProgress }>
+      downloadLocalModel: () => Promise<{ ok: boolean; error?: string }>
+      cancelLocalModel: () => Promise<void>
+      uninstallLocalModel: () => Promise<void>
+      onLocalModelProgress: (cb: (progress: LocalModelProgress) => void) => () => void
     }
   }
 }

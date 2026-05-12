@@ -92,4 +92,9 @@ export const IPC = {
   PASTE_FALLBACK_SHOW: 'paste-fallback:show',
   PASTE_FALLBACK_RETRY: 'paste-fallback:retry',
   PASTE_FALLBACK_DISMISS: 'paste-fallback:dismiss',
+  LOCAL_MODEL_STATUS: 'local-model:status',
+  LOCAL_MODEL_DOWNLOAD: 'local-model:download',
+  LOCAL_MODEL_CANCEL: 'local-model:cancel',
+  LOCAL_MODEL_UNINSTALL: 'local-model:uninstall',
+  LOCAL_MODEL_PROGRESS: 'local-model:progress',
 } as const

@@ -5,6 +5,13 @@ import { getSettings, setSettings } from './store'
 import { testGroqKey } from './providers/groq'
 import { testOpenAIKey } from './providers/openai'
 import { testAnthropicKey } from './providers/anthropic'
+import { localWhisperReadiness } from './providers/local'
+import {
+  downloadWhisperModel,
+  cancelDownload,
+  uninstallWhisperModel,
+  getLocalModelProgress,
+} from './local-download'
 import { HISTORY_LIMIT } from '../shared/constants'
 
 const history: DictationResult[] = []
@@ -79,5 +86,31 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.LAUNCH_AT_LOGIN_SET, (_e, enabled: boolean) => {
     app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true })
+  })
+
+  // Local model management. Status returns the three-prong readiness +
+  // last-known download progress so the Settings card can render the
+  // right state on mount without waiting for the next progress event.
+  ipcMain.handle(IPC.LOCAL_MODEL_STATUS, () => ({
+    readiness: localWhisperReadiness(),
+    progress: getLocalModelProgress(),
+  }))
+
+  ipcMain.handle(IPC.LOCAL_MODEL_DOWNLOAD, async () => {
+    try {
+      await downloadWhisperModel()
+      return { ok: true }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return { ok: false, error: message }
+    }
+  })
+
+  ipcMain.handle(IPC.LOCAL_MODEL_CANCEL, () => {
+    cancelDownload()
+  })
+
+  ipcMain.handle(IPC.LOCAL_MODEL_UNINSTALL, async () => {
+    await uninstallWhisperModel()
   })
 }
