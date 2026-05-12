@@ -270,6 +270,43 @@ function applyQuickFixes(text: string): string {
   return out
 }
 
+// Deterministic strictness=1 (Light) cleanup. The Light prompt only
+// asks the LLM to:
+//   - strip exact filler tokens (um, uh, er, erm, hm, hmm)
+//   - collapse stutters (the the, I, I)
+//   - add sentence-end punctuation if missing
+// All three are cheap regex passes. Running them locally saves the
+// ~500-700ms cloud-LLM roundtrip on every personal-messaging
+// dictation. We only fall back to the LLM when there's a self-
+// correction marker (actually / wait / scratch that), which needs
+// semantic understanding to drop the right span.
+const FILLER_STRIP_RE = /\b(?:um+|uh+|er+|erm+|hmm*|uhh+|umm+)[,.]?\s*/gi
+const STUTTER_COLLAPSE_RE = /\b(\w+)(?:[,]?\s+\1\b)+/gi
+function applyLightCleanup(text: string): string {
+  let out = text
+    // Strip fillers, including any trailing comma/period that's now
+    // orphaned (e.g. "um, so" → "so", "well, uh, I think" → "well, I think").
+    .replace(FILLER_STRIP_RE, '')
+    // Collapse exact word repetitions ("the the the" → "the").
+    .replace(STUTTER_COLLAPSE_RE, '$1')
+    // Tidy up doubled spaces, leading commas/spaces left behind.
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,]+/, '')
+    .replace(/\s+([,.!?])/g, '$1')
+    .trim()
+  // Capitalize first letter if it isn't already.
+  if (out.length > 0 && /[a-z]/.test(out[0])) {
+    out = out[0].toUpperCase() + out.slice(1)
+  }
+  // Add trailing period if missing and the last token isn't already
+  // ending with one of .!? — only when the result is a clear single
+  // sentence (no internal punctuation might mean it's a fragment).
+  if (out.length > 0 && !/[.!?]$/.test(out)) {
+    out += '.'
+  }
+  return out
+}
+
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
@@ -330,6 +367,21 @@ export async function runDictationPipeline(
 
   if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
+  } else if (
+    strictnessFor(focusedApp, settings) === 1
+    && effectiveCategory !== 'code'
+    && !CORRECTION_RE.test(transcript)
+  ) {
+    // Strictness=1 deterministic path: the Light prompt only does
+    // filler/stutter strip + sentence-end punctuation — all regex-able
+    // in microseconds. Cloud LLM cleanup at this strictness was
+    // costing ~500-700ms to produce nearly-identical output. We only
+    // fall back to the LLM when there's a self-correction marker
+    // (actually / wait / scratch that), which needs semantic
+    // understanding to drop the right span.
+    const cStart = Date.now()
+    cleaned = applyLightCleanup(transcript)
+    logInfo('Light cleanup (regex)', { ms: Date.now() - cStart, chars: cleaned.length })
   } else {
     const editor = IDE_EDITORS[focusedApp.bundleId]
     const strictness = strictnessFor(focusedApp, settings)
