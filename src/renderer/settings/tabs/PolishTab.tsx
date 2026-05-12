@@ -42,15 +42,17 @@ const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 
 const LEVEL_REGISTER: Record<Strictness, string> = { 1: 'Very-casual', 2: 'Casual', 3: 'Formal' }
 const ORDER: Bucket[] = ['personal', 'work', 'writing']
 
-// Per-context example dictation + cleaned output at each level. Used
-// both by the abstract bubble view and the app-style mocks.
+// Per-context example dictation + cleaned output at each level.
+// Topics intentionally NOT lunch — keep us differentiated from
+// Wispr Flow's example. Personal = picking up a package, Work =
+// proposal follow-up, Writing = product idea.
 const EXAMPLES: Record<Bucket, { raw: string; outputs: Record<Strictness, string> }> = {
   personal: {
-    raw: "yo um so are we still on for tomorrow or like did that move",
+    raw: "yo um did you get the package i sent like the one with the book",
     outputs: {
-      1: "yo so are we still on for tomorrow or like did that move",
-      2: "are we still on for tomorrow or did that move",
-      3: "Are we still on for tomorrow, or has it moved?",
+      1: "yo did you get the package i sent like the one with the book",
+      2: "did you get the package I sent? the one with the book",
+      3: "Did the package make it to you — the one with the book?",
     },
   },
   work: {
@@ -223,11 +225,11 @@ export default function PolishTab() {
   )
 }
 
-// HeroVisual handles the three states: resting (abstract bubbles), mock
-// (in-app preview for hovered bucket), code (terminal preview). Wrapping
-// in a keyed container forces React to remount on every state change
-// so the animate-stepIn keyframe replays — gives the cross-fade feel
-// without a separate transition library.
+// HeroVisual: fixed-size canvas so the hero never resizes while the
+// user moves their pointer across rows. The actual mock is rendered
+// inside via React-key-based remount, so swapping contexts just
+// re-mounts the inner element with an opacity-only fade-in. No
+// height changes, no scale, no translate — kills the bounce/shake.
 function HeroVisual({
   mode, bucket, level,
 }: {
@@ -235,22 +237,29 @@ function HeroVisual({
   bucket: Bucket | null
   level: Strictness
 }) {
-  const key = `${mode}-${bucket ?? ''}-${level}`
-  if (mode === 'code') {
-    return <div key={key} className="animate-stepIn w-full max-w-[320px]"><TerminalMock /></div>
-  }
-  if (mode === 'mock' && bucket) {
-    return (
-      <div key={key} className="animate-stepIn w-full max-w-[320px]">
-        {bucket === 'personal' && <IMessageMock raw={EXAMPLES.personal.raw} cleaned={EXAMPLES.personal.outputs[level]} />}
-        {bucket === 'work'     && <EmailMock    raw={EXAMPLES.work.raw}     cleaned={EXAMPLES.work.outputs[level]} />}
-        {bucket === 'writing'  && <NotionMock   raw={EXAMPLES.writing.raw}  cleaned={EXAMPLES.writing.outputs[level]} />}
-      </div>
-    )
-  }
+  const key = `${mode}-${bucket ?? 'none'}-${level}`
   return (
-    <div key={key} className="animate-stepIn">
-      <RegisterBubbles />
+    <div className="relative w-[300px] h-[280px] flex items-center justify-center">
+      <style>{`
+        @keyframes polishFadeIn {
+          0%   { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .polish-fade { animation: polishFadeIn 220ms ease-out both; }
+      `}</style>
+      <div key={key} className="polish-fade w-full">
+        {mode === 'resting' && <RegisterBubbles />}
+        {mode === 'code' && <TerminalMock />}
+        {mode === 'mock' && bucket === 'personal' && (
+          <IMessageMock raw={EXAMPLES.personal.raw} cleaned={EXAMPLES.personal.outputs[level]} />
+        )}
+        {mode === 'mock' && bucket === 'work' && (
+          <EmailMock raw={EXAMPLES.work.raw} cleaned={EXAMPLES.work.outputs[level]} />
+        )}
+        {mode === 'mock' && bucket === 'writing' && (
+          <NotionMock raw={EXAMPLES.writing.raw} cleaned={EXAMPLES.writing.outputs[level]} />
+        )}
+      </div>
     </div>
   )
 }
@@ -259,16 +268,16 @@ function HeroVisual({
 
 function RegisterBubbles() {
   const levels: Strictness[] = [3, 2, 1]
-  // Generic dictation, not tied to a specific bucket — the resting
-  // hero advertises "what the app does" without making users commit
-  // to a context yet.
+  // Generic dictation tied to no specific bucket — intentionally NOT
+  // lunch-themed (that's Wispr Flow's example). A "send me the draft"
+  // ask reads natural across all three registers.
   const examples: Record<Strictness, string> = {
-    3: "Hey, are you free for lunch tomorrow?",
-    2: "Hey are you free for lunch tomorrow? Let's do 12 if that works",
-    1: "hey are you free for lunch tomorrow lets do 12 if that works",
+    3: "Hi — when you have a moment, could you take a look at the draft I shared?",
+    2: "Hey, when you get a sec, can you look at the draft I shared?",
+    1: "hey can you check out the draft i sent when you get a sec",
   }
   return (
-    <div className="flex flex-col gap-2.5 w-full max-w-[300px]">
+    <div className="flex flex-col gap-2 w-full max-w-[300px]">
       {levels.map((lvl) => {
         const style = BUBBLE_STYLES[lvl]
         return (
@@ -276,7 +285,7 @@ function RegisterBubbles() {
             <div className="text-[9.5px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-0.5 px-1">
               {LEVEL_LABEL[lvl]} · {LEVEL_REGISTER[lvl]}
             </div>
-            <div className="rounded-[18px] px-4 py-2.5 text-[12.5px] leading-snug"
+            <div className="rounded-[16px] px-3.5 py-2 text-[12px] leading-snug"
                  style={{ background: style.bg, color: style.fg }}>
               {examples[lvl]}
             </div>
