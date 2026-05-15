@@ -28,7 +28,7 @@ import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
-import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress } from './paste'
+import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress, getPressTimeAXRolePromise } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -50,15 +50,27 @@ const audioChunks: Buffer[] = []
 // a newer session is in progress and the callback skips its hide.
 let sessionId = 0
 
+// Mirrors the last state broadcast to the indicator. Lets external
+// action triggers (idle-pill clicks, future MCP hooks) know whether to
+// start or stop without polling the renderer.
+let currentState: 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'clipboard' | 'error' = 'idle'
+
 function createIndicatorWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   const savedPos = getSettings().indicatorPosition
-  const x = savedPos?.x ?? Math.round(width / 2 - 140)
-  const y = savedPos?.y ?? height - 100
+  // Centered horizontally above the bottom edge. Window canvas is
+  // 320×200; the visible pill is anchored to its bottom-center so the
+  // saved-y math accounts for the bottom inset.
+  const x = savedPos?.x ?? Math.round(width / 2 - 160)
+  const y = savedPos?.y ?? height - 220
 
   const win = new BrowserWindow({
-    width: 280,
-    height: 80,
+    // Wider/taller than the pill itself so the renderer can paint a
+    // hover hit-zone around the idle pill and host a click menu above
+    // it without clipping. The pill itself stays small (~54×22 at idle
+    // / ~280×40 while recording) and is centered within this canvas.
+    width: 320,
+    height: 200,
     x,
     y,
     frame: false,
@@ -110,7 +122,11 @@ function positionIndicatorOnActiveDisplay(): void {
   const { x: dx, y: dy, width, height } = display.workArea
   const [winW, winH] = indicatorWindow.getSize()
   const x = Math.round(dx + width / 2 - winW / 2)
-  const y = Math.round(dy + height - winH - 24)
+  // The pill is anchored to the bottom of the canvas. Place the
+  // window so its bottom edge sits ~12px above the work-area bottom —
+  // pill ends up visually near the bottom of the screen, and the
+  // empty canvas above the pill (~160px) hosts the popover menu.
+  const y = Math.round(dy + height - winH - 12)
   indicatorWindow.setBounds({ x, y, width: winW, height: winH })
 
   // Re-assert visibility-on-all-spaces every show. macOS occasionally
@@ -286,7 +302,7 @@ function updateTrayMenu(): void {
   const history = getHistory()
   const historyItems: Electron.MenuItemConstructorOptions[] = history.slice(0, 5).map(item => ({
     label: item.cleaned.length > 50 ? item.cleaned.slice(0, 50) + '…' : item.cleaned,
-    click: () => pasteText(item.cleaned),
+    click: () => pasteText(item.cleaned, { skipAxGate: true }),
   }))
 
   const menu = Menu.buildFromTemplate([
@@ -328,7 +344,61 @@ function setupTray(): void {
 }
 
 function broadcastState(state: string): void {
+  // Track non-error states so idle-pill click handlers can decide
+  // whether to toggle into or out of recording. Error states keep the
+  // previous "tracked" state since they're transient banners.
+  if (state === 'idle' || state === 'recording' || state === 'stopping' ||
+      state === 'processing' || state === 'done' || state === 'clipboard') {
+    currentState = state
+  }
   indicatorWindow?.webContents.send(IPC.STATE_CHANGE, state)
+}
+
+// Shared action handlers — invoked from both global hotkeys and from
+// the idle-pill's click menu. Keeps the two entry points consistent.
+function actionStartRecording(): void {
+  sessionId++
+  audioChunks.length = 0
+  captureFocusedApp()
+  captureSelectedText()
+  captureAXRoleAtPress()
+  positionIndicatorOnActiveDisplay()
+  broadcastState('recording')
+}
+
+function actionStopRecording(): void {
+  broadcastState('stopping')
+}
+
+function actionAbortRecording(): void {
+  sessionId++
+  audioChunks.length = 0
+  broadcastState('stopping')
+}
+
+function actionPasteLast(): void {
+  const last = getHistory()[0]
+  logInfo('Paste-last triggered', { hasHistory: Boolean(last) })
+  if (!last) {
+    broadcastState('error:nothing to paste')
+    positionIndicatorOnActiveDisplay()
+    setTimeout(() => broadcastState('idle'), 1800)
+    return
+  }
+  // Explicit user action (double-tap hotkey or Insert in indicator
+  // menu) — skip the AX-role gate. At the moment of paste-last, focus
+  // may briefly be on the indicator pill or have just shifted away
+  // from the user's target text field; the gate would incorrectly
+  // route to the clipboard fallback. The keystroke fires against
+  // whatever the OS considers focused when it actually runs, which
+  // settles back on the user's target.
+  pasteText(last.cleaned, { skipAxGate: true })
+    .then(({ method }) => {
+      positionIndicatorOnActiveDisplay()
+      broadcastState(method === 'clipboard' ? 'clipboard' : 'done')
+      setTimeout(() => broadcastState('idle'), method === 'clipboard' ? 6000 : 1500)
+    })
+    .catch(err => logError('Paste-last failed', err))
 }
 
 function setupHotkeys(): void {
@@ -336,60 +406,15 @@ function setupHotkeys(): void {
   unregisterAll()
 
   registerHotkey(settings.hotkeys.pushToTalk, {
-    onStart: () => {
-      sessionId++
-      audioChunks.length = 0
-      // Warm caches that need press-time intent: focused app (for the
-      // cleanup category prompt), selected text (for command-mode
-      // rewrite), and the AX-role probe (for "is paste destination
-      // pasteable" gate). All three are slow osascripts (~150ms to
-      // ~1200ms each) — firing them now lets them complete during
-      // recording instead of blocking the post-transcribe paste path.
-      captureFocusedApp()
-      captureSelectedText()
-      captureAXRoleAtPress()
-      // Re-position to the user's current display in case they've moved
-      // monitors since the last recording. The window itself stays
-      // always-visible across Spaces — no show/hide.
-      positionIndicatorOnActiveDisplay()
-      broadcastState('recording')
-    },
-    onStop: () => {
-      // Renderer transitions recording → stopping → (flush) → sends AUDIO_DONE
-      broadcastState('stopping')
-    },
-    onAbort: () => {
-      // Double-tap arrived while a recording was live — discard the
-      // pending audio. Bumping sessionId makes the eventual AUDIO_DONE
-      // skip its work via stillLatest().
-      //
-      // We DO broadcast 'stopping' so the renderer stops its MediaRecorder
-      // (otherwise it'd keep capturing forever). We do NOT schedule a hide;
-      // onPasteLast — which fires immediately after — owns the visible
-      // state transition. Scheduling a hide here caused a race where the
-      // 'done' pill from paste-last appeared and then got hidden 100ms
-      // later, leaving the user thinking nothing happened.
-      sessionId++
-      audioChunks.length = 0
-      broadcastState('stopping')
-    },
-    onPasteLast: () => {
-      const last = getHistory()[0]
-      logInfo('Paste-last triggered', { hasHistory: Boolean(last) })
-      if (!last) {
-        broadcastState('error:nothing to paste')
-        positionIndicatorOnActiveDisplay()
-        setTimeout(() => broadcastState('idle'), 1800)
-        return
-      }
-      pasteText(last.cleaned)
-        .then(({ method }) => {
-          positionIndicatorOnActiveDisplay()
-          broadcastState(method === 'clipboard' ? 'clipboard' : 'done')
-          setTimeout(() => broadcastState('idle'), method === 'clipboard' ? 6000 : 1500)
-        })
-        .catch(err => logError('Paste-last failed', err))
-    },
+    onStart: actionStartRecording,
+    // Renderer transitions recording → stopping → (flush) → sends AUDIO_DONE
+    onStop: actionStopRecording,
+    // Double-tap arrived while a recording was live — discard the
+    // pending audio. Bumping sessionId makes the eventual AUDIO_DONE
+    // skip its work via stillLatest(). onPasteLast fires immediately
+    // after and owns the visible state transition.
+    onAbort: actionAbortRecording,
+    onPasteLast: actionPasteLast,
   })
 }
 
@@ -425,7 +450,10 @@ function setupAudioIpc(): void {
       if (commandMode) {
         broadcastState('processing')
         const rewritten = await runCommandPipeline(audioBuffer, selection, getSettings())
-        const { method } = await pasteText(rewritten)
+        // Use the press-time AX-role probe — same as dictate mode.
+        // Command mode involves no UI interaction during the call, so
+        // the user's original focus is still the intended target.
+        const { method } = await pasteText(rewritten, { rolePromise: getPressTimeAXRolePromise() ?? undefined })
         const focused = getFocusedApp()
         addToHistory({
           id: crypto.randomUUID(),
@@ -504,16 +532,70 @@ function setupIpcListeners(): void {
 
   // Paste fallback retry: the popup window's Insert button calls this
   // after the user has had a chance to focus their target text field.
-  // We re-run pasteText with the stashed cleaned text; on success the
-  // popup closes itself.
+  //
+  // Two things must happen in this order:
+  //  1. HIDE the popup first. Clicking Insert moved focus from the
+  //     user's text field onto the popup's button; the ⌘V keystroke
+  //     would otherwise fire into the popup itself, not the target.
+  //     Hiding the popup releases focus and macOS routes the next
+  //     key event to whatever was focused before the popup appeared
+  //     (the user's text field).
+  //  2. skipAxGate so the AX probe doesn't see our popup's AXButton
+  //     and incorrectly route back to the clipboard fallback. The
+  //     keystroke fires unconditionally against whatever has focus
+  //     at the moment it runs.
   ipcMain.handle(IPC.PASTE_FALLBACK_RETRY, async () => {
     if (!lastUnpastedText) return false
-    const { method } = await pasteText(lastUnpastedText)
-    const success = method === 'paste'
-    if (success) dismissPasteFallback()
-    return success
+    const text = lastUnpastedText
+    // Snapshot the text BEFORE dismissing (dismiss clears it).
+    dismissPasteFallback()
+    // Brief pause so the OS focus event from .hide() processes before
+    // we fire the keystroke. Without this, the keystroke can race the
+    // focus restore and still hit the popup.
+    await new Promise(resolve => setTimeout(resolve, 30))
+    const { method } = await pasteText(text, { skipAxGate: true })
+    return method === 'paste'
   })
   ipcMain.on(IPC.PASTE_FALLBACK_DISMISS, () => dismissPasteFallback())
+
+  // Idle-pill quick actions — invoked from the persistent indicator's
+  // hover menu. Mirror the hotkey behaviors so users get the same
+  // result whether they click the pill or press the hotkey.
+  ipcMain.on(IPC.INDICATOR_TOGGLE_RECORD, () => {
+    if (currentState === 'recording') {
+      actionStopRecording()
+    } else if (currentState === 'idle' || currentState === 'done' || currentState === 'clipboard') {
+      actionStartRecording()
+    }
+    // While 'stopping' or 'processing', clicks are no-ops — the pipeline
+    // is mid-flight and starting a new session here would race.
+  })
+  ipcMain.on(IPC.INDICATOR_PASTE_LAST, () => actionPasteLast())
+  ipcMain.on(IPC.INDICATOR_POLISH_SELECTION, () => {
+    // Same path as the rewrite-selection mode triggered by hotkey, but
+    // we have to start the capture now (since there's no press event)
+    // and then begin recording so the user dictates the instruction.
+    captureFocusedApp()
+    captureSelectedText()
+    captureAXRoleAtPress()
+    if (currentState === 'idle' || currentState === 'done' || currentState === 'clipboard') {
+      actionStartRecording()
+    }
+  })
+
+  // Pill-window interactivity toggle: the renderer asks main to flip
+  // setIgnoreMouseEvents based on whether the cursor is hovering the
+  // idle pill. While idle, the window normally lets clicks pass
+  // through; on hover the renderer needs real pointer events to show
+  // the menu and accept clicks.
+  ipcMain.on('indicator:set-interactive', (_e, interactive: boolean) => {
+    if (!indicatorWindow || indicatorWindow.isDestroyed()) return
+    if (interactive) {
+      indicatorWindow.setIgnoreMouseEvents(false)
+    } else {
+      indicatorWindow.setIgnoreMouseEvents(true, { forward: true })
+    }
+  })
 }
 
 app.whenReady().then(() => {

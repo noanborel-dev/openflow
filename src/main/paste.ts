@@ -160,13 +160,27 @@ function canPasteIntoRole(role: string, bundleId: string): boolean {
   return true
 }
 
-export async function pasteText(
-  text: string,
+export interface PasteOptions {
   // The pipeline kicks off the AX-role probe concurrently with the
   // cleanup LLM so the result is ready when paste runs — no extra
   // hot-path osascript. Callers that don't have one (paste-last from
-  // history, etc.) get a fresh probe fired here.
-  rolePromise?: Promise<string>,
+  // history, etc.) get a fresh probe fired here unless they set
+  // skipAxGate.
+  rolePromise?: Promise<string>
+  // Skip the AX-role gate entirely. Used by code paths where the
+  // user has explicitly asked us to paste (Insert button on the
+  // fallback popup, double-tap paste-last) — the AX probe at those
+  // moments sees OpenFlow's own popup/indicator as the focused
+  // window and incorrectly routes BACK to the fallback. Bypassing
+  // the gate makes the keystroke fire against whatever the OS
+  // considers focused at that millisecond, which in practice is
+  // the user's intended target after click-to-focus settles.
+  skipAxGate?: boolean
+}
+
+export async function pasteText(
+  text: string,
+  options: PasteOptions = {},
 ): Promise<{ method: 'paste' | 'clipboard' }> {
   clipboard.writeText(text)
 
@@ -174,12 +188,16 @@ export async function pasteText(
     return { method: 'clipboard' }
   }
 
-  const role = await (rolePromise ?? probeFocusedAXRole())
-  const { bundleId } = getFocusedApp()
-  const canPaste = canPasteIntoRole(role, bundleId)
-  logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })
-  if (!canPaste) {
-    return { method: 'clipboard' }
+  if (!options.skipAxGate) {
+    const role = await (options.rolePromise ?? probeFocusedAXRole())
+    const { bundleId } = getFocusedApp()
+    const canPaste = canPasteIntoRole(role, bundleId)
+    logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })
+    if (!canPaste) {
+      return { method: 'clipboard' }
+    }
+  } else {
+    logInfo('Paste pre-check skipped (explicit user action)')
   }
 
   // Lazily start the helper on first paste, then reuse it forever.

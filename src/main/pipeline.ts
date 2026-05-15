@@ -7,11 +7,6 @@ import {
   createGroqTranscriptionProvider,
   createGroqCleanupProvider,
 } from './providers/groq'
-import {
-  createOpenAITranscriptionProvider,
-  createOpenAICleanupProvider,
-} from './providers/openai'
-import { createAnthropicCleanupProvider } from './providers/anthropic'
 import { createLocalWhisperProvider } from './providers/local'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { pasteText, probeFocusedAXRole, getPressTimeAXRolePromise } from './paste'
@@ -58,45 +53,22 @@ function isLikelySilence(transcript: string): boolean {
 function buildProviders(
   settings: Settings
 ): { transcription: TranscriptionProvider; cleanup: CleanupProvider } {
-  const { provider, groqKey, openaiKey, anthropicKey, transcriptionModel, cleanupModel } =
-    settings.provider
+  const { provider, groqKey, transcriptionModel, cleanupModel } = settings.provider
 
   if (provider === 'local') {
     // Local Whisper for transcription; cleanup still needs an LLM, so we
-    // delegate to whichever cloud key the user has configured. Prefer
-    // Groq (fastest 8B-instant), then OpenAI, then Anthropic. If they
-    // have NO cleanup key at all we still attempt Groq — the cleanup
-    // call will surface a clear error rather than running a silent local
-    // identity pass, which would skip filler/stutter cleanup entirely.
-    const cleanup =
-      groqKey ? createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
-      : openaiKey ? createOpenAICleanupProvider(openaiKey, MODELS.openai.cleanup)
-      : anthropicKey ? createAnthropicCleanupProvider(anthropicKey, MODELS.anthropic.cleanup)
-      : createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+    // delegate to the Groq key. If the user hasn't configured one, the
+    // cleanup call will surface a clear error rather than running a
+    // silent local identity pass that skips filler/stutter cleanup.
     return {
       transcription: createLocalWhisperProvider(),
-      cleanup,
+      cleanup: createGroqCleanupProvider(groqKey, MODELS.groq.cleanup),
     }
   }
 
-  if (provider === 'groq') {
-    return {
-      transcription: createGroqTranscriptionProvider(groqKey, transcriptionModel),
-      cleanup: createGroqCleanupProvider(groqKey, cleanupModel),
-    }
-  }
-
-  if (provider === 'openai') {
-    return {
-      transcription: createOpenAITranscriptionProvider(openaiKey, transcriptionModel),
-      cleanup: createOpenAICleanupProvider(openaiKey, cleanupModel),
-    }
-  }
-
-  // anthropic: use Groq for transcription, Anthropic for cleanup
   return {
-    transcription: createGroqTranscriptionProvider(groqKey, MODELS.groq.transcription),
-    cleanup: createAnthropicCleanupProvider(anthropicKey, cleanupModel),
+    transcription: createGroqTranscriptionProvider(groqKey, transcriptionModel),
+    cleanup: createGroqCleanupProvider(groqKey, cleanupModel),
   }
 }
 
@@ -412,7 +384,7 @@ export async function runDictationPipeline(
   // the LLM never ran.
   cleaned = applyQuickFixes(cleaned)
 
-  const { method: pasteMethod } = await pasteText(cleaned, axRolePromise)
+  const { method: pasteMethod } = await pasteText(cleaned, { rolePromise: axRolePromise })
   logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
 
   onState('done')
