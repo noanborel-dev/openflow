@@ -217,10 +217,7 @@ export default function Indicator() {
   } as const
 
   return (
-    <div
-      className="flex items-center justify-center w-full h-full font-sans"
-      style={{ filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.35))' }}
-    >
+    <div className="flex items-center justify-center w-full h-full font-sans">
       <style>{`
         @keyframes pillBreathe {
           0%, 100% { transform: scale(1); filter: brightness(1); }
@@ -245,7 +242,10 @@ export default function Indicator() {
             transparent 75%);
           background-size: 220% 100%;
           background-position: -120% 0;
-          mix-blend-mode: overlay;
+          /* No mix-blend-mode here — overlay on a transparent
+             Electron surface produces a rectangular compositing
+             artifact (the "box halo" the user reported). The plain
+             gradient at low opacity is enough refraction. */
           pointer-events: none;
           opacity: 0;
           animation: refractGlide 5.2s ease-in-out infinite;
@@ -253,7 +253,16 @@ export default function Indicator() {
       `}</style>
       <div
         className="inline-flex items-center gap-2.5 px-4 py-2 rounded-pill text-white relative overflow-hidden pill-breathe pill-refract"
-        style={pillStyle}
+        style={{
+          ...pillStyle,
+          // drop-shadow on the pill itself (not the parent flex
+          // container) so the shadow strictly traces the pill's
+          // rounded silhouette. When applied to the parent, the
+          // transparent Electron window's bounds occasionally
+          // contribute to the filter's rasterization, producing a
+          // faint rectangular halo.
+          filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.35))',
+        }}
       >
         {(state === 'recording' || state === 'stopping') && (
           <>
