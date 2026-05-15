@@ -31,7 +31,6 @@ export function FAQ() {
   return (
     <section id="faq" className="max-w-[1240px] mx-auto px-8 py-16">
       <SectionHeader
-        eyebrow="Section 9 · Questions"
         title={
           <>
             Worth <em>answering</em>.

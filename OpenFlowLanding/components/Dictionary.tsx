@@ -15,10 +15,6 @@ const WORDS: Array<{ term: string; pron: string; tag: string }> = [
 export function Dictionary() {
   return (
     <section id="dictionary" className="max-w-[1240px] mx-auto px-8 py-16">
-      <p className="font-mono text-[11px] tracking-[0.14em] uppercase text-accent mb-3">
-        Section 6 · Dictionary
-      </p>
-
       <div
         className="bg-white border border-line rounded-3xl p-14"
         style={{ boxShadow: "0 30px 60px -30px rgba(20,30,50,.18)" }}

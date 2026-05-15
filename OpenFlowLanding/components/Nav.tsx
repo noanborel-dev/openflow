@@ -13,13 +13,12 @@ export function Nav() {
     >
       <div className="max-w-[1240px] mx-auto px-10 h-[72px] flex items-center gap-8">
         <a href="#top" aria-label="OpenFlow home" className="flex items-center">
-          <PillLogo size="sm" />
+          <PillLogo size="md" />
         </a>
 
         <ul className="hidden md:flex gap-7 flex-1 ml-6 list-none">
           {[
             { href: "#demo", label: "Try it" },
-            { href: "#hotkey", label: "Hotkey" },
             { href: "#ai-coding", label: "AI coding" },
             { href: "#privacy", label: "Privacy" },
             { href: "#pricing", label: "Pricing" },

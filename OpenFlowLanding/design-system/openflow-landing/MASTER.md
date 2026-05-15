@@ -246,6 +246,12 @@ Still missing (parked): `terminal.png` (using `›_` placeholder is fine — it'
 
 ---
 
+## Known dev-environment issues
+
+**Turbopack hot-reload occasionally drops new CSS rules.** When adding new custom classes to `app/globals.css`, the dev server sometimes serves a stale CSS bundle that excludes them — layout breaks silently. Fix: kill dev server (`pkill -f "next dev"`), delete `.next/`, restart. This does NOT affect production builds (`npm run build`).
+
+---
+
 ## Pre-delivery checklist
 
 - [ ] No emojis as icons (SVGs only)

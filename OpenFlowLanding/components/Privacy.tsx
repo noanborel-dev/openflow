@@ -1,4 +1,4 @@
-// Section 7 — Privacy. Three-pill flow. Animation polish deferred (per user).
+// Section 7 — Privacy. Editorial pass: typographic flow, no boxed diagram.
 export function Privacy() {
   return (
     <section id="privacy" className="max-w-[1240px] mx-auto px-8 py-16">
@@ -7,105 +7,63 @@ export function Privacy() {
         style={{
           background: "#1a1c22",
           color: "var(--cream)",
-          padding: "96px 56px",
+          padding: "120px 56px",
           boxShadow: "0 30px 60px -30px rgba(0,0,0,.4)",
         }}
       >
-        <p
-          className="font-mono text-[11px] tracking-[0.14em] uppercase mb-3"
-          style={{ color: "#9efba8" }}
-        >
-          Section 7 · Privacy
-        </p>
         <h2
-          className="font-serif font-normal text-[clamp(56px,8vw,80px)] leading-[0.95] tracking-[-0.02em] m-0 mx-auto mb-4"
-          style={{ color: "var(--cream)", maxWidth: 820 }}
+          className="font-serif font-normal text-[clamp(56px,8vw,84px)] leading-[0.95] tracking-[-0.02em] m-0 mx-auto mb-6"
+          style={{ color: "var(--cream)", maxWidth: 880 }}
         >
-          Mic → <em>provider</em>. That&apos;s it.
+          Mic <em>→</em> your provider. <em>That&apos;s it.</em>
         </h2>
         <p
-          className="text-[18px] max-w-[580px] mx-auto m-0 leading-[1.5]"
-          style={{ color: "#bcb8a8", marginBottom: 64 }}
+          className="text-[18px] max-w-[600px] mx-auto m-0 leading-[1.55]"
+          style={{ color: "#bcb8a8", marginBottom: 88 }}
         >
-          Audio goes straight from your machine to the provider you chose, using
+          Audio goes straight from your machine to the provider you chose, on
           your key. The polished line comes back. We&apos;re not in the middle.
         </p>
 
-        {/* Three nodes + arrows */}
+        {/* Editorial flow — three words, two arrows, set in serif italic */}
         <div
-          className="flex items-center justify-center max-w-[920px] mx-auto"
-          style={{ gap: 0 }}
+          className="privacy-flow"
+          aria-label="Audio path: your mic to your provider to your machine"
         >
-          <PrivacyNode
-            variant="you"
-            icon={
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#9efba8"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ width: 40, height: 40 }}
-                aria-hidden="true"
-              >
-                <rect x="9" y="3" width="6" height="12" rx="3" />
-                <path d="M5 11a7 7 0 0 0 14 0" />
-                <line x1="12" y1="18" x2="12" y2="21" />
-                <line x1="9" y1="21" x2="15" y2="21" />
-              </svg>
-            }
-            label="Your mic"
-            meta="on-device"
-          />
-
-          <PrivacyArrow />
-
-          <PrivacyNode
-            variant="provider"
-            icon={
-              <span
-                style={{
-                  fontFamily: "var(--font-sans)",
-                  fontSize: 30,
-                  fontWeight: 700,
-                  color: "#fff",
-                }}
-                aria-hidden="true"
-              >
-                G
-              </span>
-            }
-            label="Groq · your key"
-            meta="over TLS"
-          />
-
-          <PrivacyArrow delay="0.8s" />
-
-          <PrivacyNode
-            variant="you"
-            icon={
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#5A8FE8"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ width: 36, height: 36 }}
-                aria-hidden="true"
-              >
-                <path d="M5 12l5 5L20 7" />
-              </svg>
-            }
-            label="Pasted"
-            meta="on-device"
-          />
+          <span className="pf-node">
+            <span className="pf-word">your mic</span>
+            <span className="pf-meta">on-device</span>
+          </span>
+          <span className="pf-arrow" aria-hidden="true">
+            <span className="pf-arrow-line" />
+            <span className="pf-arrow-packet" />
+            <span className="pf-arrow-tip">→</span>
+          </span>
+          <span className="pf-node pf-node--accent">
+            <span className="pf-word">your provider</span>
+            <span className="pf-meta">your key · over TLS</span>
+          </span>
+          <span className="pf-arrow" aria-hidden="true">
+            <span className="pf-arrow-line" />
+            <span
+              className="pf-arrow-packet"
+              style={{ animationDelay: "1s" }}
+            />
+            <span className="pf-arrow-tip">→</span>
+          </span>
+          <span className="pf-node">
+            <span className="pf-word">your machine</span>
+            <span className="pf-meta">pasted</span>
+          </span>
         </div>
 
         <p
-          className="font-serif italic mt-20 m-0 leading-[1.2]"
-          style={{ color: "#9efba8", fontSize: "clamp(22px,3vw,32px)" }}
+          className="font-serif italic m-0 leading-[1.2]"
+          style={{
+            color: "#9efba8",
+            fontSize: "clamp(22px,3vw,32px)",
+            marginTop: 88,
+          }}
         >
           <strong style={{ color: "var(--cream)", fontWeight: 400 }}>
             Zero bytes
@@ -114,96 +72,5 @@ export function Privacy() {
         </p>
       </div>
     </section>
-  );
-}
-
-function PrivacyNode({
-  variant,
-  icon,
-  label,
-  meta,
-}: {
-  variant: "you" | "provider";
-  icon: React.ReactNode;
-  label: string;
-  meta: string;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3.5 flex-none">
-      <div
-        className="w-[88px] h-[88px] rounded-[20px] flex items-center justify-center"
-        style={
-          variant === "you"
-            ? {
-                background: "linear-gradient(135deg,#0e1014,#1a1c22)",
-                border: "1px solid #2a2c33",
-              }
-            : {
-                background: "linear-gradient(135deg,#c8553d,#a83f2c)",
-                border: "1px solid #c8553d",
-              }
-        }
-      >
-        {icon}
-      </div>
-      <p
-        className="font-serif italic text-[22px] m-0"
-        style={{ color: "var(--cream)" }}
-      >
-        {label}
-      </p>
-      <p
-        className="font-mono text-[10px] tracking-[0.1em] uppercase m-0"
-        style={{ color: "#9a9789", marginTop: -8 }}
-      >
-        {meta}
-      </p>
-    </div>
-  );
-}
-
-function PrivacyArrow({ delay = "0s" }: { delay?: string }) {
-  return (
-    <div
-      className="relative flex-none self-center"
-      style={{ width: 140, height: 2, margin: "0 4px" }}
-      aria-hidden="true"
-    >
-      <span
-        className="absolute top-0 left-0"
-        style={{
-          right: 18,
-          height: 2,
-          background:
-            "repeating-linear-gradient(90deg, #2a2c33 0 6px, transparent 6px 12px)",
-        }}
-      />
-      <span
-        className="absolute"
-        style={{
-          right: 0,
-          top: -5,
-          width: 0,
-          height: 0,
-          borderLeft: "8px solid #2a2c33",
-          borderTop: "6px solid transparent",
-          borderBottom: "6px solid transparent",
-        }}
-      />
-      <span
-        className="absolute"
-        style={{
-          top: -3,
-          left: 0,
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: "#9efba8",
-          boxShadow: "0 0 12px #9efba8",
-          animation: "packet-r 2s linear infinite",
-          animationDelay: delay,
-        }}
-      />
-    </div>
   );
 }

@@ -4,7 +4,6 @@ export function Pricing() {
   return (
     <section id="pricing" className="max-w-[1240px] mx-auto px-8 py-16">
       <SectionHeader
-        eyebrow="Section 8 · Pricing"
         title={
           <>
             Free. <em>Actually.</em>

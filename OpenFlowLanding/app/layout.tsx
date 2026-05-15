@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
+import {
+  Instrument_Serif,
+  Inter,
+  JetBrains_Mono,
+  Lato,
+  Roboto,
+} from "next/font/google";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
@@ -21,6 +27,21 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
+  display: "swap",
+});
+
+// Real product fonts so the app mockups (Slack/Gmail) look authentic.
+const lato = Lato({
+  variable: "--font-lato",
+  subsets: ["latin"],
+  weight: ["400", "700", "900"],
+  display: "swap",
+});
+
+const roboto = Roboto({
+  variable: "--font-roboto",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
   display: "swap",
 });
 
@@ -48,7 +69,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${instrumentSerif.variable} ${inter.variable} ${jetbrainsMono.variable}`}
+      className={`${instrumentSerif.variable} ${inter.variable} ${jetbrainsMono.variable} ${lato.variable} ${roboto.variable}`}
     >
       <body>{children}</body>
     </html>
