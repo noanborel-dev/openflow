@@ -192,6 +192,26 @@ export async function workerFree(): Promise<void> {
   loadedModelPath = null
 }
 
+// Spin up the worker process AND load the selected model on app
+// launch — fire-and-forget. By the time the user presses the hotkey
+// for the first time, the worker is alive and the WhisperContext is
+// warm in GPU memory. Without this, the first dictation pays:
+//   ~200ms worker fork (ELECTRON_RUN_AS_NODE bring-up)
+//  +~150ms model file load
+//  +~500ms first Metal pipeline compile + GPU buffer allocation
+//  = ~1s cold-start penalty on top of the actual inference.
+// With this, all of that happens during app launch where the user
+// is already waiting, and the first dictation matches the warm-state
+// timing of every subsequent one.
+//
+// If the model isn't downloaded yet (user just installed and hasn't
+// fetched any model), loadModel() will surface an error that we
+// silently swallow — the actual transcribe call will surface the
+// LocalModelMissingError to the user at the right moment.
+export function prewarmWhisper(modelPath: string): void {
+  loadModel(modelPath).catch(() => { /* deferred to first transcribe */ })
+}
+
 app.on('will-quit', () => {
   if (proc) {
     try { proc.kill() } catch { /* ignore */ }

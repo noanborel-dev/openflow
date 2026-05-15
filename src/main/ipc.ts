@@ -1,11 +1,10 @@
 import { app, ipcMain, systemPreferences, shell } from 'electron'
 import { IPC } from '../shared/types'
 import type { DictationResult, LocalModelId } from '../shared/types'
-import { localModelDownloaded } from './local-models'
+import { localModelDownloaded, localModelPath } from './local-models'
+import { prewarmWhisper } from './whisper-host'
 import { getSettings, setSettings } from './store'
 import { testGroqKey } from './providers/groq'
-import { testOpenAIKey } from './providers/openai'
-import { testAnthropicKey } from './providers/anthropic'
 import { localWhisperReadiness, freeLocalWhisper } from './providers/local'
 import {
   downloadWhisperModel,
@@ -31,13 +30,22 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.SETTINGS_SET, (_e, partial) => {
     setSettings(partial)
+    // If the user just switched to Local or changed model tier, kick
+    // off a worker spawn + model load now so the next dictation hits
+    // the warm path instead of paying the cold-start tax. Fire-and-
+    // forget; failures fall back to the transcribe-time error.
+    const next = getSettings()
+    if (
+      next.provider.provider === 'local'
+      && localModelDownloaded(next.provider.localModel)
+    ) {
+      prewarmWhisper(localModelPath(next.provider.localModel))
+    }
   })
 
   ipcMain.handle(IPC.PROVIDER_TEST, async (_e, { provider, key }) => {
     try {
       if (provider === 'groq') await testGroqKey(key)
-      else if (provider === 'openai') await testOpenAIKey(key)
-      else if (provider === 'anthropic') await testAnthropicKey(key)
       return { ok: true }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'

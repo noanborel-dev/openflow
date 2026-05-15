@@ -29,6 +29,8 @@ import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
 import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress, getPressTimeAXRolePromise } from './paste'
+import { prewarmWhisper } from './whisper-host'
+import { localModelDownloaded, localModelPath } from './local-models'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -57,20 +59,23 @@ let currentState: 'idle' | 'recording' | 'stopping' | 'processing' | 'done' | 'c
 
 function createIndicatorWindow(): BrowserWindow {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-  const savedPos = getSettings().indicatorPosition
-  // Centered horizontally above the bottom edge. Window canvas is
-  // 320×200; the visible pill is anchored to its bottom-center so the
-  // saved-y math accounts for the bottom inset.
-  const x = savedPos?.x ?? Math.round(width / 2 - 160)
-  const y = savedPos?.y ?? height - 220
+  // Initial bounds: bottom-center of the primary display. The window
+  // will be moved to whichever display the cursor is on by
+  // positionIndicatorOnActiveDisplay() at recording start. We
+  // deliberately ignore any persisted indicatorPosition — the pill
+  // is no longer draggable, so legacy saved positions are discarded.
+  const winW = 320
+  const winH = 200
+  const x = Math.round(width / 2 - winW / 2)
+  const y = Math.round(height - winH - 12)
 
   const win = new BrowserWindow({
     // Wider/taller than the pill itself so the renderer can paint a
     // hover hit-zone around the idle pill and host a click menu above
     // it without clipping. The pill itself stays small (~54×22 at idle
     // / ~280×40 while recording) and is centered within this canvas.
-    width: 320,
-    height: 200,
+    width: winW,
+    height: winH,
     x,
     y,
     frame: false,
@@ -84,6 +89,11 @@ function createIndicatorWindow(): BrowserWindow {
     skipTaskbar: true,
     resizable: false,
     focusable: false,
+    // movable: false locks the window in place. Without it, macOS lets
+    // BrowserWindow content act as a drag handle when the underlying
+    // surface is transparent and the cursor lands on a non-interactive
+    // region — which is exactly what was making the pill drift.
+    movable: false,
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/indicator.js'),
@@ -646,6 +656,23 @@ app.whenReady().then(() => {
   prewarmPasteHelper()
 
   const settings = getSettings()
+  // Prewarm the whisper utility process + selected model when Local
+  // is the active provider. Fire-and-forget — if the model isn't
+  // downloaded yet, the actual transcribe call surfaces the right
+  // error. Without this prewarm, the first dictation paid ~1s of
+  // worker fork + model load + Metal compile that we can hide behind
+  // app startup instead.
+  if (settings.provider.provider === 'local') {
+    try {
+      const modelId = settings.provider.localModel
+      if (localModelDownloaded(modelId)) {
+        prewarmWhisper(localModelPath(modelId))
+      }
+    } catch (err) {
+      logError('Whisper prewarm failed', { error: String(err) })
+    }
+  }
+
   if (settings.firstRun) {
     createOnboardingWindow()
   }
