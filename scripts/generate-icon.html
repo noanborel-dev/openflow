@@ -1,24 +1,21 @@
 <!doctype html>
 <!--
-  Open this in any browser, screenshot the canvas at 1024×1024, save as
-  icon.png, then run scripts/png-to-icns.sh to produce assets/icon.icns.
-  Or use the export button below to download icon.png directly.
+  Open in any browser, click "Download 1024×1024 PNG", save the file as
+  `assets/icon.png` in the repo root, then run scripts/png-to-icns.sh.
 
-  This is the same wordmark pill the app uses internally, just at icon
-  scale. macOS clips icons to a rounded square; we render to a fully-
-  rounded pill on a transparent background and let the OS handle the
-  squircle clip.
+  Design: the OpenFlow indicator pill, miniature, centered on a cream
+  plate. macOS clips the icon to a squircle so the cream becomes the
+  rounded-square app icon and the pill floats centered inside —
+  recognizable as "the OpenFlow pill" without trying to fit the
+  wordmark at icon scale.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>OpenFlow Icon Generator</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f2efe8; font-family: -apple-system, system-ui, sans-serif; gap: 18px; padding: 24px; }
-  canvas { background: transparent; border: 1px dashed rgba(0,0,0,0.18); border-radius: 18px; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #d9d4c3; font-family: -apple-system, system-ui, sans-serif; gap: 18px; padding: 24px; }
+  canvas { background: transparent; border: 1px dashed rgba(0,0,0,0.18); border-radius: 18px; width: 320px; height: 320px; }
   .row { display: flex; gap: 12px; }
   button { padding: 10px 22px; border-radius: 999px; background: #0a0a0a; color: #faf8f0; border: none; font: inherit; font-weight: 500; font-size: 14px; cursor: pointer; }
   button:hover { opacity: 0.9; }
@@ -37,64 +34,6 @@
 const c = document.getElementById('c')
 const ctx = c.getContext('2d')
 
-function draw(size) {
-  c.width = size; c.height = size
-  ctx.clearRect(0, 0, size, size)
-
-  // The pill — full-bleed, vertically centered. macOS clips icons to a
-  // squircle so we go edge-to-edge and let the OS do the rounding.
-  const W = size
-  const H = size * 0.7    // pill takes 70% of the height
-  const Y = (size - H) / 2
-  const r = H / 2
-
-  // Charcoal gradient with subtle bottom darkening, matching the
-  // Wordmark component's CSS gradient.
-  const grad = ctx.createLinearGradient(0, Y, 0, Y + H)
-  grad.addColorStop(0, '#10131a')
-  grad.addColorStop(1, '#06080d')
-  ctx.fillStyle = grad
-  roundRect(0, Y, W, H, r)
-  ctx.fill()
-
-  // Top refractive highlight — single-pixel white at very low opacity
-  // running along the top arc.
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)'
-  ctx.lineWidth = size * 0.004
-  roundRect(0, Y, W, H, r)
-  ctx.stroke()
-
-  // Recording dot — left side, vertically centered within the pill.
-  const dotR = H * 0.13
-  const dotX = W * 0.155
-  const dotY = Y + H / 2
-  // Glow halo.
-  const haloGrad = ctx.createRadialGradient(dotX, dotY, dotR * 0.4, dotX, dotY, dotR * 2.4)
-  haloGrad.addColorStop(0, 'rgba(232,74,58,0.45)')
-  haloGrad.addColorStop(1, 'rgba(232,74,58,0)')
-  ctx.fillStyle = haloGrad
-  ctx.beginPath()
-  ctx.arc(dotX, dotY, dotR * 2.4, 0, Math.PI * 2)
-  ctx.fill()
-  // Dot.
-  ctx.fillStyle = '#e84a3a'
-  ctx.beginPath()
-  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
-  ctx.fill()
-
-  // Wordmark — Instrument Serif italic, white, vertically centered.
-  ctx.fillStyle = '#ffffff'
-  ctx.font = `400 italic ${Math.round(H * 0.5)}px "Instrument Serif", "Cormorant Garamond", Georgia, serif`
-  ctx.textBaseline = 'middle'
-  ctx.textAlign = 'left'
-  ctx.shadowColor = 'rgba(0,0,0,0.35)'
-  ctx.shadowBlur = size * 0.008
-  ctx.shadowOffsetY = size * 0.003
-  ctx.fillText('OpenFlow', dotX + dotR * 2.4, dotY + size * 0.005)
-  ctx.shadowBlur = 0
-  ctx.shadowOffsetY = 0
-}
-
 function roundRect(x, y, w, h, r) {
   ctx.beginPath()
   ctx.moveTo(x + r, y)
@@ -109,6 +48,98 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath()
 }
 
+function draw(size) {
+  c.width = size; c.height = size
+  ctx.clearRect(0, 0, size, size)
+
+  // ===== Cream plate (full bleed; macOS squircles it) =====
+  const plateGrad = ctx.createLinearGradient(0, 0, 0, size)
+  plateGrad.addColorStop(0, '#fbf9f1')
+  plateGrad.addColorStop(1, '#efe9d8')
+  ctx.fillStyle = plateGrad
+  ctx.fillRect(0, 0, size, size)
+
+  // ===== The pill — centered, ~62% of the width =====
+  const pillW = size * 0.62
+  const pillH = size * 0.30
+  const pillX = (size - pillW) / 2
+  const pillY = (size - pillH) / 2
+  const pillR = pillH / 2
+
+  // Soft shadow under pill
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.32)'
+  ctx.shadowBlur = size * 0.045
+  ctx.shadowOffsetY = size * 0.018
+  // Charcoal gradient — matches MiniPill.tsx
+  const pillGrad = ctx.createLinearGradient(0, pillY, 0, pillY + pillH)
+  pillGrad.addColorStop(0, 'rgba(18,20,26,1)')
+  pillGrad.addColorStop(1, 'rgba(14,16,22,1)')
+  ctx.fillStyle = pillGrad
+  roundRect(pillX, pillY, pillW, pillH, pillR)
+  ctx.fill()
+  ctx.restore()
+
+  // Top refractive highlight (inner top border)
+  ctx.save()
+  ctx.beginPath()
+  roundRect(pillX, pillY, pillW, pillH, pillR)
+  ctx.clip()
+  const hiGrad = ctx.createLinearGradient(0, pillY, 0, pillY + pillH * 0.5)
+  hiGrad.addColorStop(0, 'rgba(255,255,255,0.36)')
+  hiGrad.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = hiGrad
+  ctx.fillRect(pillX, pillY, pillW, pillH * 0.55)
+  ctx.restore()
+
+  // Hairline border
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+  ctx.lineWidth = size * 0.0025
+  roundRect(pillX, pillY, pillW, pillH, pillR)
+  ctx.stroke()
+
+  // ===== Inner content: red dot + waveform bars =====
+  const cy = pillY + pillH / 2
+  // Padding from the pill's left/right edges before content starts
+  const padX = pillH * 0.55
+
+  // Red recording dot
+  const dotR = pillH * 0.16
+  const dotX = pillX + padX + dotR
+  // Glow halo
+  const haloGrad = ctx.createRadialGradient(dotX, cy, dotR * 0.3, dotX, cy, dotR * 3)
+  haloGrad.addColorStop(0, 'rgba(232,74,58,0.55)')
+  haloGrad.addColorStop(1, 'rgba(232,74,58,0)')
+  ctx.fillStyle = haloGrad
+  ctx.beginPath()
+  ctx.arc(dotX, cy, dotR * 3, 0, Math.PI * 2)
+  ctx.fill()
+  // Dot
+  ctx.fillStyle = '#e84a3a'
+  ctx.beginPath()
+  ctx.arc(dotX, cy, dotR, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Waveform bars — 5 cobalt bars, frozen at a pleasing mid-animation pose
+  const barW = size * 0.013
+  const barGap = size * 0.013
+  const barX0 = dotX + dotR + pillH * 0.32
+  // Bar heights as fraction of pillH — chosen to look "active"
+  const heights = [0.32, 0.55, 0.22, 0.46, 0.30]
+  ctx.fillStyle = '#5a8fe8'
+  ctx.shadowColor = 'rgba(90,143,232,0.65)'
+  ctx.shadowBlur = size * 0.006
+  for (let i = 0; i < heights.length; i++) {
+    const bh = pillH * heights[i]
+    const bx = barX0 + i * (barW + barGap)
+    const by = cy - bh / 2
+    // Rounded bar
+    roundRect(bx, by, barW, bh, barW / 2)
+    ctx.fill()
+  }
+  ctx.shadowBlur = 0
+}
+
 function download(size) {
   draw(size)
   const link = document.createElement('a')
@@ -118,9 +149,7 @@ function download(size) {
   draw(1024)  // restore preview
 }
 
-// Wait for the font to load before first render so the wordmark isn't
-// initially drawn in Times.
-document.fonts.ready.then(() => draw(1024))
+draw(1024)
 </script>
 </body>
 </html>

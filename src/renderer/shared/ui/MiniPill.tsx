@@ -5,10 +5,12 @@
 // see what the pill looks like in context.
 
 interface Props {
-  state?: 'listening' | 'polishing'
+  state?: 'listening' | 'polishing' | 'done'
+  /** Label override (default matches state). Used for "pasted" vs "done". */
+  label?: string
 }
 
-export function MiniPill({ state = 'listening' }: Props) {
+export function MiniPill({ state = 'listening', label }: Props) {
   return (
     <div
       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-pill text-white"
@@ -46,6 +48,13 @@ export function MiniPill({ state = 'listening' }: Props) {
             <span className="mini-pill-bar-5 w-[1.5px] rounded-[0.5px] bg-[#5A8FE8]" />
           </div>
         </>
+      ) : state === 'done' ? (
+        <>
+          <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
+          <svg width="10" height="10" viewBox="0 0 11 11" fill="none">
+            <path d="M2 5.5L4.5 8L9 3" stroke="#5A8FE8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </>
       ) : (
         <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-white/30 border-t-[#5A8FE8] animate-spin" />
       )}
@@ -54,9 +63,10 @@ export function MiniPill({ state = 'listening' }: Props) {
         style={{
           fontStyle: 'italic',
           fontFamily: '"Instrument Serif", Georgia, serif',
+          color: state === 'done' ? '#5A8FE8' : undefined,
         }}
       >
-        {state}
+        {label ?? (state === 'done' ? 'pasted' : state)}
       </span>
     </div>
   )

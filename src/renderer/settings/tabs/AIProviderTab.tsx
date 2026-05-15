@@ -160,17 +160,7 @@ export default function AIProviderTab() {
 function AudioFlowDiagram({ apiKeyMasked }: { apiKeyMasked: string }) {
   return (
     <div className="flex items-center gap-3 w-full max-w-[300px]">
-      {/* tiny pill mock */}
-      <div className="bg-[#0E1018] rounded-pill px-3 py-2 inline-flex items-center gap-2 shadow-sm">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#E84A3A]" />
-        <div className="flex items-end gap-[2px] h-[12px]">
-          <span className="w-[2px] h-2 rounded bg-[#5A8FE8]" />
-          <span className="w-[2px] h-3 rounded bg-[#5A8FE8]" />
-          <span className="w-[2px] h-[8px] rounded bg-[#5A8FE8]" />
-          <span className="w-[2px] h-[10px] rounded bg-[#5A8FE8]" />
-          <span className="w-[2px] h-[6px] rounded bg-[#5A8FE8]" />
-        </div>
-      </div>
+      <BrandPill />
       <span className="text-ink-45">→</span>
       <div className="flex-1 bg-[#0E1018] rounded-[8px] px-2.5 py-2 font-mono text-[10.5px] text-[#3D7E3D] truncate flex items-center gap-1.5">
         <span className="text-ink-45">$</span>
@@ -178,6 +168,47 @@ function AudioFlowDiagram({ apiKeyMasked }: { apiKeyMasked: string }) {
         <span className="text-[#3D7E3D] shrink-0">✓</span>
       </div>
     </div>
+  )
+}
+
+// The OpenFlow brand pill — same design as the tray-icon SVG
+// (scripts/generate-tray-icon.sh). Charcoal liquid-glass gradient,
+// red recording dot with halo, six cobalt waveform bars. No label.
+// Rendered as inline SVG so it crisp at any size.
+function BrandPill() {
+  return (
+    <svg viewBox="0 0 54 22" width="108" height="44" style={{ filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.25))' }}>
+      <defs>
+        <linearGradient id="bp-pill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#12141a"/>
+          <stop offset="100%" stopColor="#0e1016"/>
+        </linearGradient>
+        <linearGradient id="bp-hi" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="#ffffff" stopOpacity="0.34"/>
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0"/>
+        </linearGradient>
+        <radialGradient id="bp-glow" cx="11" cy="11" r="7" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"   stopColor="#e84a3a" stopOpacity="0.6"/>
+          <stop offset="100%" stopColor="#e84a3a" stopOpacity="0"/>
+        </radialGradient>
+        <clipPath id="bp-clip">
+          <rect x="0" y="0" width="54" height="22" rx="11"/>
+        </clipPath>
+      </defs>
+      <rect x="0" y="0" width="54" height="22" rx="11" fill="url(#bp-pill)"/>
+      <g clipPath="url(#bp-clip)">
+        <rect x="0" y="0" width="54" height="12" fill="url(#bp-hi)"/>
+      </g>
+      <rect x="0.3" y="0.3" width="53.4" height="21.4" rx="10.7" fill="none" stroke="#ffffff" strokeOpacity="0.18" strokeWidth="0.4"/>
+      <circle cx="11" cy="11" r="7" fill="url(#bp-glow)"/>
+      <circle cx="11" cy="11" r="3.0" fill="#e84a3a"/>
+      <rect x="22"   y="7"   width="1.8" height="8"  rx="0.9" fill="#5a8fe8"/>
+      <rect x="26.5" y="3"   width="1.8" height="16" rx="0.9" fill="#5a8fe8"/>
+      <rect x="31"   y="9"   width="1.8" height="4"  rx="0.9" fill="#5a8fe8"/>
+      <rect x="35.5" y="5"   width="1.8" height="12" rx="0.9" fill="#5a8fe8"/>
+      <rect x="40"   y="7"   width="1.8" height="8"  rx="0.9" fill="#5a8fe8"/>
+      <rect x="44.5" y="8.5" width="1.8" height="5"  rx="0.9" fill="#5a8fe8"/>
+    </svg>
   )
 }
 

@@ -8,7 +8,8 @@
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder",
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "postinstall": "bash scripts/swap-dev-icon.sh || true"
   },
   "keywords": [
     "dictation",

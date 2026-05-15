@@ -301,6 +301,13 @@ function setupTray(): void {
     icon = nativeImage.createEmpty()
   }
 
+  // Full-color tray icon — the OpenFlow pill with red dot + cobalt
+  // bars. NOT a template image (template mode would strip the colors
+  // and only render the silhouette). The pill is already dark, so it
+  // reads fine on both light and dark menubars. assets/tray.png +
+  // assets/tray@2x.png are produced by scripts/generate-tray-icon.sh;
+  // Electron picks the @2x variant on retina displays.
+
   tray = new Tray(icon)
   tray.setToolTip('OpenFlow')
   tray.on('click', () => createSettingsWindow())
@@ -498,6 +505,25 @@ function setupIpcListeners(): void {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin') {
+    // Point Electron at the bundled OpenFlow icon so Finder, Cmd-Tab,
+    // and any other macOS surface that asks the app for its icon gets
+    // the real one instead of the default Electron logo. In dev the
+    // .icns lives in the repo's assets/; in production electron-builder
+    // copies it into the .app bundle's Resources/.
+    const iconCandidates = [
+      join(app.getAppPath(), 'assets/icon.icns'),
+      join(process.resourcesPath || '', 'assets/icon.icns'),
+      join(__dirname, '../../assets/icon.icns'),
+    ]
+    for (const p of iconCandidates) {
+      try {
+        const img = nativeImage.createFromPath(p)
+        if (!img.isEmpty()) {
+          app.dock?.setIcon(img)
+          break
+        }
+      } catch { /* try next */ }
+    }
     app.dock?.hide()
   }
 

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Settings } from '../../../shared/types'
+import { MiniPill } from '../../shared/ui/MiniPill'
 
 // Map a browser KeyboardEvent to a single canonical key name.
 function eventToSingleKey(e: KeyboardEvent): string | null {
@@ -58,7 +59,7 @@ export default function HotkeysTab() {
   const keyGlyph = keyDisplay(hotkeys.pushToTalk)
 
   return (
-    <div className="max-w-[640px] space-y-5">
+    <div className="max-w-[760px] space-y-5">
       {/* Hero card — dark charcoal panel that breaks the cream surrounding
           surface. Cobalt-glow keycap, animated pulse on the keycap mimics
           the "hold to dictate" gesture. Click the keycap to rebind. */}
@@ -93,145 +94,225 @@ export default function HotkeysTab() {
         </div>
       </div>
 
-      {/* Three behaviors — animated. Each card loops the actual gesture
-          on a small keycap so users see the timing, not just read it. */}
-      <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-3 px-1">
-        Three behaviors on one key
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <BehaviorCard
-          label="Tap"
-          desc="Toggle recording on. Tap again to stop."
-          gesture="tap"
-          glyph={keyGlyph}
-        />
-        <BehaviorCard
-          label="Hold"
-          desc="Record while held. Release to stop."
-          gesture="hold"
-          glyph={keyGlyph}
-        />
-        <BehaviorCard
-          label="Double-tap"
-          desc="Paste your most recent dictation again."
-          gesture="double"
-          glyph={keyGlyph}
-        />
-      </div>
-
-      {/* Animation keyframes — defined once at the page level so all
-          three cards share the same CSS rules. Each gesture has its
-          own loop, all 3.6s total so they stay in sync visually. */}
-      <style>{`
-        @keyframes gestureTap {
-          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          7%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          14%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-        }
-        @keyframes gestureHold {
-          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          8%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          75%           { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          85%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-        }
-        @keyframes gestureDouble {
-          0%, 100%      { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          6%            { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          12%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-          18%           { transform: translateY(3px); box-shadow: 0 1px 0 0 rgba(0,0,0,0.18), 0 1px 0 1px rgba(255,255,255,0.5) inset; }
-          24%           { transform: translateY(0);   box-shadow: 0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset; }
-        }
-
-        /* Pulse rings emitted at the moment of each "press". One per tap
-           in tap/double, sustained ring during hold. The ring fades and
-           expands outward — kinetic "this is the action" cue. */
-        @keyframes pulseTap {
-          0%, 100% { opacity: 0; transform: scale(0.8); }
-          7%       { opacity: 0.5; transform: scale(1); }
-          22%      { opacity: 0;   transform: scale(1.6); }
-        }
-        @keyframes pulseHold {
-          0%, 100% { opacity: 0; transform: scale(0.8); }
-          8%       { opacity: 0.5; transform: scale(1); }
-          80%      { opacity: 0.3; transform: scale(1.45); }
-          90%      { opacity: 0;   transform: scale(1.6); }
-        }
-        @keyframes pulseDouble {
-          0%, 100% { opacity: 0; transform: scale(0.8); }
-          6%       { opacity: 0.5; transform: scale(1); }
-          14%      { opacity: 0;   transform: scale(1.5); }
-          18%      { opacity: 0.5; transform: scale(1); }
-          26%      { opacity: 0;   transform: scale(1.5); }
-        }
-
-        /* Timeline tracker — small bar that fills to show when the key
-           is "pressed" during the loop. Read this as a piano-roll. */
-        @keyframes timelineTap    { 0%, 100% { width: 0%; left: 0%; } 7%  { width: 4%; left: 14%; } 14% { width: 4%; left: 14%; opacity: 0; } 14.01% { opacity: 1; } }
-        @keyframes timelineHold   { 0%, 100% { width: 0%; left: 0%; } 8%  { width: 0%; left: 14%; } 75% { width: 60%; left: 14%; } 85% { width: 60%; left: 14%; opacity: 0; } 85.01% { opacity: 1; } }
-        @keyframes timelineDouble { 0%, 100% { width: 0%; left: 0%; } 6%  { width: 4%; left: 12%; } 12% { width: 4%; left: 12%; opacity: 0; } 12.01% { opacity: 1; left: 30%; } 18% { opacity: 1; width: 4%; left: 30%; } 24% { width: 4%; left: 30%; opacity: 0; } 24.01% { opacity: 1; } }
-
-        .keycap-anim          { animation: gestureTap    3.6s ease-in-out infinite; }
-        .keycap-anim.hold     { animation: gestureHold   3.6s ease-in-out infinite; }
-        .keycap-anim.double   { animation: gestureDouble 3.6s ease-in-out infinite; }
-        .pulse-anim           { animation: pulseTap      3.6s ease-out  infinite; }
-        .pulse-anim.hold      { animation: pulseHold     3.6s ease-out  infinite; }
-        .pulse-anim.double    { animation: pulseDouble   3.6s ease-out  infinite; }
-        .timeline-anim        { animation: timelineTap    3.6s linear   infinite; }
-        .timeline-anim.hold   { animation: timelineHold   3.6s linear   infinite; }
-        .timeline-anim.double { animation: timelineDouble 3.6s linear   infinite; }
-      `}</style>
+      {/* Three behaviors — ported from the landing-page section.
+          One panel is "on" at a time (cream-orange tint), cycling every
+          4s. Each panel runs its own scripted gesture sequence on the
+          keycap with a MiniPill that switches from "listening" to
+          "pasted" mid-loop. */}
+      <ThreeBehaviors glyph={keyGlyph} />
     </div>
   )
 }
 
-function BehaviorCard({
-  label, desc, gesture, glyph,
-}: {
-  label: string
-  desc: string
-  gesture: 'tap' | 'hold' | 'double'
-  glyph: string
-}) {
-  const cls = gesture === 'tap' ? '' : gesture
+// ---------- Three Behaviors (ported from OpenFlowLanding) ----------
+
+type Mode = 'tap' | 'hold' | 'double'
+
+interface PanelState {
+  pressed: boolean
+  holding: boolean
+  tapped: boolean
+  pillVisible: boolean
+  pillDone: boolean
+}
+
+const INITIAL_PANEL_STATE: PanelState = {
+  pressed: false,
+  holding: false,
+  tapped: false,
+  pillVisible: false,
+  pillDone: false,
+}
+
+const PANELS: Array<{ mode: Mode; ord: string; name: string; oneLiner: string }> = [
+  { mode: 'tap',    ord: '01', name: 'Tap',        oneLiner: 'Toggle recording on. Tap again to stop.' },
+  { mode: 'hold',   ord: '02', name: 'Hold',       oneLiner: 'Record while held. Release to finish.' },
+  { mode: 'double', ord: '03', name: 'Double-tap', oneLiner: 'Paste your last dictation again.' },
+]
+
+function ThreeBehaviors({ glyph }: { glyph: string }) {
+  const [active, setActive] = useState<Mode>('tap')
+  const [panels, setPanels] = useState<Record<Mode, PanelState>>({
+    tap: { ...INITIAL_PANEL_STATE },
+    hold: { ...INITIAL_PANEL_STATE },
+    double: { ...INITIAL_PANEL_STATE, pillDone: true },
+  })
+  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  function cleanup() {
+    timeoutsRef.current.forEach(clearTimeout)
+    timeoutsRef.current = []
+  }
+  function schedule(fn: () => void, delay: number) {
+    const t = setTimeout(fn, delay)
+    timeoutsRef.current.push(t)
+  }
+  function setPanel(mode: Mode, patch: Partial<PanelState>) {
+    setPanels(prev => ({ ...prev, [mode]: { ...prev[mode], ...patch } }))
+  }
+  function resetPanel(mode: Mode) {
+    if (mode === 'double') {
+      setPanel(mode, { ...INITIAL_PANEL_STATE, pillDone: true })
+    } else {
+      setPanel(mode, INITIAL_PANEL_STATE)
+    }
+  }
+
+  useEffect(() => {
+    cleanup()
+    ;(Object.keys(panels) as Mode[]).forEach(m => { if (m !== active) resetPanel(m) })
+    resetPanel(active)
+
+    if (active === 'tap') {
+      schedule(() => setPanel('tap', { pressed: true, tapped: true }), 400)
+      schedule(() => setPanel('tap', { pressed: false, tapped: false }), 600)
+      schedule(() => setPanel('tap', { pillVisible: true }), 450)
+      schedule(() => setPanel('tap', { pressed: true, tapped: true }), 2800)
+      schedule(() => setPanel('tap', { pressed: false, tapped: false }), 3000)
+      schedule(() => setPanel('tap', { pillDone: true }), 2900)
+    } else if (active === 'hold') {
+      schedule(() => setPanel('hold', { pressed: true, holding: true, pillVisible: true }), 400)
+      schedule(() => setPanel('hold', { pressed: false, holding: false, pillDone: true }), 2800)
+    } else if (active === 'double') {
+      schedule(() => setPanel('double', { pressed: true, tapped: true }), 800)
+      schedule(() => setPanel('double', { pressed: false, tapped: false }), 950)
+      schedule(() => setPanel('double', { pressed: true, tapped: true }), 1020)
+      schedule(() => setPanel('double', { pressed: false, tapped: false }), 1170)
+      schedule(() => setPanel('double', { pillVisible: true }), 1030)
+    }
+
+    schedule(() => {
+      const order: Mode[] = ['tap', 'hold', 'double']
+      const next = order[(order.indexOf(active) + 1) % 3]
+      setActive(next)
+    }, 4000)
+
+    return cleanup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+
   return (
-    <div className="bg-card border border-ink-08 rounded-[14px] p-4 flex flex-col">
-      {/* Animated keycap with emitting pulse ring */}
-      <div className="relative h-[88px] flex items-center justify-center mb-3">
-        <div className="absolute w-[58px] h-[58px] rounded-[14px] bg-[#5A8FE8]/35 pointer-events-none">
+    <div
+      className="bg-paper border border-ink-08 rounded-[18px] grid grid-cols-3 overflow-hidden"
+      style={{ boxShadow: '0 30px 60px -30px rgba(20,30,50,0.18)', minHeight: 360 }}
+    >
+      <style>{`
+        @keyframes tb-ripple   { 0% { transform: scale(0.85); border-color: rgba(200,85,61,0.55); opacity: 1; } 100% { transform: scale(1.25); border-color: rgba(200,85,61,0); opacity: 0; } }
+        @keyframes tb-hold-ring{ 0% { transform: scale(0.95); opacity: 0.7; } 100% { transform: scale(1.18); opacity: 0; } }
+        @keyframes tb-progress { from { width: 0; } to { width: 100%; } }
+        .tb-keycap-anim.tap .tb-keycap-ripple { animation: tb-ripple 0.5s ease-out; }
+        .tb-keycap-anim.holding::after {
+          content: ""; position: absolute; inset: -10px;
+          border-radius: 28px; border: 1.5px solid rgba(200,85,61,0.5);
+          animation: tb-hold-ring 1.4s ease-out infinite;
+          pointer-events: none;
+        }
+        .tb-progress-anim { animation: tb-progress 4s linear; }
+      `}</style>
+
+      {PANELS.map(p => {
+        const s = panels[p.mode]
+        const isOn = active === p.mode
+        return (
           <div
-            className={`absolute inset-0 rounded-[14px] bg-[#5A8FE8]/30 pulse-anim ${cls}`}
-            style={{ animationName: gesture === 'tap' ? 'pulseTap' : gesture === 'hold' ? 'pulseHold' : 'pulseDouble' }}
-          />
-        </div>
-        <div
-          className={`relative w-[52px] h-[52px] rounded-[12px] bg-paper border border-ink-08 flex items-center justify-center keycap-anim ${cls}`}
-          style={{
-            boxShadow: '0 4px 0 0 rgba(0,0,0,0.10), 0 1px 0 1px rgba(255,255,255,0.6) inset',
-            animationName: gesture === 'tap' ? 'gestureTap' : gesture === 'hold' ? 'gestureHold' : 'gestureDouble',
-          }}
-        >
-          <span
-            className="text-[22px] leading-none text-ink font-mono"
-            style={{ fontSize: glyph.length > 2 ? '14px' : '22px' }}
+            key={p.mode}
+            className={[
+              'relative flex flex-col gap-6 px-7 py-9 border-r border-ink-08 last:border-r-0 transition-colors duration-300',
+              isOn ? 'bg-[#FFF7F3]' : 'bg-paper',
+            ].join(' ')}
           >
-            {glyph}
-          </span>
-        </div>
-      </div>
+            {/* Numbered eyebrow */}
+            <div className={[
+              'text-[10.5px] font-mono uppercase tracking-[0.14em]',
+              isOn ? 'text-[#C8553D]' : 'text-ink-45',
+            ].join(' ')}>
+              {p.ord}
+            </div>
 
-      {/* Piano-roll timeline showing press timing in the loop. Helps
-          users compare gesture durations at a glance. */}
-      <div className="relative h-[3px] bg-ink-08 rounded-full mb-3 overflow-hidden">
-        <div
-          className={`absolute h-full bg-[#5A8FE8] rounded-full timeline-anim ${cls}`}
-          style={{
-            animationName: gesture === 'tap' ? 'timelineTap' : gesture === 'hold' ? 'timelineHold' : 'timelineDouble',
-          }}
-        />
-      </div>
+            {/* Italic serif title */}
+            <div
+              className="text-[44px] leading-[0.95] tracking-tight text-ink"
+              style={{
+                fontStyle: 'italic',
+                fontFamily: '"Instrument Serif", Georgia, serif',
+              }}
+            >
+              {p.name}
+            </div>
 
-      <div className="text-[12.5px] font-semibold leading-tight">{label}</div>
-      <div className="text-[11px] text-ink-60 mt-1 leading-snug">{desc}</div>
+            <div className="text-[13px] text-ink-60 leading-snug -mt-3">
+              {p.oneLiner}
+            </div>
+
+            {/* Keycap + pill, anchored to the bottom */}
+            <div className="flex flex-col items-center gap-3.5 mt-auto">
+              <div
+                className={[
+                  'relative tb-keycap-anim',
+                  s.pressed ? 'pressed' : '',
+                  s.holding ? 'holding' : '',
+                  s.tapped ? 'tap' : '',
+                ].join(' ')}
+                style={{
+                  width: 92, height: 92, borderRadius: 16,
+                  background: 'linear-gradient(180deg, #fdfbf3 0%, #e9e1c8 100%)',
+                  border: '1px solid #c5bda0',
+                  boxShadow: s.pressed
+                    ? '0 1px 0 #b8af90, 0 3px 6px rgba(0,0,0,0.08), inset 0 2px 0 rgba(255,255,255,0.7)'
+                    : '0 6px 0 #b8af90, 0 10px 20px rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.7)',
+                  transform: s.pressed ? 'translateY(5px)' : 'translateY(0)',
+                  transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <span
+                  className="tb-keycap-ripple"
+                  style={{
+                    position: 'absolute', inset: -8, borderRadius: 24,
+                    border: '1.5px solid rgba(200,85,61,0)', pointerEvents: 'none',
+                  }}
+                />
+                <span
+                  className="font-mono text-ink leading-none"
+                  style={{ fontSize: glyph.length > 2 ? '18px' : '30px', fontWeight: 500 }}
+                >
+                  {glyph}
+                </span>
+                {(glyph === '⌃' || glyph === '⌥' || glyph === '⇧' || glyph === '⌘') && (
+                  <span
+                    className="absolute font-mono text-ink-45 uppercase"
+                    style={{
+                      bottom: 8, left: '50%', transform: 'translateX(-50%)',
+                      fontSize: 8, letterSpacing: '0.1em',
+                    }}
+                  >
+                    {glyph === '⌃' ? 'Control' : glyph === '⌥' ? 'Option' : glyph === '⇧' ? 'Shift' : 'Command'}
+                  </span>
+                )}
+              </div>
+
+              <div
+                style={{
+                  opacity: isOn && (s.pillVisible || s.pillDone) ? 1 : 0,
+                  transition: 'opacity 0.35s',
+                }}
+              >
+                <MiniPill state={s.pillDone ? 'done' : 'listening'} />
+              </div>
+            </div>
+
+            {/* Bottom progress bar — fills over the 4s the panel is active */}
+            <span
+              key={isOn ? `${p.mode}-on` : `${p.mode}-off`}
+              className={[
+                'absolute left-0 bottom-0 h-[2px] bg-[#C8553D]',
+                isOn ? 'tb-progress-anim' : '',
+              ].join(' ')}
+              style={{ width: isOn ? undefined : 0 }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
