@@ -1,6 +1,7 @@
 import ElectronStore from 'electron-store'
 import type { Settings, Strictness } from '../shared/types'
 import { DEFAULT_HOTKEYS, DEFAULT_DEV_MODE_APPS, MODELS } from '../shared/constants'
+import { DEFAULT_LOCAL_MODEL } from './local-models'
 
 const defaults: Settings = {
   firstRun: true,
@@ -11,6 +12,7 @@ const defaults: Settings = {
     anthropicKey: '',
     transcriptionModel: MODELS.groq.transcription,
     cleanupModel: MODELS.groq.cleanup,
+    localModel: DEFAULT_LOCAL_MODEL,
   },
   hotkeys: DEFAULT_HOTKEYS,
   perAppRules: [],
@@ -71,6 +73,17 @@ export function getSettings(): Settings {
     provider: { ...defaults.provider, ...raw.provider },
     strictness,
   }
+
+  // Migrate legacy .en model IDs to their multilingual equivalents.
+  // Earlier builds shipped base.en / small.en; we switched to the
+  // multilingual variants because they give better English brand-
+  // name capitalization AND multilingual capability at the same
+  // speed. The model file on disk has a different name so the user
+  // will need to re-download — that's surfaced naturally in the
+  // Settings card (showing "Download" instead of "✓ active").
+  const legacyModel = merged.provider.localModel as unknown as string
+  if (legacyModel === 'small.en') merged.provider.localModel = 'small'
+  if (legacyModel === 'base.en') merged.provider.localModel = 'base'
 
   // Migrate stale cleanup model. Persist the new value so the next
   // read sees it without re-running this branch.

@@ -2,7 +2,14 @@ export type AppCategory = 'messaging' | 'email' | 'code' | 'docs' | 'other'
 
 export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
 
-export type Provider = 'groq' | 'openai' | 'anthropic'
+export type Provider = 'groq' | 'openai' | 'anthropic' | 'local'
+
+// On-device whisper model tier. See src/main/local-models.ts for the
+// full info per tier. Default `small` (multilingual) is the
+// speed/accuracy sweet spot — ~200ms warm, 181 MB, handles English
+// plus Spanish/French/etc. Users who want minimum size pick `base`;
+// users who want maximum accuracy pick `large-v3-turbo`.
+export type LocalModelId = 'base' | 'small' | 'large-v3-turbo'
 
 export interface ProviderSettings {
   provider: Provider
@@ -11,6 +18,7 @@ export interface ProviderSettings {
   anthropicKey: string
   transcriptionModel: string
   cleanupModel: string
+  localModel: LocalModelId
 }
 
 export interface HotkeySettings {
@@ -92,4 +100,9 @@ export const IPC = {
   PASTE_FALLBACK_SHOW: 'paste-fallback:show',
   PASTE_FALLBACK_RETRY: 'paste-fallback:retry',
   PASTE_FALLBACK_DISMISS: 'paste-fallback:dismiss',
+  LOCAL_MODEL_STATUS: 'local-model:status',
+  LOCAL_MODEL_DOWNLOAD: 'local-model:download',
+  LOCAL_MODEL_CANCEL: 'local-model:cancel',
+  LOCAL_MODEL_UNINSTALL: 'local-model:uninstall',
+  LOCAL_MODEL_PROGRESS: 'local-model:progress',
 } as const

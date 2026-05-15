@@ -8,6 +8,19 @@ import {
   screen,
   shell,
 } from 'electron'
+
+// Chromium switches that affect on-device whisper inference. Set
+// BEFORE app.whenReady() — they're parsed by Chromium at startup.
+//   - force-high-performance-gpu: tells macOS to use the high-perf
+//     GPU partition for this process (no-op on M-series single-GPU
+//     SoCs but documented good practice for cross-arch builds).
+//   - disable-features=MacUtilityProcessQoSPolicy: prevents Chromium
+//     from applying its utility-process QoS downgrade to our whisper
+//     worker. Without this the worker inherits THREAD_QOS_UTILITY
+//     which lands on E-cores, halving whisper.cpp throughput on
+//     M-series (4 threads can hit 2x E-cores instead of all P-cores).
+app.commandLine.appendSwitch('force-high-performance-gpu')
+app.commandLine.appendSwitch('disable-features', 'MacUtilityProcessQoSPolicy')
 import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
 import { registerHotkey, unregisterAll } from './hotkeys'
@@ -15,7 +28,7 @@ import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { captureSelectedText, clearSelectedText, getSelectedText } from './selection'
-import { pasteText, prewarmPasteHelper, shutdownPasteHelper } from './paste'
+import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress } from './paste'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -327,14 +340,14 @@ function setupHotkeys(): void {
       sessionId++
       audioChunks.length = 0
       // Warm caches that need press-time intent: focused app (for the
-      // cleanup category prompt) and selected text (for command-mode
-      // rewrite). The AX-role check for "is the paste destination
-      // actually pasteable" happens at paste time inside the pipeline,
-      // concurrently with the cleanup LLM — that one must reflect the
-      // CURRENT focus, not the press-time focus, because the user can
-      // move between apps while dictating.
+      // cleanup category prompt), selected text (for command-mode
+      // rewrite), and the AX-role probe (for "is paste destination
+      // pasteable" gate). All three are slow osascripts (~150ms to
+      // ~1200ms each) — firing them now lets them complete during
+      // recording instead of blocking the post-transcribe paste path.
       captureFocusedApp()
       captureSelectedText()
+      captureAXRoleAtPress()
       // Re-position to the user's current display in case they've moved
       // monitors since the last recording. The window itself stays
       // always-visible across Spaces — no show/hide.

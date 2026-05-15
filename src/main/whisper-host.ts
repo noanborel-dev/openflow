@@ -1,0 +1,200 @@
+import { app } from 'electron'
+import { fork, type ChildProcess } from 'node:child_process'
+import path from 'node:path'
+import { logInfo, logError } from './log'
+import type { TranscribeOptions } from '@fugood/whisper.node'
+
+// Host-side wrapper around the whisper worker child process.
+//
+// We use Node's `child_process.fork()` instead of Electron's
+// `utilityProcess.fork()` for one specific reason: utilityProcess
+// inherits Chromium's macOS QoS policy (THREAD_QOS_UTILITY), which
+// lands whisper threads on E-cores at reduced clock speed. The end
+// result was deterministically 2x slower whisper inference inside
+// Electron vs standalone Node. utilityProcess.fork() couldn't escape
+// the throttle even with --disable-features=MacUtilityProcessQoSPolicy.
+//
+// child_process.fork() spawns a plain Node runtime — by setting
+// ELECTRON_RUN_AS_NODE=1, Electron's own binary acts as `node` (it
+// ships a Node runtime internally). The child gets default user QoS,
+// no Chromium baggage, no GPU/sandbox arbitration.
+//
+// IPC is Node's built-in `child.send` / `process.send` with JSON
+// serialization. PCM ArrayBuffers go over as base64-encoded strings
+// because Node's IPC channel doesn't accept TypedArrays / ArrayBuffers
+// directly. ~200KB of PCM base64-encodes to ~270KB and round-trips in
+// well under 5ms — negligible against the ~500ms inference.
+
+interface PendingRequest {
+  resolve: (result: { text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }) => void
+  reject: (err: Error) => void
+}
+
+let proc: ChildProcess | null = null
+let readyPromise: Promise<void> | null = null
+let loadedModelPath: string | null = null
+let loadingModelPath: string | null = null
+let loadResolve: (() => void) | null = null
+let loadReject: ((err: Error) => void) | null = null
+const pending = new Map<number, PendingRequest>()
+let nextRequestId = 1
+
+function workerScriptPath(): string {
+  // electron-vite emits the worker next to main's index.js.
+  return path.join(__dirname, 'whisper-worker.js')
+}
+
+function ensureProc(): Promise<void> {
+  if (readyPromise) return readyPromise
+  readyPromise = new Promise<void>((resolve, reject) => {
+    // ELECTRON_RUN_AS_NODE=1 turns the Electron binary into a Node
+    // runtime for this child. No Chromium init, no QoS shaping,
+    // no GPU process. process.execPath is Electron itself, which is
+    // exactly what we want — same Node ABI as main, so the precompiled
+    // @fugood/whisper.node binaries load correctly.
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    const child = fork(workerScriptPath(), [], {
+      env,
+      // stdio: inherit so the worker's whisper.cpp logs surface in
+      // the dev terminal for debugging. The 'ipc' entry is required
+      // for the message channel.
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+      execPath: process.execPath,
+    })
+    proc = child
+
+    child.on('message', (msg: unknown) => {
+      handleWorkerMessage(msg as Record<string, unknown>, resolve, reject)
+    })
+
+    child.on('exit', (code) => {
+      logError('Whisper worker exited', { code })
+      for (const [, req] of pending) {
+        req.reject(new Error(`Whisper worker exited (code ${code})`))
+      }
+      pending.clear()
+      proc = null
+      readyPromise = null
+      loadedModelPath = null
+      loadingModelPath = null
+      if (loadReject) {
+        loadReject(new Error(`Whisper worker exited during load (code ${code})`))
+        loadReject = null
+        loadResolve = null
+      }
+    })
+
+    child.on('error', (err) => {
+      logError('Whisper worker spawn error', { error: String(err) })
+      reject(err)
+    })
+  })
+  return readyPromise
+}
+
+function handleWorkerMessage(
+  msg: Record<string, unknown>,
+  spawnResolve: () => void,
+  _spawnReject: (err: Error) => void,
+): void {
+  const type = msg.type
+  if (type === 'ready') {
+    spawnResolve()
+    return
+  }
+  if (type === 'loaded') {
+    logInfo('Whisper worker loaded model', { ms: msg.ms, path: loadingModelPath })
+    loadedModelPath = loadingModelPath
+    loadingModelPath = null
+    if (loadResolve) {
+      loadResolve()
+      loadResolve = null
+      loadReject = null
+    }
+    return
+  }
+  if (type === 'result') {
+    const id = msg.id as number
+    const req = pending.get(id)
+    if (!req) return
+    pending.delete(id)
+    req.resolve({
+      text: msg.text as string,
+      segments: (msg.segments as Array<{ text: string; t0: number; t1: number }>),
+      ms: msg.ms as number,
+    })
+    return
+  }
+  if (type === 'error') {
+    const id = msg.id as number | null
+    const message = msg.message as string
+    if (id != null) {
+      const req = pending.get(id)
+      if (req) {
+        pending.delete(id)
+        req.reject(new Error(message))
+      }
+      return
+    }
+    if (loadReject) {
+      loadReject(new Error(message))
+      loadReject = null
+      loadResolve = null
+      loadingModelPath = null
+    } else {
+      logError('Whisper worker error (no caller)', { message })
+    }
+  }
+}
+
+async function loadModel(modelPath: string): Promise<void> {
+  await ensureProc()
+  if (loadedModelPath === modelPath) return
+  if (loadingModelPath === modelPath && loadResolve) {
+    return new Promise<void>((resolve, reject) => {
+      const priorResolve = loadResolve!
+      const priorReject = loadReject!
+      loadResolve = () => { priorResolve(); resolve() }
+      loadReject = (err: Error) => { priorReject(err); reject(err) }
+    })
+  }
+  loadingModelPath = modelPath
+  const loadPromise = new Promise<void>((resolve, reject) => {
+    loadResolve = resolve
+    loadReject = reject
+  })
+  proc!.send({ type: 'load', modelPath })
+  await loadPromise
+}
+
+export async function workerTranscribe(
+  modelPath: string,
+  pcm: ArrayBuffer,
+  options: TranscribeOptions,
+): Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }> {
+  await loadModel(modelPath)
+  const id = nextRequestId++
+  const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
+    pending.set(id, { resolve, reject })
+  })
+  // Node IPC can't send ArrayBuffer directly. Buffer.from(pcm) wraps
+  // it, then we encode as base64 in the message envelope. Worker
+  // decodes back to ArrayBuffer. ~5ms encode + decode for 200KB of
+  // PCM, vs ~1000ms inference — negligible.
+  const pcmBase64 = Buffer.from(pcm).toString('base64')
+  proc!.send({ type: 'transcribe', id, pcmBase64, options })
+  return result
+}
+
+export async function workerFree(): Promise<void> {
+  if (!proc) return
+  proc.send({ type: 'free' })
+  loadedModelPath = null
+}
+
+app.on('will-quit', () => {
+  if (proc) {
+    try { proc.kill() } catch { /* ignore */ }
+    proc = null
+  }
+})

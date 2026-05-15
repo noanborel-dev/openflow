@@ -12,8 +12,9 @@ import {
   createOpenAICleanupProvider,
 } from './providers/openai'
 import { createAnthropicCleanupProvider } from './providers/anthropic'
+import { createLocalWhisperProvider } from './providers/local'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
-import { pasteText, probeFocusedAXRole } from './paste'
+import { pasteText, probeFocusedAXRole, getPressTimeAXRolePromise } from './paste'
 import { logInfo, logError } from './log'
 import { NoSpeechError } from './errors'
 
@@ -59,6 +60,24 @@ function buildProviders(
 ): { transcription: TranscriptionProvider; cleanup: CleanupProvider } {
   const { provider, groqKey, openaiKey, anthropicKey, transcriptionModel, cleanupModel } =
     settings.provider
+
+  if (provider === 'local') {
+    // Local Whisper for transcription; cleanup still needs an LLM, so we
+    // delegate to whichever cloud key the user has configured. Prefer
+    // Groq (fastest 8B-instant), then OpenAI, then Anthropic. If they
+    // have NO cleanup key at all we still attempt Groq — the cleanup
+    // call will surface a clear error rather than running a silent local
+    // identity pass, which would skip filler/stutter cleanup entirely.
+    const cleanup =
+      groqKey ? createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+      : openaiKey ? createOpenAICleanupProvider(openaiKey, MODELS.openai.cleanup)
+      : anthropicKey ? createAnthropicCleanupProvider(anthropicKey, MODELS.anthropic.cleanup)
+      : createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+    return {
+      transcription: createLocalWhisperProvider(),
+      cleanup,
+    }
+  }
 
   if (provider === 'groq') {
     return {
@@ -164,7 +183,15 @@ function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'c
   if (CORRECTION_RE.test(transcript)) return false
   if (looksEnumerated(transcript)) return false
   if (category === 'code') return true
-  return transcript.length < 30
+  // Skip cleanup when nothing looks like it needs cleaning. The earlier
+  // <30 char gate ran the LLM on virtually every dictation because real
+  // dictations are 20-80 chars; with no fillers/stutters/lists detected
+  // the LLM was paying 500-700ms to produce nearly-identical output.
+  // Bumped to 200 chars so single-sentence messages take the fast path
+  // by default. Longer-than-200 dictations still pay LLM cleanup, but
+  // those are also the cases where polish actually matters (multi-
+  // paragraph thoughts, emails, docs).
+  return transcript.length < 200
 }
 
 // Deterministic regex pass for the most common Whisper mishearings of
@@ -243,6 +270,43 @@ function applyQuickFixes(text: string): string {
   return out
 }
 
+// Deterministic strictness=1 (Light) cleanup. The Light prompt only
+// asks the LLM to:
+//   - strip exact filler tokens (um, uh, er, erm, hm, hmm)
+//   - collapse stutters (the the, I, I)
+//   - add sentence-end punctuation if missing
+// All three are cheap regex passes. Running them locally saves the
+// ~500-700ms cloud-LLM roundtrip on every personal-messaging
+// dictation. We only fall back to the LLM when there's a self-
+// correction marker (actually / wait / scratch that), which needs
+// semantic understanding to drop the right span.
+const FILLER_STRIP_RE = /\b(?:um+|uh+|er+|erm+|hmm*|uhh+|umm+)[,.]?\s*/gi
+const STUTTER_COLLAPSE_RE = /\b(\w+)(?:[,]?\s+\1\b)+/gi
+function applyLightCleanup(text: string): string {
+  let out = text
+    // Strip fillers, including any trailing comma/period that's now
+    // orphaned (e.g. "um, so" → "so", "well, uh, I think" → "well, I think").
+    .replace(FILLER_STRIP_RE, '')
+    // Collapse exact word repetitions ("the the the" → "the").
+    .replace(STUTTER_COLLAPSE_RE, '$1')
+    // Tidy up doubled spaces, leading commas/spaces left behind.
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,]+/, '')
+    .replace(/\s+([,.!?])/g, '$1')
+    .trim()
+  // Capitalize first letter if it isn't already.
+  if (out.length > 0 && /[a-z]/.test(out[0])) {
+    out = out[0].toUpperCase() + out.slice(1)
+  }
+  // Add trailing period if missing and the last token isn't already
+  // ending with one of .!? — only when the result is a clear single
+  // sentence (no internal punctuation might mean it's a fragment).
+  if (out.length > 0 && !/[.!?]$/.test(out)) {
+    out += '.'
+  }
+  return out
+}
+
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
@@ -293,17 +357,31 @@ export async function runDictationPipeline(
   // clean text, so we prefer raw Whisper output (already excellent for
   // most English / Spanish / French dictation) unless cleanup is needed.
   let cleaned = transcript
-  // Kick off the AX-role probe NOW — concurrently with whatever
-  // cleanup work follows. By the time pasteText awaits this promise,
-  // the osascript will have completed during the cleanup LLM's
-  // network roundtrip, costing the hot path effectively zero.
-  // Critically, this fires at the moment the user releases the hotkey
-  // (paste time), so the probe reflects wherever they're focused
-  // NOW — not where they were when they started talking.
-  const axRolePromise = probeFocusedAXRole()
+  // Use the press-time AX-role probe if it's available — fired in
+  // index.ts onStart, it overlaps with the 1-3s recording window so
+  // the ~1100ms osascript is fully hidden. Fall back to a fresh probe
+  // for code paths that don't go through the hotkey (paste-last from
+  // history, etc.); that fresh probe used to be the default and blocked
+  // the hot path for ~1s on every dictation.
+  const axRolePromise = getPressTimeAXRolePromise() ?? probeFocusedAXRole()
 
   if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
+  } else if (
+    strictnessFor(focusedApp, settings) === 1
+    && effectiveCategory !== 'code'
+    && !CORRECTION_RE.test(transcript)
+  ) {
+    // Strictness=1 deterministic path: the Light prompt only does
+    // filler/stutter strip + sentence-end punctuation — all regex-able
+    // in microseconds. Cloud LLM cleanup at this strictness was
+    // costing ~500-700ms to produce nearly-identical output. We only
+    // fall back to the LLM when there's a self-correction marker
+    // (actually / wait / scratch that), which needs semantic
+    // understanding to drop the right span.
+    const cStart = Date.now()
+    cleaned = applyLightCleanup(transcript)
+    logInfo('Light cleanup (regex)', { ms: Date.now() - cStart, chars: cleaned.length })
   } else {
     const editor = IDE_EDITORS[focusedApp.bundleId]
     const strictness = strictnessFor(focusedApp, settings)

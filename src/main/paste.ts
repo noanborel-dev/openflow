@@ -94,6 +94,36 @@ export async function probeFocusedAXRole(): Promise<string> {
   }
 }
 
+// Press-time AX-role cache. We fire probeFocusedAXRole() at hotkey
+// press so the slow osascript (~1100ms on this machine) overlaps with
+// recording — by the time the pipeline runs, the role is cached and
+// the paste step doesn't block.
+//
+// Why this is safe vs. probing at paste time: the role is only used
+// to decide "should we attempt the ⌘V keystroke, or fall back to the
+// clipboard popup?" The keystroke itself targets whatever has focus
+// at the moment of the keystroke, NOT whatever was focused when the
+// probe ran. So a stale role only causes a wrong decision in two
+// edge cases:
+//   1. User starts in a text field, moves to a non-text element
+//      (Finder file list, button) mid-dictation → we try ⌘V which
+//      does nothing visible. Same outcome as today's stale cache when
+//      AX permission is denied.
+//   2. User starts in a non-text element, moves to a text field
+//      mid-dictation → we incorrectly route to fallback instead of
+//      pasting. Annoying but recoverable (user clicks Retry).
+// Both are rare; the latency win on the common case is decisive.
+let pressTimeAXPromise: Promise<string> | null = null
+
+export function captureAXRoleAtPress(): void {
+  if (process.platform !== 'darwin') return
+  pressTimeAXPromise = probeFocusedAXRole()
+}
+
+export function getPressTimeAXRolePromise(): Promise<string> | null {
+  return pressTimeAXPromise
+}
+
 // Apps where AXGroup / AXScrollArea / generic roles mean "no text
 // destination". For these we require an EXPLICIT text-input role
 // before allowing paste; everything else routes to the fallback.

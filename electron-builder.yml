@@ -23,10 +23,23 @@ extraResources:
   - from: assets/
     to: assets/
 
-# node-global-key-listener ships a precompiled native helper that needs
-# to live outside the asar so the spawned subprocess can find it.
+# Native modules and external binaries that the main process spawns
+# or dlopen()s must live outside the asar archive so the runtime can
+# resolve real filesystem paths:
+#   - node-global-key-listener: precompiled MacKeyServer helper
+#   - ffmpeg-static: per-platform ffmpeg binary (used by Local provider)
+#   - @fugood/whisper.node + per-platform `@fugood/node-whisper-*`
+#     packages: prebuilt NAPI addons that load libwhisper at runtime.
+#     The .node binary lives in @fugood/node-whisper-darwin-arm64/index.node
+#     (and equivalents per arch). No source compilation needed at install
+#     or pack time — we just need the .node file on disk where dlopen
+#     can find it.
 asarUnpack:
   - node_modules/node-global-key-listener/**/*
+  - node_modules/ffmpeg-static/ffmpeg
+  - node_modules/ffmpeg-static/ffmpeg.exe
+  - node_modules/@fugood/whisper.node/**/*
+  - node_modules/@fugood/node-whisper-*/**/*
 
 mac:
   category: public.app-category.productivity
@@ -40,6 +53,14 @@ mac:
       arch: [x64, arm64]
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # Bundled native code gets individually code-signed before the app
+  # is sealed — `codesign --deep` is deprecated by Apple, listing
+  # binaries explicitly is the supported pattern.
+  # Paths are relative to Contents/ inside the .app.
+  binaries:
+    - Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg
+    - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-arm64/index.node
+    - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-x64/index.node
   hardenedRuntime: true
   gatekeeperAssess: false
   # Surfaced when macOS first prompts for permissions. Without these

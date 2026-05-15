@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CategoryStrictness, Provider, Settings, Strictness } from '../../shared/types'
+import type { CategoryStrictness, LocalModelId, Provider, Settings, Strictness } from '../../shared/types'
+import type { LocalModelProgress, LocalModelReadiness } from '../global'
 import { MODELS } from '../../shared/constants'
 import { Pill } from '../shared/ui/Pill'
 import { Card } from '../shared/ui/Card'
@@ -36,7 +37,8 @@ export default function OnboardingApp() {
   const [listening, setListening] = useState(false)
   // Per-provider state so users can pick Groq / OpenAI / Anthropic and
   // each has its own key field. Matches the Settings → Provider tab.
-  const [provider, setProvider] = useState<Provider>('groq')
+  const [provider, setProvider] = useState<Provider>('local')
+  const [localModel, setLocalModel] = useState<LocalModelId>('small')
   const [groqKey, setGroqKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
@@ -134,7 +136,8 @@ export default function OnboardingApp() {
   async function handleSaveProvider() {
     setSaving(true)
     // Anthropic transcription falls back to Groq, so we keep whatever
-    // Groq key was entered alongside the Anthropic one.
+    // Groq key was entered alongside the Anthropic one. Local stores
+    // the picked model tier separately under `localModel`.
     await window.openflow.setSettings({
       provider: {
         provider,
@@ -143,6 +146,7 @@ export default function OnboardingApp() {
         anthropicKey: anthropicKey.trim(),
         transcriptionModel: MODELS[provider].transcription,
         cleanupModel: MODELS[provider].cleanup,
+        localModel,
       },
     })
     setSaving(false)
@@ -218,6 +222,8 @@ export default function OnboardingApp() {
           <StepProvider
             provider={provider}
             onProviderChange={setProvider}
+            localModel={localModel}
+            onLocalModelChange={setLocalModel}
             groqKey={groqKey}
             openaiKey={openaiKey}
             anthropicKey={anthropicKey}
@@ -518,10 +524,11 @@ interface ProviderInfo {
   price: string
   keyPlaceholder: string
   keyHint: string
-  brand: 'groq' | 'openai' | 'anthropic'
+  brand: 'groq' | 'openai' | 'anthropic' | 'local'
 }
 
 const ONBOARDING_PROVIDERS: ProviderInfo[] = [
+  { value: 'local',     brand: 'local',     name: 'Local',     model: 'whisper-large-v3-turbo (on-device)', description: 'Runs on your Mac. Offline, free, no keys. ~547MB download.', price: 'free, offline', keyPlaceholder: '',          keyHint: '' },
   { value: 'groq',      brand: 'groq',      name: 'Groq',      model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.', price: 'free tier',  keyPlaceholder: 'gsk_…',     keyHint: 'console.groq.com' },
   { value: 'openai',    brand: 'openai',    name: 'OpenAI',    model: 'whisper-1',    description: 'Industry-standard. Fast, accurate, cheap.',         price: '$0.006/min', keyPlaceholder: 'sk-…',      keyHint: 'platform.openai.com/api-keys' },
   { value: 'anthropic', brand: 'anthropic', name: 'Anthropic', model: 'claude-haiku', description: 'Best for cleanup; uses Groq for transcription.',     price: '$0.004/min', keyPlaceholder: 'sk-ant-…',  keyHint: 'console.anthropic.com' },
@@ -530,6 +537,8 @@ const ONBOARDING_PROVIDERS: ProviderInfo[] = [
 function StepProvider({
   provider,
   onProviderChange,
+  localModel,
+  onLocalModelChange,
   groqKey,
   openaiKey,
   anthropicKey,
@@ -541,6 +550,8 @@ function StepProvider({
 }: {
   provider: Provider
   onProviderChange: (p: Provider) => void
+  localModel: LocalModelId
+  onLocalModelChange: (id: LocalModelId) => void
   groqKey: string
   openaiKey: string
   anthropicKey: string
@@ -550,6 +561,30 @@ function StepProvider({
   saving: boolean
   onContinue: () => void
 }) {
+  // Local-model state mirrors the Settings tab — readiness drives
+  // whether the user can advance. Per-model progress map lets each
+  // card render its own state.
+  const [localReadiness, setLocalReadiness] = useState<LocalModelReadiness | null>(null)
+  const [localProgress, setLocalProgress] = useState<Record<string, LocalModelProgress>>({})
+  const [localDownloaded, setLocalDownloaded] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    function refresh() {
+      window.openflow.getLocalModelStatus().then((s) => {
+        setLocalReadiness(s.readiness)
+        setLocalDownloaded(s.downloaded)
+        const seed: Record<string, LocalModelProgress> = {}
+        for (const p of s.progress) seed[p.modelId] = p
+        setLocalProgress(seed)
+      })
+    }
+    refresh()
+    const off = window.openflow.onLocalModelProgress((p) => {
+      setLocalProgress((prev) => ({ ...prev, [p.modelId]: p }))
+      if (p.status === 'done') refresh()
+    })
+    return off
+  }, [])
+
   // Which key field maps to the active provider. Anthropic needs the
   // Anthropic key for cleanup + the Groq key for transcription — the
   // latter is handled in a hint, not a second field, to keep the flow
@@ -557,13 +592,21 @@ function StepProvider({
   const keyValue =
     provider === 'groq' ? groqKey :
     provider === 'openai' ? openaiKey :
-    anthropicKey
+    provider === 'anthropic' ? anthropicKey :
+    ''
   const keyChange =
     provider === 'groq' ? onGroqKeyChange :
     provider === 'openai' ? onOpenaiKeyChange :
-    onAnthropicKeyChange
+    provider === 'anthropic' ? onAnthropicKeyChange :
+    () => {}
   const info = ONBOARDING_PROVIDERS.find((p) => p.value === provider)!
-  const ready = keyValue.trim().length > 0
+  // For Local: need ffmpeg available AND the user's chosen model
+  // downloaded. The user might have downloaded `small.en` but selected
+  // `base.en`, so we check the specific selected model's downloaded
+  // state — not just any model.
+  const ready = provider === 'local'
+    ? Boolean(localReadiness?.ffmpeg && localDownloaded[localModel])
+    : keyValue.trim().length > 0
 
   return (
     <>
@@ -614,26 +657,38 @@ function StepProvider({
       </div>
 
       <div className="max-w-[520px] mb-5">
-        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1.5">
-          {info.name} API Key
-        </div>
-        <input
-          type="password"
-          value={keyValue}
-          onChange={(e) => keyChange(e.target.value)}
-          placeholder={info.keyPlaceholder}
-          className="w-full bg-card border border-ink-08 rounded-input px-3 py-2.5 text-[13px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
-        />
-        <a
-          onClick={() => window.open(`https://${info.keyHint}`, '_blank')}
-          className="text-[11px] text-ink-45 hover:text-ink mt-2 inline-block cursor-pointer"
-        >
-          Get a key at {info.keyHint} ↗
-        </a>
-        {provider === 'anthropic' && (
-          <div className="text-[11px] text-ink-45 mt-3 leading-relaxed">
-            Anthropic uses Groq for transcription. Add a Groq key in Settings → Provider after onboarding, or transcription will fall back to whichever provider is configured.
-          </div>
+        {provider === 'local' ? (
+          <OnboardingLocalPanel
+            readiness={localReadiness}
+            progress={localProgress}
+            downloaded={localDownloaded}
+            selectedModel={localModel}
+            onSelectModel={onLocalModelChange}
+          />
+        ) : (
+          <>
+            <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1.5">
+              {info.name} API Key
+            </div>
+            <input
+              type="password"
+              value={keyValue}
+              onChange={(e) => keyChange(e.target.value)}
+              placeholder={info.keyPlaceholder}
+              className="w-full bg-card border border-ink-08 rounded-input px-3 py-2.5 text-[13px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
+            />
+            <a
+              onClick={() => window.open(`https://${info.keyHint}`, '_blank')}
+              className="text-[11px] text-ink-45 hover:text-ink mt-2 inline-block cursor-pointer"
+            >
+              Get a key at {info.keyHint} ↗
+            </a>
+            {provider === 'anthropic' && (
+              <div className="text-[11px] text-ink-45 mt-3 leading-relaxed">
+                Anthropic uses Groq for transcription. Add a Groq key in Settings → Provider after onboarding, or transcription will fall back to whichever provider is configured.
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -644,7 +699,7 @@ function StepProvider({
   )
 }
 
-function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' }) {
+function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' | 'local' }) {
   if (brand === 'anthropic') {
     return <BrandLogo brand="claude" size={22} />
   }
@@ -658,13 +713,178 @@ function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' }) {
       </svg>
     )
   }
+  if (brand === 'local') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <rect x="6" y="6" width="12" height="12" rx="1.5" stroke="#fff" strokeWidth="1.4"/>
+        <rect x="9" y="9" width="6" height="6" fill="#fff" opacity="0.9"/>
+        <path d="M3 9h2M3 12h2M3 15h2M19 9h2M19 12h2M19 15h2M9 3v2M12 3v2M15 3v2M9 19v2M12 19v2M15 19v2" stroke="#fff" strokeWidth="1.2"/>
+      </svg>
+    )
+  }
   return <span className="text-[15px] font-bold text-white" style={{ fontFamily: 'system-ui' }}>G</span>
 }
 
-function providerTileColor(brand: 'openai' | 'anthropic' | 'groq'): string {
+function providerTileColor(brand: 'openai' | 'anthropic' | 'groq' | 'local'): string {
   if (brand === 'openai')    return '#0F1011'
   if (brand === 'anthropic') return '#D97757'
+  if (brand === 'local')     return '#1B2233'
   return '#F55036'
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(0)} MB`
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+// Onboarding-step version of the model picker. Same three-tier
+// (Fast / Balanced / Accurate) layout as the Settings tab but laid
+// out for the narrower onboarding column. Continue is gated on
+// (ffmpeg available && the selected model is downloaded), checked by
+// the parent — we just render UI.
+interface OnboardingModelMeta {
+  id: LocalModelId
+  name: string
+  speed: string
+  size: string
+  hint: string
+  recommended?: boolean
+}
+const ONBOARDING_MODELS: OnboardingModelMeta[] = [
+  { id: 'base',            name: 'Fast',     speed: '~100 ms', size: '57 MB',  hint: 'Multilingual. Tiny + fastest.' },
+  { id: 'small',           name: 'Balanced', speed: '~200 ms', size: '181 MB', hint: 'Multilingual. Quick + accurate.', recommended: true },
+  { id: 'large-v3-turbo',  name: 'Accurate', speed: '~1000 ms', size: '547 MB', hint: 'Highest accuracy. Slower.' },
+]
+
+function OnboardingLocalPanel({
+  readiness,
+  progress,
+  downloaded,
+  selectedModel,
+  onSelectModel,
+}: {
+  readiness: LocalModelReadiness | null
+  progress: Record<string, LocalModelProgress>
+  downloaded: Record<string, boolean>
+  selectedModel: LocalModelId
+  onSelectModel: (id: LocalModelId) => void
+}) {
+  if (!readiness) return <div className="text-[11px] text-ink-45">Loading model status…</div>
+
+  if (!readiness.ffmpeg) {
+    return (
+      <div className="bg-card border border-danger/40 rounded-card px-4 py-3.5">
+        <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">ffmpeg not found</div>
+        <p className="text-[11.5px] text-ink-60 leading-relaxed">
+          Run <code className="font-mono">npm install</code> to pull ffmpeg-static, or reinstall OpenFlow.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-1">
+        Pick a model size
+      </div>
+      {ONBOARDING_MODELS.map((m) => (
+        <OnboardingModelCard
+          key={m.id}
+          meta={m}
+          selected={selectedModel === m.id}
+          downloaded={!!downloaded[m.id]}
+          progress={progress[m.id]}
+          onSelect={() => onSelectModel(m.id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function OnboardingModelCard({
+  meta,
+  selected,
+  downloaded,
+  progress,
+  onSelect,
+}: {
+  meta: OnboardingModelMeta
+  selected: boolean
+  downloaded: boolean
+  progress: LocalModelProgress | undefined
+  onSelect: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const downloading = progress?.status === 'starting' || progress?.status === 'downloading'
+  const pct = (downloading && progress!.totalBytes > 0)
+    ? Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100)
+    : 0
+
+  async function startDownload(e: React.MouseEvent) {
+    e.stopPropagation()
+    setBusy(true)
+    setError(null)
+    const result = await window.openflow.downloadLocalModel(meta.id)
+    setBusy(false)
+    if (!result.ok) setError(result.error ?? 'Download failed')
+  }
+
+  // Use <div> not <button> — a disabled parent <button> would swallow
+  // click events to the Download Pill inside.
+  const canSelect = downloaded
+  return (
+    <div
+      role={canSelect ? 'button' : undefined}
+      tabIndex={canSelect ? 0 : -1}
+      onClick={canSelect ? onSelect : undefined}
+      onKeyDown={canSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() } : undefined}
+      className={[
+        'w-full text-left bg-card border rounded-card px-4 py-3 transition-all duration-150',
+        selected
+          ? 'border-ink ring-1 ring-ink shadow-sm'
+          : canSelect
+            ? 'border-ink-08 hover:border-ink-45 cursor-pointer'
+            : 'border-ink-08',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[12.5px] font-semibold">{meta.name}</span>
+            <span className="text-[10px] font-mono text-ink-45">{meta.speed} · {meta.size}</span>
+            {meta.recommended && (
+              <span className="text-[9px] font-mono uppercase tracking-wider text-volt bg-volt-muted px-1.5 py-0.5 rounded">
+                recommended
+              </span>
+            )}
+          </div>
+          <div className="text-[10.5px] text-ink-60 mt-0.5">{meta.hint}</div>
+        </div>
+        <div className="shrink-0">
+          {downloading ? (
+            <span className="text-[10.5px] font-mono text-ink-45">{pct.toFixed(0)}%</span>
+          ) : downloaded ? (
+            <span className={`text-[10.5px] font-mono ${selected ? 'text-ok' : 'text-ink-45'}`}>
+              {selected ? '✓ active' : 'ready'}
+            </span>
+          ) : (
+            <Pill variant="primary" onClick={startDownload} disabled={busy}>
+              {busy ? '…' : 'Download'}
+            </Pill>
+          )}
+        </div>
+      </div>
+      {downloading && (
+        <div className="h-1 bg-ink-08 rounded-full overflow-hidden mt-2">
+          <div className="h-full bg-volt transition-[width] duration-200" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {error && <p className="text-[10.5px] text-danger mt-2">✗ {error}</p>}
+    </div>
+  )
 }
 
 // ─── Step 4: Hotkey — interactive trainer ──────────────────────────

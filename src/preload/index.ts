@@ -30,4 +30,21 @@ contextBridge.exposeInMainWorld('openflow', {
     ipcRenderer.on(IPC.STATE_CHANGE, handler)
     return () => ipcRenderer.removeListener(IPC.STATE_CHANGE, handler)
   },
+
+  // Local Whisper model management.
+  getLocalModelStatus: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_STATUS),
+  downloadLocalModel: (modelId: string) => ipcRenderer.invoke(IPC.LOCAL_MODEL_DOWNLOAD, modelId),
+  cancelLocalModel: () => ipcRenderer.invoke(IPC.LOCAL_MODEL_CANCEL),
+  uninstallLocalModel: (modelId: string) => ipcRenderer.invoke(IPC.LOCAL_MODEL_UNINSTALL, modelId),
+  onLocalModelProgress: (cb: (progress: {
+    modelId: string
+    status: 'starting' | 'downloading' | 'done' | 'error' | 'idle'
+    receivedBytes: number
+    totalBytes: number
+    error?: string
+  }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, progress: Parameters<typeof cb>[0]) => cb(progress)
+    ipcRenderer.on(IPC.LOCAL_MODEL_PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IPC.LOCAL_MODEL_PROGRESS, handler)
+  },
 })
