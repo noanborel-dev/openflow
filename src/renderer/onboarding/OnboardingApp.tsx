@@ -35,13 +35,12 @@ export default function OnboardingApp() {
   const [saving, setSaving] = useState(false)
   const [hotkey, setHotkey] = useState<string>('CTRL')
   const [listening, setListening] = useState(false)
-  // Per-provider state so users can pick Groq / OpenAI / Anthropic and
-  // each has its own key field. Matches the Settings → Provider tab.
+  // Two providers: Local (on-device whisper.cpp) and Groq (cloud).
+  // Matches the Settings → Provider tab.
   const [provider, setProvider] = useState<Provider>('local')
   const [localModel, setLocalModel] = useState<LocalModelId>('small')
   const [groqKey, setGroqKey] = useState('')
-  const [openaiKey, setOpenaiKey] = useState('')
-  const [anthropicKey, setAnthropicKey] = useState('')
+  const [emojiInMessages, setEmojiInMessages] = useState(false)
   const [strictness, setStrictness] = useState<CategoryStrictness>({
     personal: 1,
     work: 3,
@@ -135,15 +134,13 @@ export default function OnboardingApp() {
 
   async function handleSaveProvider() {
     setSaving(true)
-    // Anthropic transcription falls back to Groq, so we keep whatever
-    // Groq key was entered alongside the Anthropic one. Local stores
-    // the picked model tier separately under `localModel`.
+    // Even when transcription is Local, cleanup still needs an LLM, so
+    // we always persist the Groq key. localModel stores the picked
+    // model tier separately.
     await window.openflow.setSettings({
       provider: {
         provider,
         groqKey: groqKey.trim(),
-        openaiKey: openaiKey.trim(),
-        anthropicKey: anthropicKey.trim(),
         transcriptionModel: MODELS[provider].transcription,
         cleanupModel: MODELS[provider].cleanup,
         localModel,
@@ -157,6 +154,7 @@ export default function OnboardingApp() {
     const partial: Partial<Settings> = {
       hotkeys: { pushToTalk: hotkey },
       strictness,
+      emojiInMessages,
       firstRun: false,
     }
     await window.openflow.setSettings(partial)
@@ -225,11 +223,7 @@ export default function OnboardingApp() {
             localModel={localModel}
             onLocalModelChange={setLocalModel}
             groqKey={groqKey}
-            openaiKey={openaiKey}
-            anthropicKey={anthropicKey}
             onGroqKeyChange={setGroqKey}
-            onOpenaiKeyChange={setOpenaiKey}
-            onAnthropicKeyChange={setAnthropicKey}
             saving={saving}
             onContinue={handleSaveProvider}
           />
@@ -248,6 +242,8 @@ export default function OnboardingApp() {
           <StepStrictness
             value={strictness}
             onChange={setStrictness}
+            emojiInMessages={emojiInMessages}
+            onEmojiChange={setEmojiInMessages}
             onContinue={next}
           />
         )}
@@ -524,14 +520,12 @@ interface ProviderInfo {
   price: string
   keyPlaceholder: string
   keyHint: string
-  brand: 'groq' | 'openai' | 'anthropic' | 'local'
+  brand: 'groq' | 'local'
 }
 
 const ONBOARDING_PROVIDERS: ProviderInfo[] = [
-  { value: 'local',     brand: 'local',     name: 'Local',     model: 'whisper-large-v3-turbo (on-device)', description: 'Runs on your Mac. Offline, free, no keys. ~547MB download.', price: 'free, offline', keyPlaceholder: '',          keyHint: '' },
-  { value: 'groq',      brand: 'groq',      name: 'Groq',      model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.', price: 'free tier',  keyPlaceholder: 'gsk_…',     keyHint: 'console.groq.com' },
-  { value: 'openai',    brand: 'openai',    name: 'OpenAI',    model: 'whisper-1',    description: 'Industry-standard. Fast, accurate, cheap.',         price: '$0.006/min', keyPlaceholder: 'sk-…',      keyHint: 'platform.openai.com/api-keys' },
-  { value: 'anthropic', brand: 'anthropic', name: 'Anthropic', model: 'claude-haiku', description: 'Best for cleanup; uses Groq for transcription.',     price: '$0.004/min', keyPlaceholder: 'sk-ant-…',  keyHint: 'console.anthropic.com' },
+  { value: 'local', brand: 'local', name: 'Local',  model: 'whisper-large-v3-turbo (on-device)', description: 'Runs on your Mac. Offline, free, no keys. ~547MB download.', price: 'free, offline', keyPlaceholder: '',      keyHint: '' },
+  { value: 'groq',  brand: 'groq',  name: 'Groq',   model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.',          price: 'free tier',     keyPlaceholder: 'gsk_…', keyHint: 'console.groq.com' },
 ]
 
 function StepProvider({
@@ -540,11 +534,7 @@ function StepProvider({
   localModel,
   onLocalModelChange,
   groqKey,
-  openaiKey,
-  anthropicKey,
   onGroqKeyChange,
-  onOpenaiKeyChange,
-  onAnthropicKeyChange,
   saving,
   onContinue,
 }: {
@@ -553,11 +543,7 @@ function StepProvider({
   localModel: LocalModelId
   onLocalModelChange: (id: LocalModelId) => void
   groqKey: string
-  openaiKey: string
-  anthropicKey: string
   onGroqKeyChange: (s: string) => void
-  onOpenaiKeyChange: (s: string) => void
-  onAnthropicKeyChange: (s: string) => void
   saving: boolean
   onContinue: () => void
 }) {
@@ -585,20 +571,11 @@ function StepProvider({
     return off
   }, [])
 
-  // Which key field maps to the active provider. Anthropic needs the
-  // Anthropic key for cleanup + the Groq key for transcription — the
-  // latter is handled in a hint, not a second field, to keep the flow
-  // simple. Users can add the Groq key in Settings afterward if needed.
-  const keyValue =
-    provider === 'groq' ? groqKey :
-    provider === 'openai' ? openaiKey :
-    provider === 'anthropic' ? anthropicKey :
-    ''
-  const keyChange =
-    provider === 'groq' ? onGroqKeyChange :
-    provider === 'openai' ? onOpenaiKeyChange :
-    provider === 'anthropic' ? onAnthropicKeyChange :
-    () => {}
+  // Groq cloud → Groq key. Local → no field shown (model panel below
+  // handles it). Cleanup always uses the Groq key, but for the
+  // onboarding flow we only surface it when the user picks cloud Groq.
+  const keyValue  = provider === 'groq' ? groqKey         : ''
+  const keyChange = provider === 'groq' ? onGroqKeyChange : () => {}
   const info = ONBOARDING_PROVIDERS.find((p) => p.value === provider)!
   // For Local: need ffmpeg available AND the user's chosen model
   // downloaded. The user might have downloaded `small.en` but selected
@@ -632,10 +609,18 @@ function StepProvider({
               ].join(' ')}
             >
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
-                     style={{ background: providerTileColor(p.brand) }}>
-                  <ProviderGlyph brand={p.brand} />
-                </div>
+                {/* Local provider shows the bare OpenFlow pill (no
+                    tile background) — it IS the brand mark. */}
+                {p.brand === 'local' ? (
+                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                    <ProviderGlyph brand={p.brand} />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
+                       style={{ background: providerTileColor(p.brand) }}>
+                    <ProviderGlyph brand={p.brand} />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2">
                     <span className="text-[13.5px] font-semibold">{p.name}</span>
@@ -683,11 +668,6 @@ function StepProvider({
             >
               Get a key at {info.keyHint} ↗
             </a>
-            {provider === 'anthropic' && (
-              <div className="text-[11px] text-ink-45 mt-3 leading-relaxed">
-                Anthropic uses Groq for transcription. Add a Groq key in Settings → Provider after onboarding, or transcription will fall back to whichever provider is configured.
-              </div>
-            )}
           </>
         )}
       </div>
@@ -699,36 +679,39 @@ function StepProvider({
   )
 }
 
-function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' | 'local' }) {
-  if (brand === 'anthropic') {
-    return <BrandLogo brand="claude" size={22} />
-  }
-  if (brand === 'openai') {
-    return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path
-          d="M12 2.4c-.95 0-1.85.22-2.65.61a4.78 4.78 0 0 0-3.7 6.4 4.78 4.78 0 0 0 0 6.18 4.78 4.78 0 0 0 3.7 6.4 4.78 4.78 0 0 0 6.18 1.42 4.78 4.78 0 0 0 6.4-3.7 4.78 4.78 0 0 0 0-6.18 4.78 4.78 0 0 0-3.7-6.4A4.78 4.78 0 0 0 12 2.4Z"
-          stroke="#fff" strokeWidth="1.4" fill="none"
-        />
-      </svg>
-    )
-  }
+function ProviderGlyph({ brand }: { brand: 'groq' | 'local' }) {
   if (brand === 'local') {
+    // OpenFlow indicator pill — local is the OpenFlow-native option.
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="6" y="6" width="12" height="12" rx="1.5" stroke="#fff" strokeWidth="1.4"/>
-        <rect x="9" y="9" width="6" height="6" fill="#fff" opacity="0.9"/>
-        <path d="M3 9h2M3 12h2M3 15h2M19 9h2M19 12h2M19 15h2M9 3v2M12 3v2M15 3v2M9 19v2M12 19v2M15 19v2" stroke="#fff" strokeWidth="1.2"/>
+      <svg viewBox="0 0 54 22" width="36" height="14">
+        <defs>
+          <linearGradient id="onb-pill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#12141a"/>
+            <stop offset="100%" stopColor="#0e1016"/>
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="54" height="22" rx="11" fill="url(#onb-pill)"/>
+        <circle cx="11" cy="11" r="3.0" fill="#e84a3a"/>
+        <rect x="22"   y="7"   width="1.8" height="8"  rx="0.9" fill="#5a8fe8"/>
+        <rect x="26.5" y="3"   width="1.8" height="16" rx="0.9" fill="#5a8fe8"/>
+        <rect x="31"   y="9"   width="1.8" height="4"  rx="0.9" fill="#5a8fe8"/>
+        <rect x="35.5" y="5"   width="1.8" height="12" rx="0.9" fill="#5a8fe8"/>
+        <rect x="40"   y="7"   width="1.8" height="8"  rx="0.9" fill="#5a8fe8"/>
       </svg>
     )
   }
-  return <span className="text-[15px] font-bold text-white" style={{ fontFamily: 'system-ui' }}>G</span>
+  return (
+    <span
+      className="text-paper font-semibold tracking-tight"
+      style={{ fontSize: 12, lineHeight: 1 }}
+    >
+      Groq
+    </span>
+  )
 }
 
-function providerTileColor(brand: 'openai' | 'anthropic' | 'groq' | 'local'): string {
-  if (brand === 'openai')    return '#0F1011'
-  if (brand === 'anthropic') return '#D97757'
-  if (brand === 'local')     return '#1B2233'
+function providerTileColor(brand: 'groq' | 'local'): string {
+  if (brand === 'local') return '#0E1118'
   return '#F55036'
 }
 
@@ -777,7 +760,7 @@ function OnboardingLocalPanel({
       <div className="bg-card border border-danger/40 rounded-card px-4 py-3.5">
         <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">ffmpeg not found</div>
         <p className="text-[11.5px] text-ink-60 leading-relaxed">
-          Run <code className="font-mono">npm install</code> to pull ffmpeg-static, or reinstall OpenFlow.
+          Run <code className="font-mono">npm install</code> to pull <code className="font-mono">@ffmpeg-installer/ffmpeg</code>, or reinstall OpenFlow.
         </p>
       </div>
     )
@@ -1187,10 +1170,14 @@ const LEVEL_LABEL: Record<Strictness, string> = { 1: 'Light', 2: 'Balanced', 3: 
 function StepStrictness({
   value,
   onChange,
+  emojiInMessages,
+  onEmojiChange,
   onContinue,
 }: {
   value: CategoryStrictness
   onChange: (v: CategoryStrictness) => void
+  emojiInMessages: boolean
+  onEmojiChange: (v: boolean) => void
   onContinue: () => void
 }) {
   const [substep, setSubstep] = useState<StrictCat>('personal')
@@ -1259,6 +1246,41 @@ function StepStrictness({
               )
             })}
           </div>
+
+          {/* Emoji toggle appears on the 'personal' substep — that's
+              the messaging-focused screen where it makes sense. Off
+              by default; opt-in here or in Settings → Polish later. */}
+          {substep === 'personal' && (
+            <button
+              type="button"
+              onClick={() => onEmojiChange(!emojiInMessages)}
+              aria-pressed={emojiInMessages}
+              className={[
+                'mt-5 flex items-start gap-3 p-3 rounded-card border text-left transition-colors w-full',
+                emojiInMessages ? 'border-ink bg-ink/[0.04]' : 'border-ink-08 hover:border-ink-45',
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative',
+                  emojiInMessages ? 'bg-ink' : 'bg-ink-08',
+                ].join(' ')}
+              >
+                <span
+                  className={[
+                    'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+                    emojiInMessages ? 'left-[18px]' : 'left-0.5',
+                  ].join(' ')}
+                />
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[12.5px] font-medium">Add emojis when relevant</div>
+                <p className="text-[10.5px] text-ink-60 mt-0.5 leading-snug">
+                  Sprinkle one emoji when there's a concrete moment — "ramen at 5" → "ramen at 5 🍜". Off by default; only fires in casual chats.
+                </p>
+              </div>
+            </button>
+          )}
         </div>
 
         <div key={`${substep}-${level}`} className="animate-stepIn">

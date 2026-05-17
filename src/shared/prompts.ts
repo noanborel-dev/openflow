@@ -8,17 +8,43 @@ export function buildCleanupPrompt(
   editor?: IdeEditor,
   // Strictness only applies to non-code categories. Code is always
   // FAITHFUL — every word matters when you might be dictating commands.
-  strictness: Strictness = 2
+  strictness: Strictness = 2,
+  // Sprinkle relevant emoji into messaging-category cleanups when on.
+  // Off everywhere else (email, docs, code) regardless of this flag —
+  // emoji in those contexts is rarely what the user wants.
+  emojiInMessages: boolean = false,
 ): string {
   if (customPrompt) return customPrompt.replace('{app_name}', appName)
   let prompt = PROMPTS[category]
     .replace('{app_name}', appName)
     .replace('{strictness_block}', STRICTNESS_BLOCK[strictness])
+    .replace('{emoji_block}', category === 'messaging' && emojiInMessages ? EMOJI_BLOCK : '')
   if (category === 'code' && editor) {
     prompt += '\n\n' + buildIdeAddendum(editor)
   }
   return prompt
 }
+
+// Optional emoji guidance, injected into the messaging prompt when
+// the user opts in. We deliberately ask for AT MOST ONE emoji and
+// only when it adds clear meaning — the failure mode is messages
+// peppered with confused 😅🚀✨ feeling like every text was sent by
+// a 14-year-old. The "obvious context" rule covers food, time-of-
+// day plans, celebrations, and apologies, which is the common
+// dictation surface in casual chats.
+const EMOJI_BLOCK = `EMOJI: When the message has a clear concrete noun or feeling that maps to a common emoji, append ONE relevant emoji at the end of the message. Only when it adds meaning, never to fill space.
+Examples:
+- "let's grab ramen at 5" → "let's grab ramen at 5 🍜"
+- "happy birthday!" → "happy birthday! 🎉"
+- "going for a run" → "going for a run 🏃"
+- "i'm so sorry about that" → "i'm so sorry about that 😔"
+- "the demo is at 10am" → "the demo is at 10am 🎤"
+- "got the job!!" → "got the job!! 🎉"
+- "on my way" → leave as-is (no clear concrete noun, no strong feeling)
+- "i'll think about it" → leave as-is
+- "ok sounds good" → leave as-is
+- "do you have the doc" → leave as-is (request, not a moment that needs an emoji)
+Use at most ONE emoji per message. Never use sparkles ✨ as filler. Skip emoji entirely if the message is purely transactional / question / one-word reply.`
 
 // Per-IDE formatting guidance appended to the code-category cleanup
 // prompt. Cursor/Windsurf chats render `@filename.ext` as a file chip;
@@ -169,6 +195,8 @@ const PROMPTS: Record<AppCategory, string> = {
 {strictness_block}
 
 ${LIST_FORMATTING}
+
+{emoji_block}
 
 Style notes:
 - Do NOT add greetings, signoffs, or formal structure.

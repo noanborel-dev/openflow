@@ -185,6 +185,24 @@ const QUICK_FIXES: Array<[RegExp, string]> = [
   [/\bgit\s+hub\b/gi, 'GitHub'],
   [/\bvs\s+code\b/gi, 'VS Code'],
   [/\bco\s*-?\s*pilot\b/gi, 'Copilot'],
+  // GPT-N variants where Whisper hears "for" / "five" / "four" instead
+  // of the digit. Only triggers in obviously GPT-y context.
+  [/\bGPT\s+for\b/gi, 'GPT-4'],
+  [/\bGPT\s+four\b/gi, 'GPT-4'],
+  [/\bGPT\s+five\b/gi, 'GPT-5'],
+  [/\bGPT\s+(\d+)\b/g, 'GPT-$1'],
+  // tRPC — Whisper sometimes drops the "t" or adds a space
+  [/\bt\s+RPC\b/g, 'tRPC'],
+  [/\bT-?\s*RPC\b/g, 'tRPC'],
+  // npm / npx / pnpm — Whisper hears them as words
+  [/\bN\s*P\s*M\b/g, 'npm'],
+  [/\bN\s*P\s*X\b/g, 'npx'],
+  [/\bP\s*N\s*P\s*M\b/g, 'pnpm'],
+  // Common framework / library names
+  [/\bnode\s+js\b/gi, 'Node.js'],
+  [/\breact\s+native\b/gi, 'React Native'],
+  [/\bpost\s*gres\b/gi, 'Postgres'],
+  [/\bgraph\s+QL\b/gi, 'GraphQL'],
 ]
 
 // Map the focused app to a strictness bucket so we know which level
@@ -343,12 +361,24 @@ export async function runDictationPipeline(
   // the hot path for ~1s on every dictation.
   const axRolePromise = getPressTimeAXRolePromise() ?? probeFocusedAXRole()
 
-  if (canSkipCleanup(transcript, effectiveCategory)) {
+  // Emoji injection requires the LLM cleanup pass to run. When the
+  // user has opted into emoji in messaging and we're in that
+  // category, force-disable both fast paths regardless of length /
+  // strictness so the prompt's EMOJI_BLOCK actually fires.
+  const forceLlmForEmoji =
+    effectiveCategory === 'messaging' && settings.emojiInMessages
+
+  if (!forceLlmForEmoji && canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
   } else if (
     strictnessFor(focusedApp, settings) === 1
     && effectiveCategory !== 'code'
     && !CORRECTION_RE.test(transcript)
+    // Skip the regex fast path when the user has opted into emoji in
+    // messaging — the LLM is the only place that knows when an emoji
+    // is contextually appropriate, so we accept the ~500ms cleanup
+    // cost to get the feature.
+    && !(effectiveCategory === 'messaging' && settings.emojiInMessages)
   ) {
     // Strictness=1 deterministic path: the Light prompt only does
     // filler/stutter strip + sentence-end punctuation — all regex-able
@@ -369,6 +399,7 @@ export async function runDictationPipeline(
       rule?.customPrompt,
       editor,
       strictness,
+      settings.emojiInMessages,
     ).replace('{text}', transcript)
     logInfo('Cleanup prompt built', {
       category: effectiveCategory,

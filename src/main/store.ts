@@ -27,6 +27,7 @@ const defaults: Settings = {
   },
   inputDeviceId: null,
   audioCues: true,
+  emojiInMessages: false,
 }
 
 export const store = new ElectronStore<Settings>({ defaults, name: 'openflow-settings' })
@@ -83,6 +84,17 @@ export function getSettings(): Settings {
   const legacyModel = merged.provider.localModel as unknown as string
   if (legacyModel === 'small.en') merged.provider.localModel = 'small'
   if (legacyModel === 'base.en') merged.provider.localModel = 'base'
+
+  // Merge in any new devModeApps bundle IDs that didn't exist when the
+  // user first persisted their settings. Without this, users upgrading
+  // from a prior build wouldn't get auto-switch-to-Accurate in newer
+  // code apps (Antigravity, Warp, etc.) until they manually edit the
+  // setting. Preserve their existing entries (custom additions) and
+  // append any new defaults they're missing.
+  const existing = new Set(merged.devModeApps)
+  for (const bundle of DEFAULT_DEV_MODE_APPS) {
+    if (!existing.has(bundle)) merged.devModeApps.push(bundle)
+  }
 
   // Migrate stale cleanup model. Persist the new value so the next
   // read sees it without re-running this branch.

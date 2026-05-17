@@ -71,6 +71,12 @@ export interface Settings {
   strictness: CategoryStrictness
   inputDeviceId: string | null   // mic deviceId picked by the user; null = system default
   audioCues: boolean   // play a subtle blip when recording starts and ends
+  // When true, the cleanup prompt for the 'messaging' category gets
+  // an instruction to append at most ONE relevant emoji when the
+  // message has an obvious concrete noun or feeling (food, plans,
+  // celebrations, apologies). Off by default — users opt in during
+  // onboarding or in Settings. Other categories ignore this flag.
+  emojiInMessages: boolean
 }
 
 export interface DictationResult {

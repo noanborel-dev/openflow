@@ -206,6 +206,8 @@ export default function PolishTab() {
           <span className="text-[11px] font-mono text-ink-45 px-3 py-1.5">Locked</span>
         </div>
       </div>
+
+      <EmojiToggleRow />
     </div>
   )
 }
@@ -384,6 +386,49 @@ function TerminalMock() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Standalone toggle row below the strictness table. Lives in its own
+// component so the Settings load (which only seeds strictness from
+// the persisted store) doesn't have to grow more state.
+function EmojiToggleRow() {
+  const [emoji, setEmoji] = useState<boolean | null>(null)
+  useEffect(() => {
+    window.openflow.getSettings().then((s: Settings) => setEmoji(s.emojiInMessages))
+  }, [])
+  function flip() {
+    if (emoji === null) return
+    const next = !emoji
+    setEmoji(next)
+    window.openflow.setSettings({ emojiInMessages: next })
+  }
+  if (emoji === null) return null
+  return (
+    <div className="bg-card border border-ink-08 rounded-[14px] mt-3 p-4 flex items-start gap-3">
+      <div className="flex-1 min-w-0">
+        <div className="text-[13.5px] font-semibold">Emoji in messages</div>
+        <p className="text-[11.5px] text-ink-60 mt-1 leading-relaxed">
+          Sprinkle one relevant emoji when there's a concrete moment — "ramen at 5" → "ramen at 5 🍜". Only fires in casual chats (iMessage, WhatsApp, Telegram), never in Slack/email/docs/code.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={flip}
+        aria-pressed={emoji}
+        className={[
+          'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative',
+          emoji ? 'bg-ink' : 'bg-ink-08',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+            emoji ? 'left-[18px]' : 'left-0.5',
+          ].join(' ')}
+        />
+      </button>
     </div>
   )
 }

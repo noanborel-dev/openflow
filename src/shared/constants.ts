@@ -34,13 +34,18 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
   'com.apple.mail': 'email',
   'com.microsoft.Outlook': 'email',
   'com.readdle.smartemail': 'email',
-  'com.todesktop.230313mzl4w4u92': 'code',
-  'com.exafunction.windsurf': 'code',
+  'com.todesktop.230313mzl4w4u92': 'code',   // Cursor
+  'com.exafunction.windsurf': 'code',         // Windsurf
   'com.microsoft.VSCode': 'code',
   'dev.zed.zed': 'code',
   'com.apple.dt.Xcode': 'code',
   'com.apple.Terminal': 'code',
   'com.googlecode.iterm2': 'code',
+  'com.google.antigravity': 'code',           // Google Antigravity (Cursor fork)
+  'app.warp.dev': 'code',                     // Warp terminal
+  'com.github.atom': 'code',
+  'org.gnu.Emacs': 'code',
+  'com.replit.ReplitDesktop': 'code',
   'notion.id': 'docs',
   'md.obsidian': 'docs',
   'com.microsoft.Word': 'docs',
@@ -48,13 +53,18 @@ export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
 }
 
 export const DEFAULT_DEV_MODE_APPS = [
-  'com.todesktop.230313mzl4w4u92',
-  'com.exafunction.windsurf',
+  'com.todesktop.230313mzl4w4u92',   // Cursor
+  'com.exafunction.windsurf',         // Windsurf
   'com.microsoft.VSCode',
   'dev.zed.zed',
   'com.apple.dt.Xcode',
   'com.apple.Terminal',
   'com.googlecode.iterm2',
+  'com.google.antigravity',           // Google Antigravity (Cursor fork)
+  'app.warp.dev',                     // Warp terminal
+  'com.github.atom',
+  'org.gnu.Emacs',
+  'com.replit.ReplitDesktop',
 ]
 
 // Browser bundle IDs — when the focused app is one of these, we look at
