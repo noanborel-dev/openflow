@@ -25,26 +25,14 @@ export function buildCleanupPrompt(
   return prompt
 }
 
-// Optional emoji guidance, injected into the messaging prompt when
-// the user opts in. We deliberately ask for AT MOST ONE emoji and
-// only when it adds clear meaning — the failure mode is messages
-// peppered with confused 😅🚀✨ feeling like every text was sent by
-// a 14-year-old. The "obvious context" rule covers food, time-of-
-// day plans, celebrations, and apologies, which is the common
-// dictation surface in casual chats.
-const EMOJI_BLOCK = `EMOJI: When the message has a clear concrete noun or feeling that maps to a common emoji, append ONE relevant emoji at the end of the message. Only when it adds meaning, never to fill space.
-Examples:
-- "let's grab ramen at 5" → "let's grab ramen at 5 🍜"
-- "happy birthday!" → "happy birthday! 🎉"
-- "going for a run" → "going for a run 🏃"
-- "i'm so sorry about that" → "i'm so sorry about that 😔"
-- "the demo is at 10am" → "the demo is at 10am 🎤"
-- "got the job!!" → "got the job!! 🎉"
-- "on my way" → leave as-is (no clear concrete noun, no strong feeling)
-- "i'll think about it" → leave as-is
-- "ok sounds good" → leave as-is
-- "do you have the doc" → leave as-is (request, not a moment that needs an emoji)
-Use at most ONE emoji per message. Never use sparkles ✨ as filler. Skip emoji entirely if the message is purely transactional / question / one-word reply.`
+// The single-call emoji guidance was too conservative — llama-8b
+// interprets a long "skip emoji when ..." list as "when in doubt,
+// skip" and ends up skipping ~90% of messages. We now run a separate,
+// focused emoji-judge call in parallel with cleanup (see
+// `judgeEmoji` in src/main/providers/groq.ts). This in-prompt block
+// is kept empty for the messaging prompt but the placeholder still
+// gets replaced, so it's a no-op slot for future inline guidance.
+const EMOJI_BLOCK = ``
 
 // Per-IDE formatting guidance appended to the code-category cleanup
 // prompt. Cursor/Windsurf chats render `@filename.ext` as a file chip;

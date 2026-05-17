@@ -6,6 +6,7 @@ import type { TranscriptionProvider, CleanupProvider } from './providers/types'
 import {
   createGroqTranscriptionProvider,
   createGroqCleanupProvider,
+  judgeEmoji,
 } from './providers/groq'
 import { createLocalWhisperProvider, createLocalCleanupProvider } from './providers/local'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
@@ -372,24 +373,37 @@ export async function runDictationPipeline(
   // the hot path for ~1s on every dictation.
   const axRolePromise = getPressTimeAXRolePromise() ?? probeFocusedAXRole()
 
-  // Emoji injection requires the LLM cleanup pass to run. When the
-  // user has opted into emoji in messaging and we're in that
-  // category, force-disable both fast paths regardless of length /
-  // strictness so the prompt's EMOJI_BLOCK actually fires.
-  const forceLlmForEmoji =
-    effectiveCategory === 'messaging' && settings.emojiInMessages
+  // Kick off the emoji-judge IN PARALLEL with whatever cleanup
+  // branch fires below. It's a separate Groq call to llama-8b with
+  // a laser-focused "should this message get an emoji" prompt — the
+  // earlier in-cleanup-prompt approach got mostly ignored because
+  // llama-8b reads the long "skip when ..." list as default-skip.
+  // The judge runs on the RAW transcript (not the cleaned text)
+  // because cleanup doesn't change semantic content, and starting
+  // the judge before cleanup completes overlaps the network round-
+  // trip with the cleanup call. Net wall-clock cost: ~0ms in the
+  // common case where cleanup takes longer than the judge.
+  //
+  // Only fires for:
+  //   - messaging category
+  //   - emojiInMessages setting on
+  //   - Groq key configured (managed mode reuses this path; BYOK
+  //     users without a key get no emoji, like before)
+  const emojiPromise: Promise<string> = (
+    effectiveCategory === 'messaging'
+    && settings.emojiInMessages
+    && settings.provider.groqKey.trim().length > 0
+  )
+    ? judgeEmoji(settings.provider.groqKey, MODELS.groq.cleanup, transcript)
+        .catch(() => '') // emoji is nice-to-have; never block paste
+    : Promise.resolve('')
 
-  if (!forceLlmForEmoji && canSkipCleanup(transcript, effectiveCategory)) {
+  if (canSkipCleanup(transcript, effectiveCategory)) {
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
   } else if (
     strictnessFor(focusedApp, settings) === 1
     && effectiveCategory !== 'code'
     && !CORRECTION_RE.test(transcript)
-    // Skip the regex fast path when the user has opted into emoji in
-    // messaging — the LLM is the only place that knows when an emoji
-    // is contextually appropriate, so we accept the ~500ms cleanup
-    // cost to get the feature.
-    && !(effectiveCategory === 'messaging' && settings.emojiInMessages)
   ) {
     // Strictness=1 deterministic path: the Light prompt only does
     // filler/stutter strip + sentence-end punctuation — all regex-able
@@ -431,6 +445,17 @@ export async function runDictationPipeline(
   // cleanup (which usually catches them) AND on fast-path output where
   // the LLM never ran.
   cleaned = applyQuickFixes(cleaned)
+
+  // Await the emoji judge (fired in parallel above) and append. The
+  // emoji is appended to the CLEANED text, not stuffed in mid-sentence,
+  // because that's how friends actually text — emoji at the end as
+  // accent, not interleaved.
+  const emoji = await emojiPromise
+  if (emoji) {
+    // Trim any trailing whitespace before adding a space + emoji.
+    cleaned = `${cleaned.trimEnd()} ${emoji}`
+    logInfo('Emoji appended', { emoji })
+  }
 
   const { method: pasteMethod } = await pasteText(cleaned, { rolePromise: axRolePromise })
   logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
