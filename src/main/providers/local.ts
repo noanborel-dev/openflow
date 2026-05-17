@@ -57,7 +57,15 @@ export class LocalBinaryMissingError extends Error {
   }
 }
 
-function selectedModelId(): LocalModelId {
+// Reason the active model was chosen. Used in logs so the user can
+// tell at a glance whether auto-switch fired, why, and whether they
+// could have gotten a faster path.
+type ModelSelectionReason =
+  | 'user-pick'           // user's selected tier in Settings
+  | 'auto-code'           // auto-elevated to Accurate because focused app is code/IDE
+  | 'default'             // settings unreadable, fell back to DEFAULT_LOCAL_MODEL
+
+function selectedModel(): { id: LocalModelId; reason: ModelSelectionReason; focusedBundleId?: string } {
   try {
     const settings = getSettings()
     const userPick = settings.provider.localModel ?? DEFAULT_LOCAL_MODEL
@@ -66,10 +74,10 @@ function selectedModelId(): LocalModelId {
     // / camelCase identifiers benefit disproportionately from the
     // large model's vocabulary breadth — small.en happily turns
     // "useEffect" into "use effect", "Claude Code" into "cloud
-    // code", "TypeScript" into "type script". Auto-switching here
-    // costs ~1s extra inference per code-context dictation but keeps
-    // the lightning-fast Balanced/Fast path for the 90% of
-    // dictations that are casual messaging or notes.
+    // code", "TypeScript" into "type script". Auto-switching costs
+    // ~1s extra inference per code-context dictation but keeps the
+    // lightning-fast Balanced/Fast path for the 90% of dictations
+    // that are casual messaging or notes.
     //
     // Opt-out via settings.provider.localAutoAccurateInCode = false.
     // Only elevates UPWARD — if the user explicitly picked Accurate,
@@ -80,14 +88,18 @@ function selectedModelId(): LocalModelId {
         const isCode = focused.category === 'code'
           || settings.devModeApps.includes(focused.bundleId)
         if (isCode && localModelDownloaded('large-v3-turbo')) {
-          return 'large-v3-turbo'
+          return { id: 'large-v3-turbo', reason: 'auto-code', focusedBundleId: focused.bundleId }
         }
       } catch { /* fall through to user pick */ }
     }
-    return userPick
+    return { id: userPick, reason: 'user-pick' }
   } catch {
-    return DEFAULT_LOCAL_MODEL
+    return { id: DEFAULT_LOCAL_MODEL, reason: 'default' }
   }
+}
+
+function selectedModelId(): LocalModelId {
+  return selectedModel().id
 }
 
 // Force-release the worker's WhisperContext. Called from the uninstall
@@ -149,8 +161,25 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
     name: 'Local',
     async transcribe(audio, options = {}) {
       if (!ffmpegAvailable()) throw new LocalBinaryMissingError('ffmpeg')
-      const modelId = selectedModelId()
+      const selection = selectedModel()
+      const modelId = selection.id
       if (!localModelDownloaded(modelId)) throw new LocalModelMissingError()
+
+      // Make the model decision LOUD in the logs. Especially important
+      // because auto-elevate to Accurate can surprise users with a 5x
+      // latency hit ("why is this slow when I have Balanced picked?").
+      // Now they see exactly which model fired and why.
+      const tierLabel =
+        modelId === 'large-v3-turbo' ? 'ACCURATE (large-v3-turbo)' :
+        modelId === 'small' ? 'BALANCED (small)' :
+        'FAST (base)'
+      const reasonLabel =
+        selection.reason === 'auto-code'
+          ? `auto-elevated to Accurate — focused app ${selection.focusedBundleId} is a code editor`
+          : selection.reason === 'user-pick'
+            ? 'user-selected tier'
+            : 'fallback default'
+      logInfo(`Local model: ${tierLabel}`, { reason: reasonLabel })
 
       const ffmpegStart = Date.now()
       const pcm = await webmToPcm16(audio)
@@ -202,6 +231,8 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
       const inferMs = Date.now() - inferStart
 
       logInfo('Local whisper inference', {
+        model: modelId,
+        reason: selection.reason,
         ffmpegMs,
         inferMs,
         workerMs: result.ms,
