@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { BrandLogo } from '../../shared/ui/BrandLogo'
 import type { Settings, Provider, LocalModelId } from '../../../shared/types'
 import type { LocalModelProgress, LocalModelReadiness } from '../../global'
 import { MODELS } from '../../../shared/constants'
@@ -23,7 +22,7 @@ const LOCAL_MODEL_META: LocalModelMeta[] = [
 
 interface ProviderInfo {
   value: Provider
-  brand: 'openai' | 'anthropic' | 'groq' | 'local'
+  brand: 'groq' | 'local'
   name: string
   model: string
   description: string
@@ -31,10 +30,8 @@ interface ProviderInfo {
 }
 
 const PROVIDERS: ProviderInfo[] = [
-  { value: 'local',     brand: 'local',     name: 'Local',     model: 'whisper-large-v3-turbo (on-device)', description: 'Runs on your Mac. Offline, free, no keys. ~547MB download.', price: 'free, offline' },
-  { value: 'groq',      brand: 'groq',      name: 'Groq',      model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.', price: 'free tier' },
-  { value: 'openai',    brand: 'openai',    name: 'OpenAI',    model: 'whisper-1',    description: 'Industry-standard. Fast, accurate, cheap.',         price: '$0.006/min' },
-  { value: 'anthropic', brand: 'anthropic', name: 'Anthropic', model: 'claude-haiku', description: 'Best for cleanup and rewriting (uses Groq for transcription).', price: '$0.004/min' },
+  { value: 'local', brand: 'local', name: 'Local',  model: 'whisper-large-v3-turbo (on-device)', description: 'Runs on your Mac. Offline, free, no keys. ~547MB download.', price: 'free, offline' },
+  { value: 'groq',  brand: 'groq',  name: 'Groq',   model: 'whisper-large-v3-turbo', description: 'Fastest cloud Whisper. Free tier covers most users.',          price: 'free tier' },
 ]
 
 export default function AIProviderTab() {
@@ -85,25 +82,20 @@ export default function AIProviderTab() {
     if (!settings) return
     setTesting(true)
     setTestResult(null)
-    const key =
-      provider === 'groq' ? settings.provider.groqKey
-      : provider === 'openai' ? settings.provider.openaiKey
-      : settings.provider.anthropicKey
-    const result = await window.openflow.testProvider(provider, key)
+    const result = await window.openflow.testProvider('groq', settings.provider.groqKey)
     setTestResult(result)
     setTesting(false)
   }
 
-  // Which key field to show under the cards. Anthropic still needs the
-  // Groq key for transcription, so we surface both rather than hide one.
-  // For Local, the key block is replaced by the model-management block
-  // below (no cloud key needed for transcription, though Local still
-  // delegates cleanup to whichever cloud key is configured).
-  const keyField = (() => {
-    if (provider === 'openai') return { name: 'OpenAI', value: settings.provider.openaiKey, set: (v: string) => save({ openaiKey: v }), placeholder: 'sk-…', help: 'platform.openai.com/api-keys' }
-    if (provider === 'anthropic') return { name: 'Anthropic', value: settings.provider.anthropicKey, set: (v: string) => save({ anthropicKey: v }), placeholder: 'sk-ant-…', help: 'console.anthropic.com' }
-    return { name: 'Groq', value: settings.provider.groqKey, set: (v: string) => save({ groqKey: v }), placeholder: 'gsk_…', help: 'console.groq.com' }
-  })()
+  // Cleanup always uses the Groq key — even when transcription is local,
+  // cleanup needs an LLM. So we always surface the Groq key field.
+  const keyField = {
+    name: 'Groq',
+    value: settings.provider.groqKey,
+    set: (v: string) => save({ groqKey: v }),
+    placeholder: 'gsk_…',
+    help: 'console.groq.com',
+  }
 
   return (
     <div className="max-w-[760px]">
@@ -135,10 +127,19 @@ export default function AIProviderTab() {
               ].join(' ')}
             >
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
-                     style={{ background: brandTileColor(p.brand) }}>
-                  <ProviderGlyph brand={p.brand} />
-                </div>
+                {/* Local provider shows the bare OpenFlow pill (no
+                    tile background) — it IS the brand mark. Groq keeps
+                    the colored tile so its wordmark has contrast. */}
+                {p.brand === 'local' ? (
+                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                    <ProviderGlyph brand={p.brand} />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0"
+                       style={{ background: brandTileColor(p.brand) }}>
+                    <ProviderGlyph brand={p.brand} />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2">
                     <span className="text-[13.5px] font-semibold">{p.name}</span>
@@ -160,13 +161,20 @@ export default function AIProviderTab() {
       </div>
 
       {provider === 'local' ? (
-        <LocalModelPanel
-          readiness={localReadiness}
-          progress={localProgress}
-          downloaded={downloaded}
-          selectedModel={settings.provider.localModel}
-          onSelectModel={(id) => save({ localModel: id })}
-        />
+        <>
+          <LocalModelPanel
+            readiness={localReadiness}
+            progress={localProgress}
+            downloaded={downloaded}
+            selectedModel={settings.provider.localModel}
+            onSelectModel={(id) => save({ localModel: id })}
+          />
+          <AutoAccurateToggle
+            value={settings.provider.localAutoAccurateInCode !== false}
+            onChange={(v) => save({ localAutoAccurateInCode: v })}
+            accurateDownloaded={!!downloaded['large-v3-turbo']}
+          />
+        </>
       ) : (
         <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
           <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45 mb-2">
@@ -237,7 +245,7 @@ function LocalModelPanel({
       <div className="bg-card border border-danger/40 rounded-[14px] px-4 py-4">
         <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">ffmpeg not found</div>
         <p className="text-[11.5px] text-ink-60 leading-relaxed">
-          Run <code className="font-mono">npm install</code> to pull <code className="font-mono">ffmpeg-static</code>, or reinstall OpenFlow.
+          Run <code className="font-mono">npm install</code> to pull <code className="font-mono">@ffmpeg-installer/ffmpeg</code>, or reinstall OpenFlow.
         </p>
       </div>
     )
@@ -258,6 +266,47 @@ function LocalModelPanel({
           onSelect={() => onSelectModel(m.id)}
         />
       ))}
+    </div>
+  )
+}
+
+// Smart-switch toggle: when on, the local provider auto-elevates to
+// Accurate for dictations into code/IDE contexts. Hidden when the
+// Accurate tier isn't downloaded — there's nothing to elevate to.
+function AutoAccurateToggle({
+  value,
+  onChange,
+  accurateDownloaded,
+}: {
+  value: boolean
+  onChange: (v: boolean) => void
+  accurateDownloaded: boolean
+}) {
+  if (!accurateDownloaded) return null
+  return (
+    <div className="mt-3 bg-card border border-ink-08 rounded-[14px] px-4 py-3.5 flex items-start gap-3">
+      <div className="flex-1 min-w-0">
+        <div className="text-[12.5px] font-semibold">Smart-switch in code editors</div>
+        <p className="text-[11px] text-ink-60 mt-1 leading-relaxed">
+          Use <span className="font-medium">Accurate</span> automatically when dictating into Cursor, VS Code, Terminal, etc. — for technical terms and brand names. Other apps keep your selected tier ({/* dynamic? */}fast, balanced, or accurate).
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!value)}
+        aria-pressed={value}
+        className={[
+          'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative',
+          value ? 'bg-ink' : 'bg-ink-08',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+            value ? 'left-[18px]' : 'left-0.5',
+          ].join(' ')}
+        />
+      </button>
     </div>
   )
 }
@@ -437,36 +486,30 @@ function BrandPill() {
   )
 }
 
-function ProviderGlyph({ brand }: { brand: 'openai' | 'anthropic' | 'groq' | 'local' }) {
-  if (brand === 'anthropic') return <BrandLogo brand="claude" size={22} />
-  // OpenAI and Groq aren't in our brand-asset folder yet — stylized
-  // monogram marks keep the provider row consistent without a hole.
-  if (brand === 'openai') {
-    return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path
-          d="M12 2.4c-.95 0-1.85.22-2.65.61a4.78 4.78 0 0 0-3.7 6.4 4.78 4.78 0 0 0 0 6.18 4.78 4.78 0 0 0 3.7 6.4 4.78 4.78 0 0 0 6.18 1.42 4.78 4.78 0 0 0 6.4-3.7 4.78 4.78 0 0 0 0-6.18 4.78 4.78 0 0 0-3.7-6.4A4.78 4.78 0 0 0 12 2.4Z"
-          stroke="#fff" strokeWidth="1.4" fill="none"/>
-      </svg>
-    )
-  }
+function ProviderGlyph({ brand }: { brand: 'groq' | 'local' }) {
   if (brand === 'local') {
-    // Stylized chip icon — evokes on-device compute.
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <rect x="6" y="6" width="12" height="12" rx="1.5" stroke="#fff" strokeWidth="1.4"/>
-        <rect x="9" y="9" width="6" height="6" fill="#fff" opacity="0.9"/>
-        <path d="M3 9h2M3 12h2M3 15h2M19 9h2M19 12h2M19 15h2M9 3v2M12 3v2M15 3v2M9 19v2M12 19v2M15 19v2" stroke="#fff" strokeWidth="1.2"/>
-      </svg>
+      <div style={{ transform: 'scale(0.5)' }}>
+        <BrandPill />
+      </div>
     )
   }
-  return <span className="text-[15px] font-bold text-white" style={{ fontFamily: 'system-ui' }}>G</span>
+  // Nominative reference to "Groq" using plain text rather than the
+  // wordmark image, which avoids modifying a third-party trademark.
+  // The Groq PNG (src/renderer/shared/logos/groq.png) is retained in
+  // the repo for reinstatement if Groq grants brand permission.
+  return (
+    <span
+      className="text-paper font-semibold tracking-tight"
+      style={{ fontSize: 13, lineHeight: 1 }}
+    >
+      Groq
+    </span>
+  )
 }
 
-function brandTileColor(brand: 'openai' | 'anthropic' | 'groq' | 'local'): string {
-  if (brand === 'openai')    return '#0F1011'
-  if (brand === 'anthropic') return '#D97757'
-  if (brand === 'local')     return '#1B2233' // deep navy — "your machine"
+function brandTileColor(brand: 'groq' | 'local'): string {
+  if (brand === 'local') return '#0E1118' // matches the pill's charcoal
   return '#F55036' // Groq orange
 }
 

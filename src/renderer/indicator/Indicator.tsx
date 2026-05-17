@@ -538,21 +538,20 @@ export default function Indicator() {
                 filter: `drop-shadow(0 0 3px ${accentGlow})`,
               }}
             />
-            {/* When we have a live partial transcript, show its tail
-                (last ~32 chars) so the user sees words appearing in
-                real-time. Falls back to the static "polishing…" label
-                when no partial has arrived yet (very short clips
-                finish before the first segment callback fires, cloud
-                providers don't stream at all). */}
+            {/* Static label. We DELIBERATELY don't paint the live
+                partial transcript here even though it's plumbed all
+                the way through — whisper.cpp emits segments every
+                ~10s of audio internally, so on typical dictations
+                (2-15s) the first partial arrives at the very end and
+                the visible "streaming" is more jarring than useful.
+                Keeping the partial state wired in for future use
+                (e.g. very long Accurate dictations); just not
+                surfacing it in the pill. */}
             <span
-              className="text-[15px] leading-none text-white/95 max-w-[280px] truncate"
+              className="text-[15px] leading-none text-white/95"
               style={labelStyle}
             >
-              {partial
-                ? (partial.length > 40
-                    ? '…' + partial.slice(-40)
-                    : partial)
-                : 'polishing…'}
+              polishing…
             </span>
           </>
         )}

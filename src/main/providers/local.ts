@@ -10,6 +10,7 @@ import { logInfo } from '../log'
 import { localModelDownloaded, localModelPath, DEFAULT_LOCAL_MODEL } from '../local-models'
 import { ffmpegPath, ffmpegAvailable } from '../local-binaries'
 import { getSettings } from '../store'
+import { getFocusedApp } from '../focused-app'
 import { workerTranscribe, workerFree } from '../whisper-host'
 
 // Whisper-cpp hallucinates these strings on silent / near-silent
@@ -49,7 +50,7 @@ export class LocalModelMissingError extends Error {
 export class LocalBinaryMissingError extends Error {
   constructor(which: 'ffmpeg') {
     super(
-      `ffmpeg is not installed. \`npm install\` should have pulled ffmpeg-static; try removing node_modules and reinstalling.`
+      `ffmpeg is not installed. \`npm install\` should have pulled @ffmpeg-installer/ffmpeg; try removing node_modules and reinstalling.`
     )
     this.name = 'LocalBinaryMissingError'
     void which
@@ -58,7 +59,32 @@ export class LocalBinaryMissingError extends Error {
 
 function selectedModelId(): LocalModelId {
   try {
-    return getSettings().provider.localModel ?? DEFAULT_LOCAL_MODEL
+    const settings = getSettings()
+    const userPick = settings.provider.localModel ?? DEFAULT_LOCAL_MODEL
+    // Auto-elevate to Accurate when the user is dictating into a
+    // code-y context (IDE, terminal). Technical terms / brand names
+    // / camelCase identifiers benefit disproportionately from the
+    // large model's vocabulary breadth — small.en happily turns
+    // "useEffect" into "use effect", "Claude Code" into "cloud
+    // code", "TypeScript" into "type script". Auto-switching here
+    // costs ~1s extra inference per code-context dictation but keeps
+    // the lightning-fast Balanced/Fast path for the 90% of
+    // dictations that are casual messaging or notes.
+    //
+    // Opt-out via settings.provider.localAutoAccurateInCode = false.
+    // Only elevates UPWARD — if the user explicitly picked Accurate,
+    // we don't downgrade them.
+    if (settings.provider.localAutoAccurateInCode !== false && userPick !== 'large-v3-turbo') {
+      try {
+        const focused = getFocusedApp()
+        const isCode = focused.category === 'code'
+          || settings.devModeApps.includes(focused.bundleId)
+        if (isCode && localModelDownloaded('large-v3-turbo')) {
+          return 'large-v3-turbo'
+        }
+      } catch { /* fall through to user pick */ }
+    }
+    return userPick
   } catch {
     return DEFAULT_LOCAL_MODEL
   }

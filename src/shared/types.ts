@@ -2,7 +2,7 @@ export type AppCategory = 'messaging' | 'email' | 'code' | 'docs' | 'other'
 
 export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
 
-export type Provider = 'groq' | 'openai' | 'anthropic' | 'local'
+export type Provider = 'groq' | 'local'
 
 // On-device whisper model tier. See src/main/local-models.ts for the
 // full info per tier. Default `small` (multilingual) is the
@@ -14,11 +14,15 @@ export type LocalModelId = 'base' | 'small' | 'large-v3-turbo'
 export interface ProviderSettings {
   provider: Provider
   groqKey: string
-  openaiKey: string
-  anthropicKey: string
   transcriptionModel: string
   cleanupModel: string
   localModel: LocalModelId
+  // When true (default), the local provider auto-elevates to
+  // large-v3-turbo (Accurate) for dictations into code/IDE contexts.
+  // Trade ~1s extra inference for noticeably better transcription
+  // of technical terms, camelCase, and brand names. Disable to lock
+  // the user's selected tier for every dictation regardless of app.
+  localAutoAccurateInCode?: boolean
 }
 
 export interface HotkeySettings {
@@ -105,4 +109,10 @@ export const IPC = {
   LOCAL_MODEL_CANCEL: 'local-model:cancel',
   LOCAL_MODEL_UNINSTALL: 'local-model:uninstall',
   LOCAL_MODEL_PROGRESS: 'local-model:progress',
+  // Idle-pill quick actions — fired from the persistent pill at the
+  // bottom of the screen. These mirror what hotkeys do, so the indicator
+  // can act as a clickable shortcut without rebinding hotkeys.
+  INDICATOR_TOGGLE_RECORD: 'indicator:toggle-record',
+  INDICATOR_PASTE_LAST: 'indicator:paste-last',
+  INDICATOR_POLISH_SELECTION: 'indicator:polish-selection',
 } as const

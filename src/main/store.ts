@@ -8,11 +8,10 @@ const defaults: Settings = {
   provider: {
     provider: 'groq',
     groqKey: '',
-    openaiKey: '',
-    anthropicKey: '',
     transcriptionModel: MODELS.groq.transcription,
     cleanupModel: MODELS.groq.cleanup,
     localModel: DEFAULT_LOCAL_MODEL,
+    localAutoAccurateInCode: true,
   },
   hotkeys: DEFAULT_HOTKEYS,
   perAppRules: [],
