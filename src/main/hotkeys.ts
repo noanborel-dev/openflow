@@ -19,20 +19,29 @@ let callbacks: Callbacks | null = null
 //  - HOLD: press + hold => record while held; release stops.
 //  - SINGLE TAP (toggle): tap once, recording stays on until next press.
 //  - DOUBLE TAP: two presses within dblTapWindowMs => paste last
-//    transcription. Any recording in progress when the second tap
-//    arrives is aborted (no paste from this session).
+//    transcription. The indicator pill never lights up — clean paste,
+//    no flicker.
 //
-// Because we can't predict whether a press is "first of double-tap" or
-// "single tap that turns on recording", we start recording immediately
-// on every DOWN. If a second DOWN arrives in time, we abort that fresh
-// recording and fire pasteLast instead. The user sees a brief flicker
-// of the indicator on a true double-tap — acceptable for the simpler
-// mental model.
+// The trick: we DEFER firing fireStart() by HOTKEY_TIMING.startDelayMs
+// (~180ms) after DOWN. During that window:
+//   - If a second DOWN arrives → it's a double-tap. Cancel the
+//     deferred start (pill never lit). Fire onPasteLast on the second
+//     UP (after the modifier key is physically released, so injecting
+//     ⌘V doesn't produce ⌃⌘V).
+//   - If UP arrives → it was a quick tap. Fire fireStart NOW
+//     (recording becomes live, tap-toggle mode entered).
+//   - If the window expires with key still held → it's a hold. Fire
+//     fireStart NOW, recording becomes live, release will stop it.
+// In all three cases the user perceives the recording starting at
+// the moment that disambiguates their intent. Hold feels instant
+// (the 180ms is invisible because they're still pressing). Tap
+// feels instant on release. Double-tap never shows the pill.
 let pressedAt = 0      // timestamp of current keydown, 0 if not pressed
 let lastTapAt = 0      // timestamp of last tap-toggle release (for double-tap detection)
 let locked = false     // true while a tap-toggle session is in progress (after a tap)
 let active = false     // true while a recording session is live (start fired, stop not yet)
 let pendingPasteLast = false  // double-tap detected on this DOWN; fire onPasteLast on the matching UP
+let startDelayTimer: ReturnType<typeof setTimeout> | null = null  // pending fireStart, cancellable by a second DOWN
 
 // Map the user-facing key name to the set of node-global-key-listener key names
 // that should match. "CTRL" matches either LEFT or RIGHT control.
@@ -64,11 +73,30 @@ function fireAbort(): void {
   callbacks?.onAbort()
 }
 
+function cancelStartDelay(): void {
+  if (startDelayTimer) {
+    clearTimeout(startDelayTimer)
+    startDelayTimer = null
+  }
+}
+
+// Force-fire the deferred fireStart immediately. Used when we
+// disambiguate the user's intent BEFORE the delay expires (e.g. UP
+// arrives within the delay window → it was a tap, start now).
+function flushStartDelay(): void {
+  if (startDelayTimer) {
+    clearTimeout(startDelayTimer)
+    startDelayTimer = null
+    fireStart()
+  }
+}
+
 export function registerHotkey(key: string, cbs: Callbacks): void {
   if (listener) {
     listener.kill()
     listener = null
   }
+  cancelStartDelay()
   currentKey = key
   callbacks = cbs
   pressedAt = 0
@@ -90,41 +118,58 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       if (pressedAt !== 0) return
       pressedAt = now
 
-      // Double-tap window: this is the SECOND press within the window
-      // since the prior tap. Abort whatever just started (and the locked
-      // tap-toggle session if there was one) and paste the last
-      // transcription instead.
-      //
-      // We DO NOT fire onPasteLast here yet — when the hotkey is a
-      // modifier (Option, Ctrl, etc.), the modifier is physically held
-      // at this moment, and injecting ⌘V on top of it produces
-      // ⌥⌘V / ⌃⌘V which most apps don't bind (or worse: bind to
-      // "paste and match style"). We defer to the matching UP so the
-      // modifier is fully released before pasteText fires.
+      // ── Case 1: Double tap. Second DOWN within dblTapWindowMs of the
+      // prior tap-release. Cancel the deferred start (pill never lit),
+      // abort any tap-toggle session in progress, fire onPasteLast on
+      // the matching UP (modifier physically released by then so ⌘V
+      // doesn't compound to ⌃⌘V).
       if (lastTapAt !== 0 && now - lastTapAt <= HOTKEY_TIMING.dblTapWindowMs) {
         lastTapAt = 0
+        cancelStartDelay()
         const wasLocked = locked
         locked = false
         if (wasLocked) {
-          // The first tap entered tap-toggle mode and recording is still
-          // live from that earlier session — abort it; user wants paste.
+          // The earlier tap entered tap-toggle mode and recording is
+          // still live — abort it. User wants paste, not a transcript.
           fireAbort()
         }
         pendingPasteLast = true
         return
       }
 
-      // If we're already locked from a prior tap, this press ends that
-      // session normally (tap toggle off).
+      // ── Case 2: User is in a locked tap-toggle session and just
+      // pressed again to end it. Stop recording cleanly. No defer.
       if (locked) {
         locked = false
         fireStop()
         return
       }
 
-      // Otherwise: start of a new recording. Could be a hold or a tap;
-      // UP will decide.
-      fireStart()
+      // ── Case 3: Fresh press. Could be the first of a double-tap, a
+      // single tap (→ toggle), or a hold. We don't know yet, so we
+      // DEFER fireStart by startDelayMs. When the timer expires:
+      //   - If key is still pressed → it's a hold, fireStart only.
+      //   - If key was released → it was a single tap, fireStart +
+      //     enter tap-toggle mode.
+      // If a second DOWN arrives before the timer expires (case 1
+      // above), we cancel the timer entirely — the pill never lit
+      // and paste-last fires on the second UP.
+      cancelStartDelay()
+      startDelayTimer = setTimeout(() => {
+        startDelayTimer = null
+        fireStart()
+        if (pressedAt === 0) {
+          // Key was released during the deferred window → single tap.
+          // Enter tap-toggle mode. lastTapAt was set on the UP so a
+          // follow-up DOWN within dblTapWindowMs still counts as
+          // double-tap (but the dbl-tap window starts from the UP
+          // moment, which is well before this timer fires — by the
+          // time the timer fires, double-tap detection has already
+          // played out via case 1 if it was going to happen).
+          locked = true
+        }
+        // else: still held → hold-to-talk; release will stop.
+      }, HOTKEY_TIMING.startDelayMs)
     } else if (e.state === 'UP') {
       if (pressedAt === 0) return
       const held = now - pressedAt
@@ -138,21 +183,28 @@ export function registerHotkey(key: string, cbs: Callbacks): void {
       }
 
       if (locked) {
-        // UP during an already-locked tap-toggle session is irrelevant.
+        // UP during an already-locked tap-toggle session is irrelevant
+        // (the lock was set on the previous tap; this UP belongs to
+        // the press that ended the lock — already handled in DOWN).
         return
       }
 
-      if (held < HOTKEY_TIMING.holdThresholdMs) {
-        // Quick tap: enter tap-toggle mode and remember the timestamp
-        // so a follow-up press within dblTapWindowMs counts as double-tap.
-        locked = true
+      // Released within the deferred-start window → it was a quick
+      // tap. Mark lastTapAt so a follow-up DOWN within dblTapWindowMs
+      // is caught as double-tap (case 1, which cancels the deferred
+      // timer cleanly). The timer itself keeps running; when it
+      // expires it sees pressedAt === 0 and enters tap-toggle mode.
+      if (startDelayTimer) {
         lastTapAt = now
         return
       }
 
-      // Real hold: release stops recording, no double-tap window.
+      // No pending timer means fireStart already ran (user held past
+      // startDelayMs). Hold-release: stop recording.
       lastTapAt = 0
       fireStop()
+      // unused but keeps TS happy if you ever read `held` for debug
+      void held
     }
   })
 }
@@ -162,6 +214,7 @@ export function unregisterHotkey(): void {
     listener.kill()
     listener = null
   }
+  cancelStartDelay()
   currentKey = null
   callbacks = null
   pressedAt = 0

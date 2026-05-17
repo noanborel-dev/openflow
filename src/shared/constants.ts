@@ -6,11 +6,24 @@ export const DEFAULT_HOTKEYS = {
 }
 
 // Thresholds for hold-to-talk + double-tap interaction.
-// dblTapWindowMs widened to 500ms — natural double-clicks frequently
-// span 350–450ms, and the snappier window made paste-last feel broken.
+//
+// dblTapWindowMs (500ms): natural double-clicks frequently span
+//   350-450ms; a snappier window made paste-last feel broken.
+// holdThresholdMs (150ms): release before this counts as a tap;
+//   release after it counts as a hold-release (stop recording).
+// startDelayMs (180ms): we DEFER firing fireStart() by this much
+//   after DOWN so single tap vs double tap can be disambiguated
+//   BEFORE the indicator pill flashes "listening." A real hold
+//   feels instant — the user's still pressing when 180ms passes
+//   and recording lights up. A double tap (second DOWN within
+//   180ms of the first DOWN) cancels the deferred start: the
+//   pill never lights up at all, paste-last fires cleanly. A
+//   quick tap (release within 180ms) also fires fireStart at
+//   release time, immediately entering tap-toggle mode.
 export const HOTKEY_TIMING = {
   holdThresholdMs: 150,
   dblTapWindowMs: 500,
+  startDelayMs: 180,
 }
 
 export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
@@ -124,15 +137,6 @@ export const MODELS: Record<Provider, { transcription: string; cleanup: string }
     // for "remove fillers + fix capitalization" tasks the quality
     // delta is negligible while the latency win is large.
     cleanup: 'llama-3.1-8b-instant',
-  },
-  openai: {
-    transcription: 'whisper-1',
-    cleanup: 'gpt-4o-mini',
-  },
-  anthropic: {
-    // No Anthropic transcription model — callers use Groq for transcription
-    transcription: 'whisper-large-v3',
-    cleanup: 'claude-3-haiku-20240307',
   },
   local: {
     // whisper.cpp model filename (without path). The model lives in
