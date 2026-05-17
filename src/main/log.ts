@@ -29,13 +29,18 @@ function safeStringify(v: unknown): string {
 
 export function logInfo(msg: string, data?: unknown): void {
   const line = fmt('INFO', msg, data)
-  process.stdout.write(line)
+  // Guard against EIO from a closed stdout pipe — happens when the
+  // terminal that launched the dev process disappears OR when the
+  // utility/child process's stdio gets torn down mid-flight. Without
+  // the catch, a single failed write throws an uncaught exception
+  // and Electron terminates the app.
+  try { process.stdout.write(line) } catch { /* best-effort */ }
   try { appendFileSync(LOG_PATH, line) } catch { /* best-effort */ }
 }
 
 export function logError(msg: string, err: unknown): void {
   const line = fmt('ERROR', msg, err)
-  process.stderr.write(line)
+  try { process.stderr.write(line) } catch { /* best-effort */ }
   try { appendFileSync(LOG_PATH, line) } catch { /* best-effort */ }
 }
 
