@@ -490,7 +490,15 @@ function setupAudioIpc(): void {
       const result = await runDictationPipeline(
         audioBuffer,
         getSettings(),
-        (s) => { if (stillLatest()) broadcastState(s) }
+        (s) => { if (stillLatest()) broadcastState(s) },
+        // Streaming partial transcript — sent as `partial:<text>` so
+        // the indicator can show words appearing while inference is
+        // still running. Falls back silently for cloud providers that
+        // don't stream. Critically, we DON'T promote partial to the
+        // tracked state in broadcastState (it's not a state); the
+        // pill's renderer just paints the latest partial text when
+        // in 'processing' state.
+        (text) => { if (stillLatest()) broadcastState(`partial:${text}`) }
       )
 
       addToHistory(result)

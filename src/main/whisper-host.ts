@@ -28,6 +28,11 @@ import type { TranscribeOptions } from '@fugood/whisper.node'
 interface PendingRequest {
   resolve: (result: { text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }) => void
   reject: (err: Error) => void
+  // Streaming partial-transcript callback. Each call carries the
+  // cumulative transcript so far. Used by the indicator to show
+  // words as they're produced rather than waiting for the final
+  // result on long clips.
+  onPartial?: (text: string) => void
 }
 
 let proc: ChildProcess | null = null
@@ -113,6 +118,17 @@ function handleWorkerMessage(
     }
     return
   }
+  if (type === 'partial') {
+    const id = msg.id as number
+    const req = pending.get(id)
+    if (!req || !req.onPartial) return
+    try {
+      req.onPartial(msg.text as string)
+    } catch (err) {
+      logError('onPartial callback threw', { error: String(err) })
+    }
+    return
+  }
   if (type === 'result') {
     const id = msg.id as number
     const req = pending.get(id)
@@ -171,11 +187,12 @@ export async function workerTranscribe(
   modelPath: string,
   pcm: ArrayBuffer,
   options: TranscribeOptions,
+  onPartial?: (text: string) => void,
 ): Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }> {
   await loadModel(modelPath)
   const id = nextRequestId++
   const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
-    pending.set(id, { resolve, reject })
+    pending.set(id, { resolve, reject, onPartial })
   })
   // Node IPC can't send ArrayBuffer directly. Buffer.from(pcm) wraps
   // it, then we encode as base64 in the message envelope. Worker

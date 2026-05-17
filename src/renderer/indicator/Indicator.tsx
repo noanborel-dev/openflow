@@ -28,6 +28,12 @@ export default function Indicator() {
   const [state, setState] = useState<IndicatorState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [waveform, setWaveform] = useState<number[]>(Array(6).fill(0))
+  // Live partial transcript streamed from the local provider's
+  // onNewSegments. Painted in the pill during 'processing' so the
+  // user sees words appearing as whisper produces them instead of
+  // waiting on the static "polishing…" label for the full inference
+  // duration. Cleared on state transitions out of processing.
+  const [partial, setPartial] = useState('')
   // Idle-pill UX state. `hovered` fades the small pill up to full
   // opacity and slightly scales it; `menuOpen` shows the click menu.
   const [hovered, setHovered] = useState(false)
@@ -75,10 +81,21 @@ export default function Indicator() {
         setState('error')
         return
       }
+      // Streaming partial transcript: don't change state, just paint
+      // the running text in the pill. Local provider fires these
+      // during processing on long clips.
+      if (s.startsWith('partial:')) {
+        setPartial(s.slice(8))
+        return
+      }
       const next = s as IndicatorState
       setState(next)
       if (next === 'recording') startRecording()
       else if (next === 'stopping') stopRecording()
+      // Clear the partial transcript when state moves away from
+      // processing so a stale fragment doesn't bleed into the next
+      // dictation's UI.
+      if (next !== 'processing') setPartial('')
       // Auto-close the click menu whenever state leaves idle (e.g.
       // recording started from a hotkey while the menu was open).
       if (next !== 'idle') setMenuOpen(false)
@@ -521,8 +538,21 @@ export default function Indicator() {
                 filter: `drop-shadow(0 0 3px ${accentGlow})`,
               }}
             />
-            <span className="text-[15px] leading-none text-white/95" style={labelStyle}>
-              polishing…
+            {/* When we have a live partial transcript, show its tail
+                (last ~32 chars) so the user sees words appearing in
+                real-time. Falls back to the static "polishing…" label
+                when no partial has arrived yet (very short clips
+                finish before the first segment callback fires, cloud
+                providers don't stream at all). */}
+            <span
+              className="text-[15px] leading-none text-white/95 max-w-[280px] truncate"
+              style={labelStyle}
+            >
+              {partial
+                ? (partial.length > 40
+                    ? '…' + partial.slice(-40)
+                    : partial)
+                : 'polishing…'}
             </span>
           </>
         )}

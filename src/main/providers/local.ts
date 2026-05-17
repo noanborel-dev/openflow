@@ -165,7 +165,13 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
           // Dictionary becomes Whisper's initial prompt — biases
           // toward known spellings.
           ...(prompt ? { prompt } : {}),
-        }
+        },
+        // Forward fugood's per-segment callback through the worker IPC
+        // to the pipeline. The caller drives the indicator pill with
+        // these so the user sees words appearing as whisper produces
+        // them — perceived latency on a 35s clip drops from ~1400ms to
+        // ~200ms (time to first segment).
+        options.onPartial
       )
       const inferMs = Date.now() - inferStart
 

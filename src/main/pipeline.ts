@@ -282,7 +282,13 @@ function applyLightCleanup(text: string): string {
 export async function runDictationPipeline(
   audioBuffer: Buffer,
   settings: Settings,
-  onState: (state: 'processing' | 'done' | 'error') => void
+  onState: (state: 'processing' | 'done' | 'error') => void,
+  // Streaming partial-transcript callback. Wired from the local
+  // provider's onNewSegments through the worker IPC. Callers can use
+  // it to update the indicator pill with running text so users see
+  // words as whisper produces them on long clips. No-op for cloud
+  // providers that don't stream.
+  onPartial?: (text: string) => void,
 ): Promise<DictationResult & { pasteMethod: 'paste' | 'clipboard' }> {
   const start = Date.now()
   onState('processing')
@@ -302,7 +308,7 @@ export async function runDictationPipeline(
 
   const tStart = Date.now()
   const transcript = (await withRetry('Transcription', () =>
-    transcription.transcribe(audioBuffer, { dictionary }))).trim()
+    transcription.transcribe(audioBuffer, { dictionary, onPartial }))).trim()
   logInfo('Transcribed', { ms: Date.now() - tStart, chars: transcript.length, preview: transcript.slice(0, 60) })
 
   await refreshFocusedApp
