@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { TranscriptionProvider } from './types'
+import type { TranscriptionProvider, CleanupProvider } from './types'
 import type { LocalModelId } from '../../shared/types'
 import { NoSpeechError } from '../errors'
 import { logInfo } from '../log'
@@ -242,4 +242,29 @@ export function localWhisperReadiness(): LocalReadiness {
 
 export function localWhisperReady(): boolean {
   return localWhisperReadiness().ready
+}
+
+// No-op cleanup provider for fully-local mode. Returns the transcript
+// unchanged — the regex passes in pipeline.ts (Light cleanup +
+// QUICK_FIXES brand-name fixes) already handle filler/stutter and
+// the most common Whisper mistranscriptions deterministically.
+//
+// What's lost without LLM cleanup:
+//   - Strict (L3) prose restructuring
+//   - List/bullet formatting from natural speech
+//   - Self-correction handling ("actually" / "scratch that")
+//   - Emoji injection (the EMOJI_BLOCK prompt is LLM-only)
+//
+// Users who want those polish features can still configure a Groq
+// key — pipeline.ts' buildProviders picks the Groq cleanup whenever
+// a key is present, regardless of transcription provider.
+export function createLocalCleanupProvider(): CleanupProvider {
+  return {
+    name: 'Local',
+    async cleanup(text) {
+      // Return whatever Whisper produced as-is. The pipeline's regex
+      // passes have already trimmed fillers and fixed brand names.
+      return text
+    },
+  }
 }

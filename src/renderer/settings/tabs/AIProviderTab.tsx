@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import groqLogo from '../../shared/logos/groq.png'
 import type { Settings, Provider, LocalModelId } from '../../../shared/types'
 import type { LocalModelProgress, LocalModelReadiness } from '../../global'
 import { MODELS } from '../../../shared/constants'
@@ -174,6 +175,46 @@ export default function AIProviderTab() {
             onChange={(v) => save({ localAutoAccurateInCode: v })}
             accurateDownloaded={!!downloaded['large-v3-turbo']}
           />
+          {/* Optional Groq key card for the Local provider. Without
+              this key, cleanup is a no-op and the regex-based
+              QUICK_FIXES + Light cleanup are all the polish you get.
+              With a key, the cloud LLM runs cleanup (prose
+              restructuring, list formatting, emoji injection, command
+              mode). Framed as "optional" so users who picked Local
+              for offline/privacy don't feel like they MUST add a key. */}
+          <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4 mt-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-ink-45">
+                Groq API Key
+              </div>
+              <span className="text-[10px] font-mono text-ink-45 italic">optional · enables polish</span>
+            </div>
+            <div className="flex items-stretch gap-2">
+              <input
+                type="password"
+                value={keyField.value}
+                onChange={(e) => keyField.set(e.target.value)}
+                placeholder={keyField.placeholder}
+                className="flex-1 bg-paper border border-ink-08 rounded-[10px] px-3 py-2.5 text-[12.5px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
+              />
+              <Pill variant="primary" onClick={testKey} disabled={testing || !keyField.value}>
+                {testing ? '…' : 'Test'}
+              </Pill>
+            </div>
+            <div className="flex items-center justify-between mt-2.5">
+              <p className="text-[10.5px] text-ink-45 leading-relaxed max-w-[440px]">
+                {keyField.value
+                  ? <>Without a key, dictations stay 100% on your Mac. With one, OpenFlow uses cloud cleanup for polish, list formatting, and command-mode rewrites.</>
+                  : <>Skip this to stay fully offline. Add a key later if you want polished prose, list formatting, or command-mode rewrites. <a onClick={() => window.open(`https://${keyField.help}`, '_blank')} className="text-ink-60 hover:text-ink underline cursor-pointer">Get a free Groq key ↗</a></>
+                }
+              </p>
+              {testResult && (
+                <span className={`text-[11px] font-medium ${testResult.ok ? 'text-ok' : 'text-danger'}`}>
+                  {testResult.ok ? '✓ Connected' : `✗ ${testResult.error}`}
+                </span>
+              )}
+            </div>
+          </div>
         </>
       ) : (
         <div className="bg-card border border-ink-08 rounded-[14px] px-4 py-4">
@@ -494,17 +535,13 @@ function ProviderGlyph({ brand }: { brand: 'groq' | 'local' }) {
       </div>
     )
   }
-  // Nominative reference to "Groq" using plain text rather than the
-  // wordmark image, which avoids modifying a third-party trademark.
-  // The Groq PNG (src/renderer/shared/logos/groq.png) is retained in
-  // the repo for reinstatement if Groq grants brand permission.
   return (
-    <span
-      className="text-paper font-semibold tracking-tight"
-      style={{ fontSize: 13, lineHeight: 1 }}
-    >
-      Groq
-    </span>
+    <img
+      src={groqLogo}
+      alt="Groq"
+      style={{ height: 14, width: 'auto' }}
+      draggable={false}
+    />
   )
 }
 

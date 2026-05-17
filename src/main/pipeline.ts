@@ -7,7 +7,7 @@ import {
   createGroqTranscriptionProvider,
   createGroqCleanupProvider,
 } from './providers/groq'
-import { createLocalWhisperProvider } from './providers/local'
+import { createLocalWhisperProvider, createLocalCleanupProvider } from './providers/local'
 import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { pasteText, probeFocusedAXRole, getPressTimeAXRolePromise } from './paste'
 import { logInfo, logError } from './log'
@@ -56,13 +56,24 @@ function buildProviders(
   const { provider, groqKey, transcriptionModel, cleanupModel } = settings.provider
 
   if (provider === 'local') {
-    // Local Whisper for transcription; cleanup still needs an LLM, so we
-    // delegate to the Groq key. If the user hasn't configured one, the
-    // cleanup call will surface a clear error rather than running a
-    // silent local identity pass that skips filler/stutter cleanup.
+    // Local Whisper for transcription. Cleanup is conditional:
+    //   - If the user has a Groq key configured, use it for LLM
+    //     polish (filler removal at Light, prose restructure at
+    //     Strict, list formatting, self-correction handling,
+    //     optional emoji injection).
+    //   - If NOT, fall back to a no-op cleanup so Local stays fully
+    //     offline. The pipeline's regex passes (Light cleanup +
+    //     QUICK_FIXES brand-name fixes) still apply.
+    //
+    // This matches the "Local means local" promise: a user who
+    // picks Local and never configures Groq must never see a network
+    // call (and must never see Groq's "Invalid API Key" error).
+    const cleanup = groqKey.trim().length > 0
+      ? createGroqCleanupProvider(groqKey, MODELS.groq.cleanup)
+      : createLocalCleanupProvider()
     return {
       transcription: createLocalWhisperProvider(),
-      cleanup: createGroqCleanupProvider(groqKey, MODELS.groq.cleanup),
+      cleanup,
     }
   }
 
@@ -442,6 +453,15 @@ export async function runCommandPipeline(
   selectedText: string,
   settings: Settings
 ): Promise<string> {
+  // Command mode ("rewrite my selection with this voice instruction")
+  // fundamentally requires an LLM — there's no regex-able way to
+  // "make this paragraph shorter" or "translate to French". On Local
+  // with no Groq key configured the cleanup provider is a no-op,
+  // which would silently paste the raw spoken command instead of
+  // the rewritten selection. Surface the requirement instead.
+  if (settings.provider.provider === 'local' && settings.provider.groqKey.trim().length === 0) {
+    throw new Error('Command mode (rewrite selection) requires a cloud LLM. Add a Groq key in Settings → AI Provider, or use plain dictation by pressing the hotkey without a text selection.')
+  }
   const { transcription, cleanup } = buildProviders(settings)
   const dictionary = buildDictionary(settings)
   // Same release-time refresh as the dictation pipeline — see comment
