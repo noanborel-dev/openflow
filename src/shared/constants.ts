@@ -139,10 +139,15 @@ export const IDE_EDITORS: Record<string, IdeEditor> = {
 
 export const MODELS: Record<Provider, { transcription: string; cleanup: string }> = {
   groq: {
-    // Non-turbo large-v3 — slower than turbo by ~30% but meaningfully
-    // more accurate on noisy / accented audio. We accept the latency
-    // hit for fewer mistranscriptions.
-    transcription: 'whisper-large-v3',
+    // whisper-large-v3-turbo (NOT v3). Same accuracy on clean
+    // dictation audio (2.2% vs 2.4% WER per Groq's public eval),
+    // 2.78x cheaper ($0.04/hr vs $0.111/hr), measurably faster on
+    // typical 5-20s clips. The earlier comment claiming v3 was
+    // "meaningfully more accurate on noisy/accented audio" was from
+    // an earlier Groq turbo release; current turbo has caught up.
+    // Re-bench with scripts/bench-groq-whisper.mjs before any future
+    // swap-back.
+    transcription: 'whisper-large-v3-turbo',
     // 8B-instant runs roughly 3× faster than 70B-versatile on Groq;
     // for "remove fillers + fix capitalization" tasks the quality
     // delta is negligible while the latency win is large.

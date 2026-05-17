@@ -39,6 +39,13 @@ const STALE_CLEANUP_MODELS: Record<string, string> = {
   'llama-3.3-70b-versatile': MODELS.groq.cleanup,
 }
 
+// Same idea for transcription: users persisted from when we used
+// whisper-large-v3. Turbo is 2.78x cheaper and effectively same
+// accuracy on dictation audio. Force-upgrade.
+const STALE_TRANSCRIPTION_MODELS: Record<string, string> = {
+  'whisper-large-v3': MODELS.groq.transcription,
+}
+
 export function getSettings(): Settings {
   // Backfill missing fields for users upgrading from older versions whose
   // persisted store predates these defaults.
@@ -102,6 +109,16 @@ export function getSettings(): Settings {
   const replacement = STALE_CLEANUP_MODELS[persisted]
   if (replacement) {
     merged.provider.cleanupModel = replacement
+    store.set('provider', merged.provider)
+  }
+
+  // Same migration for stale transcription model. Force-upgrade
+  // whisper-large-v3 → whisper-large-v3-turbo. Run scripts/bench-
+  // groq-whisper.mjs if you want to verify the swap is a net win.
+  const persistedTrans = merged.provider.transcriptionModel
+  const transReplacement = STALE_TRANSCRIPTION_MODELS[persistedTrans]
+  if (transReplacement) {
+    merged.provider.transcriptionModel = transReplacement
     store.set('provider', merged.provider)
   }
 
