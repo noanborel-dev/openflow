@@ -31,6 +31,7 @@ import { captureSelectedText, clearSelectedText, getSelectedText } from './selec
 import { pasteText, prewarmPasteHelper, shutdownPasteHelper, captureAXRoleAtPress, getPressTimeAXRolePromise } from './paste'
 import { prewarmWhisper } from './whisper-host'
 import { localModelDownloaded, localModelPath } from './local-models'
+import { prewarmModelId } from './providers/local'
 import { toUserError } from './errors'
 import { logError, logInfo, getLogPath } from './log'
 import { IPC } from '../shared/types'
@@ -672,7 +673,12 @@ app.whenReady().then(() => {
   // app startup instead.
   if (settings.provider.provider === 'local') {
     try {
-      const modelId = settings.provider.localModel
+      // Prewarm the model most likely to be used FIRST. If smart-
+      // switch is on and Accurate is downloaded, prewarm Accurate
+      // (code/email/long dictations all elevate there; getting that
+      // hot first avoids paying ~1s of cold-load on the first
+      // important dictation). Otherwise prewarm user's picked tier.
+      const modelId = prewarmModelId()
       if (localModelDownloaded(modelId)) {
         prewarmWhisper(localModelPath(modelId))
       }

@@ -327,9 +327,18 @@ function AutoAccurateToggle({
   return (
     <div className="mt-3 bg-card border border-ink-08 rounded-[14px] px-4 py-3.5 flex items-start gap-3">
       <div className="flex-1 min-w-0">
-        <div className="text-[12.5px] font-semibold">Smart-switch in code editors</div>
+        <div className="text-[12.5px] font-semibold">Smart-switch to Accurate</div>
         <p className="text-[11px] text-ink-60 mt-1 leading-relaxed">
-          Use <span className="font-medium">Accurate</span> automatically when dictating into Cursor, VS Code, Terminal, etc. — for technical terms and brand names. Other apps keep your selected tier ({/* dynamic? */}fast, balanced, or accurate).
+          Automatically use <span className="font-medium">Accurate</span> when it matters more:
+        </p>
+        <ul className="text-[11px] text-ink-60 mt-1 leading-relaxed list-disc pl-4 space-y-0.5">
+          <li>Code editors (Cursor, VS Code, Terminal) — always</li>
+          <li>Email (Gmail, Mail, Outlook) — for dictations over 8s</li>
+          <li>Docs (Notion, Word, Pages) — for dictations over 12s</li>
+          <li>Any app — for dictations over 20s</li>
+        </ul>
+        <p className="text-[11px] text-ink-60 mt-1.5 leading-relaxed">
+          Short casual dictations stay on your selected tier for speed.
         </p>
       </div>
       <button

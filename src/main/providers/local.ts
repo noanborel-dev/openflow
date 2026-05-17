@@ -58,48 +58,130 @@ export class LocalBinaryMissingError extends Error {
 }
 
 // Reason the active model was chosen. Used in logs so the user can
-// tell at a glance whether auto-switch fired, why, and whether they
-// could have gotten a faster path.
+// tell at a glance whether auto-switch fired and why.
 type ModelSelectionReason =
   | 'user-pick'           // user's selected tier in Settings
-  | 'auto-code'           // auto-elevated to Accurate because focused app is code/IDE
+  | 'auto-code'           // code/IDE — always elevate to Accurate
+  | 'auto-email-long'     // email + audio long enough that polish matters
+  | 'auto-docs-long'      // long-form doc — content stakes are high
+  | 'auto-long'           // generic-context dictation, ≥ long threshold
   | 'default'             // settings unreadable, fell back to DEFAULT_LOCAL_MODEL
 
-function selectedModel(): { id: LocalModelId; reason: ModelSelectionReason; focusedBundleId?: string } {
+// Auto-switch thresholds in seconds. Tuned for typical M-series speed
+// where Balanced is ~250ms/clip regardless of length and Accurate is
+// ~5x slower. Length is a proxy for "how bad would a misheard word
+// feel?" — a one-liner is fine on Balanced; a paragraph in an email
+// is worth the extra second to get right.
+const AUTO_THRESHOLDS = {
+  // Email is a higher-stakes app — even short emails benefit from
+  // proper capitalization and brand-name accuracy. Use a low bar.
+  emailSeconds: 8,
+  // Docs (Notion, Word, Pages) — long-form writing. Polish matters
+  // after ~12s of content.
+  docsSeconds: 12,
+  // Everything else (messaging, browser, other apps) — only elevate
+  // when audio gets long enough that the chance of a Balanced
+  // mistake compounds.
+  longSeconds: 20,
+} as const
+
+function selectedModel(audioSeconds: number): { id: LocalModelId; reason: ModelSelectionReason; focusedBundleId?: string } {
   try {
     const settings = getSettings()
     const userPick = settings.provider.localModel ?? DEFAULT_LOCAL_MODEL
-    // Auto-elevate to Accurate when the user is dictating into a
-    // code-y context (IDE, terminal). Technical terms / brand names
-    // / camelCase identifiers benefit disproportionately from the
-    // large model's vocabulary breadth — small.en happily turns
-    // "useEffect" into "use effect", "Claude Code" into "cloud
-    // code", "TypeScript" into "type script". Auto-switching costs
-    // ~1s extra inference per code-context dictation but keeps the
-    // lightning-fast Balanced/Fast path for the 90% of dictations
-    // that are casual messaging or notes.
-    //
-    // Opt-out via settings.provider.localAutoAccurateInCode = false.
-    // Only elevates UPWARD — if the user explicitly picked Accurate,
-    // we don't downgrade them.
-    if (settings.provider.localAutoAccurateInCode !== false && userPick !== 'large-v3-turbo') {
-      try {
-        const focused = getFocusedApp()
-        const isCode = focused.category === 'code'
-          || settings.devModeApps.includes(focused.bundleId)
-        if (isCode && localModelDownloaded('large-v3-turbo')) {
-          return { id: 'large-v3-turbo', reason: 'auto-code', focusedBundleId: focused.bundleId }
-        }
-      } catch { /* fall through to user pick */ }
+
+    // Smart-switch off — always honor user's pick.
+    if (settings.provider.localAutoAccurateInCode === false) {
+      return { id: userPick, reason: 'user-pick' }
     }
+    // User already picked Accurate — no elevation needed.
+    if (userPick === 'large-v3-turbo') {
+      return { id: userPick, reason: 'user-pick' }
+    }
+    // Accurate must be downloaded for any auto-elevation to fire.
+    if (!localModelDownloaded('large-v3-turbo')) {
+      return { id: userPick, reason: 'user-pick' }
+    }
+
+    let focused
+    try {
+      focused = getFocusedApp()
+    } catch {
+      return { id: userPick, reason: 'user-pick' }
+    }
+
+    // Code / IDE / terminal — ALWAYS elevate to Accurate regardless
+    // of audio length. Technical terms and brand names need the
+    // larger vocabulary. "Claude Code" / "useEffect" / "GPT-4" /
+    // "tRPC" come through cleanly on large; Balanced mangles them
+    // and the QUICK_FIXES regex only catches the most common.
+    const isCode = focused.category === 'code'
+      || settings.devModeApps.includes(focused.bundleId)
+    if (isCode) {
+      return { id: 'large-v3-turbo', reason: 'auto-code', focusedBundleId: focused.bundleId }
+    }
+
+    // Email — elevate at a low audio-length threshold (8s). Even a
+    // short email is high-stakes; "GPT 4" → "GPT for" in a work
+    // email looks unprofessional.
+    if (focused.category === 'email' && audioSeconds >= AUTO_THRESHOLDS.emailSeconds) {
+      return { id: 'large-v3-turbo', reason: 'auto-email-long', focusedBundleId: focused.bundleId }
+    }
+
+    // Docs (Notion, Word, Pages) — elevate at the longer 12s
+    // threshold. Long-form writing benefits from polish.
+    if (focused.category === 'docs' && audioSeconds >= AUTO_THRESHOLDS.docsSeconds) {
+      return { id: 'large-v3-turbo', reason: 'auto-docs-long', focusedBundleId: focused.bundleId }
+    }
+
+    // Generic catch-all: any dictation over 20s in any app benefits
+    // from Accurate. By then there's enough text that a single
+    // missed term feels worse than the latency hit.
+    if (audioSeconds >= AUTO_THRESHOLDS.longSeconds) {
+      return { id: 'large-v3-turbo', reason: 'auto-long', focusedBundleId: focused.bundleId }
+    }
+
     return { id: userPick, reason: 'user-pick' }
   } catch {
     return { id: DEFAULT_LOCAL_MODEL, reason: 'default' }
   }
 }
 
-function selectedModelId(): LocalModelId {
-  return selectedModel().id
+// Best-guess tier for prewarm (no audio yet). Returns the model the
+// user is MOST LIKELY to need first. If auto-switch is on AND
+// Accurate is downloaded, prewarm Accurate — the code/email/long
+// dictation paths all elevate there, and those are the slow-path
+// users notice most. Otherwise prewarm the user's picked tier.
+//
+// The worker can swap models between dictations (~150ms reload),
+// so an occasional miss isn't catastrophic — just one slow first
+// transition. Optimizing for the common case.
+export function prewarmModelId(): LocalModelId {
+  try {
+    const settings = getSettings()
+    const userPick = settings.provider.localModel ?? DEFAULT_LOCAL_MODEL
+    if (
+      settings.provider.localAutoAccurateInCode !== false
+      && userPick !== 'large-v3-turbo'
+      && localModelDownloaded('large-v3-turbo')
+    ) {
+      return 'large-v3-turbo'
+    }
+    return userPick
+  } catch {
+    return DEFAULT_LOCAL_MODEL
+  }
+}
+
+// Cheap accessor for the user's selected tier WITHOUT consulting
+// focused app or audio length. Used by readiness check + uninstall
+// gating; for actual transcription, use selectedModel(audioSeconds).
+function userPickedModelId(): LocalModelId {
+  try {
+    return getSettings().provider.localModel ?? DEFAULT_LOCAL_MODEL
+  } catch {
+    return DEFAULT_LOCAL_MODEL
+  }
 }
 
 // Force-release the worker's WhisperContext. Called from the uninstall
@@ -161,30 +243,50 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
     name: 'Local',
     async transcribe(audio, options = {}) {
       if (!ffmpegAvailable()) throw new LocalBinaryMissingError('ffmpeg')
-      const selection = selectedModel()
-      const modelId = selection.id
-      if (!localModelDownloaded(modelId)) throw new LocalModelMissingError()
-
-      // Make the model decision LOUD in the logs. Especially important
-      // because auto-elevate to Accurate can surprise users with a 5x
-      // latency hit ("why is this slow when I have Balanced picked?").
-      // Now they see exactly which model fired and why.
-      const tierLabel =
-        modelId === 'large-v3-turbo' ? 'ACCURATE (large-v3-turbo)' :
-        modelId === 'small' ? 'BALANCED (small)' :
-        'FAST (base)'
-      const reasonLabel =
-        selection.reason === 'auto-code'
-          ? `auto-elevated to Accurate — focused app ${selection.focusedBundleId} is a code editor`
-          : selection.reason === 'user-pick'
-            ? 'user-selected tier'
-            : 'fallback default'
-      logInfo(`Local model: ${tierLabel}`, { reason: reasonLabel })
+      // Sanity-check the user's PICKED tier is downloaded before we
+      // even decode audio. Auto-switch might still elevate to a
+      // different model, but if the user has picked something that
+      // doesn't exist we want to fail fast.
+      if (!localModelDownloaded(userPickedModelId())) throw new LocalModelMissingError()
 
       const ffmpegStart = Date.now()
       const pcm = await webmToPcm16(audio)
       const ffmpegMs = Date.now() - ffmpegStart
       const seconds = pcm.byteLength / 2 / 16000
+
+      // NOW we know audio duration → make the smart tier decision.
+      // Tier depends on focused app category AND audio length:
+      //   code/IDE → always Accurate
+      //   email + ≥8s → Accurate
+      //   docs + ≥12s → Accurate
+      //   anything + ≥20s → Accurate
+      //   else → user's selected tier (typically Balanced)
+      const selection = selectedModel(seconds)
+      if (!localModelDownloaded(selection.id)) {
+        // Auto-switch wants a model that isn't downloaded — fall
+        // back to the user's pick rather than hard-failing.
+        logInfo('Auto-switch target missing, falling back', {
+          wanted: selection.id,
+          fallback: userPickedModelId(),
+        })
+        selection.id = userPickedModelId()
+        selection.reason = 'user-pick'
+      }
+      const modelId = selection.id
+
+      // Make the model decision LOUD in the logs.
+      const tierLabel =
+        selection.id === 'large-v3-turbo' ? 'ACCURATE (large-v3-turbo)' :
+        selection.id === 'small' ? 'BALANCED (small)' :
+        'FAST (base)'
+      const reasonLabel =
+        selection.reason === 'auto-code' ? `auto-elevated — focused app ${selection.focusedBundleId} is a code editor`
+        : selection.reason === 'auto-email-long' ? `auto-elevated — long email (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.emailSeconds}s)`
+        : selection.reason === 'auto-docs-long' ? `auto-elevated — long doc dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.docsSeconds}s)`
+        : selection.reason === 'auto-long' ? `auto-elevated — long dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.longSeconds}s)`
+        : selection.reason === 'user-pick' ? 'user-selected tier'
+        : 'fallback default'
+      logInfo(`Local model: ${tierLabel}`, { reason: reasonLabel })
 
       const dict = options.dictionary ?? []
       const prompt = dict.length > 0 ? dict.join(', ') : undefined
@@ -262,7 +364,11 @@ export interface LocalReadiness {
 
 export function localWhisperReadiness(): LocalReadiness {
   const ffmpeg = ffmpegAvailable()
-  const modelDownloaded = localModelDownloaded(selectedModelId())
+  // Readiness reflects the user's PICKED tier (the model they set in
+  // Settings). Auto-switch elevations are best-effort — if Accurate
+  // isn't downloaded, we fall back to the picked tier — so readiness
+  // doesn't need to gate on auto-switch targets.
+  const modelDownloaded = localModelDownloaded(userPickedModelId())
   return {
     whisperCli: true,
     ffmpeg,

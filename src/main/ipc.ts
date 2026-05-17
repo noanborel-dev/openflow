@@ -3,6 +3,7 @@ import { IPC } from '../shared/types'
 import type { DictationResult, LocalModelId } from '../shared/types'
 import { localModelDownloaded, localModelPath } from './local-models'
 import { prewarmWhisper } from './whisper-host'
+import { prewarmModelId } from './providers/local'
 import { getSettings, setSettings } from './store'
 import { testGroqKey } from './providers/groq'
 import { localWhisperReadiness, freeLocalWhisper } from './providers/local'
@@ -35,11 +36,11 @@ export function registerIpcHandlers(): void {
     // the warm path instead of paying the cold-start tax. Fire-and-
     // forget; failures fall back to the transcribe-time error.
     const next = getSettings()
-    if (
-      next.provider.provider === 'local'
-      && localModelDownloaded(next.provider.localModel)
-    ) {
-      prewarmWhisper(localModelPath(next.provider.localModel))
+    if (next.provider.provider === 'local') {
+      const id = prewarmModelId()
+      if (localModelDownloaded(id)) {
+        prewarmWhisper(localModelPath(id))
+      }
     }
   })
 
