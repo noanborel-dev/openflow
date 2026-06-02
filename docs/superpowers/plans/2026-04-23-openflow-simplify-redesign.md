@@ -1,4 +1,4 @@
-# OpenFlow — Simplification & Electric Paper Redesign
+# Yappr — Simplification & Electric Paper Redesign
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -473,7 +473,7 @@ const defaults: Settings = {
   indicatorPosition: null,
 }
 
-export const store = new ElectronStore<Settings>({ defaults, name: 'openflow-settings' })
+export const store = new ElectronStore<Settings>({ defaults, name: 'yappr-settings' })
 
 export function getSettings(): Settings {
   return store.store as Settings
@@ -944,7 +944,7 @@ function updateTrayMenu(): void {
   }))
 
   const menu = Menu.buildFromTemplate([
-    { label: 'OpenFlow', enabled: false },
+    { label: 'Yappr', enabled: false },
     { type: 'separator' },
     { label: 'Settings…', click: () => createSettingsWindow() },
     { type: 'separator' },
@@ -952,7 +952,7 @@ function updateTrayMenu(): void {
       ? [{ label: 'Recent Dictations', enabled: false } as Electron.MenuItemConstructorOptions, ...historyItems]
       : [{ label: 'No dictations yet', enabled: false } as Electron.MenuItemConstructorOptions]),
     { type: 'separator' },
-    { label: 'Quit OpenFlow', role: 'quit' },
+    { label: 'Quit Yappr', role: 'quit' },
   ])
 
   tray.setContextMenu(menu)
@@ -968,7 +968,7 @@ function setupTray(): void {
   }
 
   tray = new Tray(icon)
-  tray.setToolTip('OpenFlow')
+  tray.setToolTip('Yappr')
   tray.on('click', () => createSettingsWindow())
   updateTrayMenu()
 }
@@ -1030,7 +1030,7 @@ function setupAudioIpc(): void {
       }, 1500)
     } catch (err) {
       const { userMessage } = toUserError(err)
-      console.error('[OpenFlow] Pipeline error:', err)
+      console.error('[Yappr] Pipeline error:', err)
       broadcastState(`error:${userMessage}`)
       setTimeout(() => {
         broadcastState('idle')
@@ -1285,11 +1285,11 @@ const TABS = ['General', 'Provider', 'Hotkey', 'Per-App Rules', 'About'] as cons
 type Tab = typeof TABS[number]
 
 const TITLES: Record<Tab, { title: string; italic: string; sub: string }> = {
-  General:        { title: 'Your',      italic: 'preferences.', sub: 'How OpenFlow should behave' },
+  General:        { title: 'Your',      italic: 'preferences.', sub: 'How Yappr should behave' },
   Provider:       { title: 'Your',      italic: 'provider.',    sub: 'Transcription + cleanup service' },
   Hotkey:         { title: 'Your',      italic: 'hotkey.',      sub: 'Hold to talk · double-tap to lock' },
   'Per-App Rules':{ title: 'App',       italic: 'rules.',       sub: 'Per-app cleanup overrides' },
-  About:          { title: 'About',     italic: 'OpenFlow.',    sub: 'Version & diagnostics' },
+  About:          { title: 'About',     italic: 'Yappr.',    sub: 'Version & diagnostics' },
 }
 
 export default function SettingsApp() {
@@ -1301,7 +1301,7 @@ export default function SettingsApp() {
       <aside className="w-[180px] bg-[#F2F0E8] border-r border-ink-08 pt-10 px-3 flex flex-col shrink-0">
         <div className="flex items-center gap-2 px-2 pb-4 mb-3 border-b border-ink-08">
           <div className="w-5 h-5 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[10px] font-bold">O</div>
-          <span className="text-[13px] font-semibold tracking-tight">OpenFlow</span>
+          <span className="text-[13px] font-semibold tracking-tight">Yappr</span>
         </div>
         <nav className="flex flex-col gap-0.5">
           {TABS.map((t) => {
@@ -1379,7 +1379,7 @@ export default function HotkeysTab() {
   const [listening, setListening] = useState(false)
 
   useEffect(() => {
-    window.openflow.getSettings().then(s => setHotkeys(s.hotkeys))
+    window.yappr.getSettings().then(s => setHotkeys(s.hotkeys))
   }, [])
 
   useEffect(() => {
@@ -1391,8 +1391,8 @@ export default function HotkeysTab() {
       setHotkeys(prev => {
         if (!prev) return prev
         const updated = { ...prev, pushToTalk: name }
-        window.openflow.setSettings({ hotkeys: updated }).then(() => {
-          window.openflow.reloadHotkeys()
+        window.yappr.setSettings({ hotkeys: updated }).then(() => {
+          window.yappr.reloadHotkeys()
         })
         return updated
       })
@@ -1469,7 +1469,7 @@ import { Pill } from '../../shared/ui/Pill'
 
 declare global {
   interface Window {
-    openflow: {
+    yappr: {
       getSettings: () => Promise<Settings>
       setSettings: (p: Partial<Settings>) => Promise<void>
       testProvider: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>
@@ -1494,7 +1494,7 @@ export default function AIProviderTab() {
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null)
 
   useEffect(() => {
-    window.openflow.getSettings().then(setSettings)
+    window.yappr.getSettings().then(setSettings)
   }, [])
 
   if (!settings) return <div className="text-ink-45 text-sm">Loading…</div>
@@ -1504,7 +1504,7 @@ export default function AIProviderTab() {
   async function save(partial: Partial<Settings['provider']>) {
     if (!settings) return
     const updated = { ...settings.provider, ...partial }
-    await window.openflow.setSettings({ provider: updated })
+    await window.yappr.setSettings({ provider: updated })
     setSettings({ ...settings, provider: updated })
     setTestResult(null)
   }
@@ -1517,7 +1517,7 @@ export default function AIProviderTab() {
       provider === 'groq' ? settings.provider.groqKey
       : provider === 'openai' ? settings.provider.openaiKey
       : settings.provider.anthropicKey
-    const result = await window.openflow.testProvider(provider, key)
+    const result = await window.yappr.testProvider(provider, key)
     setTestResult(result)
     setTesting(false)
   }
@@ -1712,7 +1712,7 @@ import { Pill } from '../shared/ui/Pill'
 
 declare global {
   interface Window {
-    openflow: {
+    yappr: {
       getSettings: () => Promise<Settings>
       setSettings: (p: Partial<Settings>) => Promise<void>
       testProvider: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>
@@ -1733,14 +1733,14 @@ export default function OnboardingApp() {
   const [saving, setSaving] = useState(false)
 
   async function handleGrantPermissions() {
-    await window.openflow.requestMicPermission()
-    await window.openflow.openAccessibilitySettings()
+    await window.yappr.requestMicPermission()
+    await window.yappr.openAccessibilitySettings()
     setStep(2)
   }
 
   async function handleSaveKey() {
     setSaving(true)
-    await window.openflow.setSettings({
+    await window.yappr.setSettings({
       provider: {
         provider: 'groq',
         groqKey: apiKey.trim(),
@@ -1755,7 +1755,7 @@ export default function OnboardingApp() {
   }
 
   async function handleFinish() {
-    await window.openflow.setSettings({ firstRun: false })
+    await window.yappr.setSettings({ firstRun: false })
     window.close()
   }
 
@@ -1764,7 +1764,7 @@ export default function OnboardingApp() {
       <header className="px-5 pt-5">
         <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-pill bg-card border border-ink-08 shadow-sm">
           <div className="w-5 h-5 rounded-[6px] bg-ink text-paper flex items-center justify-center text-[10px] font-bold">O</div>
-          <span className="text-[13px] font-semibold tracking-tight">OpenFlow</span>
+          <span className="text-[13px] font-semibold tracking-tight">Yappr</span>
           <span className="font-mono text-[10.5px] text-ink-45 ml-2">0{step} / 03</span>
         </div>
       </header>
@@ -1776,7 +1776,7 @@ export default function OnboardingApp() {
               Grant <span className="font-display italic font-medium">access.</span>
             </h1>
             <p className="text-[13.5px] text-ink-60 leading-relaxed max-w-[360px] mb-7">
-              OpenFlow needs your microphone to hear you, and Accessibility so it can paste text into the focused app.
+              Yappr needs your microphone to hear you, and Accessibility so it can paste text into the focused app.
             </p>
             <div className="flex items-center gap-3">
               <Pill variant="primary" onClick={handleGrantPermissions}>
@@ -1840,7 +1840,7 @@ export default function OnboardingApp() {
             </p>
             <div>
               <Pill variant="primary" onClick={handleFinish}>
-                Start using OpenFlow
+                Start using Yappr
               </Pill>
             </div>
           </>
@@ -1910,7 +1910,7 @@ No automated tests exist for this app; verification is a live run.
 - [ ] **Step 1: Launch in dev mode**
 
 Run: `npm run dev`
-Expected: electron-vite starts, three renderer builds succeed, the indicator and onboarding windows appear (onboarding only on first run — use `~/Library/Application\ Support/openflow-settings/config.json` and set `firstRun: true` to retrigger if needed).
+Expected: electron-vite starts, three renderer builds succeed, the indicator and onboarding windows appear (onboarding only on first run — use `~/Library/Application\ Support/yappr-settings/config.json` and set `firstRun: true` to retrigger if needed).
 
 - [ ] **Step 2: Smoke-test the hotkey**
 

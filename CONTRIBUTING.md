@@ -1,10 +1,12 @@
-# Contributing to OpenFlow
+# Internal Development Notes
 
-## Getting started
+Yappr is a proprietary commercial product. This file is internal-only and
+does not solicit external contributions. The repository is not licensed for
+public modification or redistribution. See `LICENSE`.
+
+## Local setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/openflow
-cd openflow
 npm install
 npm run dev
 ```
@@ -20,19 +22,23 @@ npm run dev
 | `src/preload/` | Preload scripts | contextBridge API between main ↔ renderer |
 | `src/shared/` | Both | Types, constants, prompts |
 
+## Privacy invariants — do not regress
+
+- No screenshots, ever (no `desktopCapturer`, no `getDisplayMedia`).
+- No telemetry, analytics, or crash reporting.
+- No network calls to any Yappr-controlled domain from the desktop app.
+- Audio is sent only to the user's chosen provider, using the user's key.
+- API keys are stored locally via `electron-store`; never transmitted off-device.
+
 ## Adding an AI provider
 
-1. Create `src/main/providers/yourprovider.ts` implementing `TranscriptionProvider` and/or `CleanupProvider` from `./types`
-2. Export factory functions (`createYourProviderCleanupProvider`) and a `testYourProviderKey` function
-3. Wire into `buildProviders()` in `src/main/pipeline.ts`
-4. Add the option to `src/renderer/settings/tabs/AIProviderTab.tsx`
+1. Create `src/main/providers/yourprovider.ts` implementing `TranscriptionProvider` and/or `CleanupProvider`.
+2. Export factory functions and a `testYourProviderKey` function.
+3. Wire into `buildProviders()` in `src/main/pipeline.ts`.
+4. Add the option to `src/renderer/settings/tabs/AIProviderTab.tsx`.
 
-## Pull request guidelines
+## Pre-PR checklist (internal)
 
-- One feature or fix per PR
-- Run `npm run typecheck` before opening
-- Brief description of what changed and why
-
-## Privacy commitment
-
-OpenFlow never captures screenshots, never sends audio to any server we control, and has zero telemetry. Please do not add any of these in PRs.
+- `npm run typecheck` passes.
+- `npm run lint` passes with zero warnings.
+- Privacy invariants above are not regressed.

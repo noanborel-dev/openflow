@@ -41,7 +41,7 @@ Ship support for three sizes; user picks in Settings:
 
 `.en` (English-only) variants are smaller and faster than multilingual. We don't currently support multilingual dictation (Whisper's `language: 'en'` is hardcoded), so `.en` is fine.
 
-Models download on first selection from Hugging Face's whisper.cpp repo to `~/Library/Application Support/openflow/models/`. Show download progress in Settings.
+Models download on first selection from Hugging Face's whisper.cpp repo to `~/Library/Application Support/yappr/models/`. Show download progress in Settings.
 
 ## Architecture
 

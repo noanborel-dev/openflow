@@ -1,8 +1,8 @@
-# OpenFlow — Simplification & Visual Redesign
+# Yappr — Simplification & Visual Redesign
 
 **Date:** 2026-04-23
 **Status:** Spec
-**Supersedes:** parts of `docs/superpowers/plans/2026-04-22-openflow.md` (local Whisper, toggle hotkey, current UI)
+**Supersedes:** parts of `docs/superpowers/plans/2026-04-22-yappr.md` (local Whisper, toggle hotkey, current UI)
 
 ## Goal
 
@@ -103,7 +103,7 @@ Single cohesive visual language across onboarding, settings, and the indicator. 
 #### 3a. Onboarding window
 
 - 3-step flow: **Welcome → Connect Groq key → Done**.
-- Top pill-nav: logo mark + "OpenFlow" + step counter (`02 / 03`).
+- Top pill-nav: logo mark + "Yappr" + step counter (`02 / 03`).
 - Headline (large serif-italic accent), one-sentence sub, then content block per step.
 - Single black pill CTA. No back button chrome (just a subtle `← back` text link).
 

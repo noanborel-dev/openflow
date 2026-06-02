@@ -1,6 +1,6 @@
-# OpenFlow
+# Yappr
 
-**Free, open-source voice dictation. Bring your own API key.**
+**Voice dictation for macOS. Bring your own API key.**
 
 > Press and hold a hotkey, speak, release — your cleaned-up text appears wherever your cursor is. No subscription. No account. No screenshots.
 
@@ -13,56 +13,35 @@
 - **Command mode** — highlight text, hold ⌘⇧Space, dictate an edit ("make this a bullet list")
 - **Dev mode** — preserves camelCase, snake_case, file paths, jargon in coding apps
 - **BYOK** — bring your own Groq, OpenAI, or Anthropic key. Groq is free and blazing fast.
+- **Local mode** — run whisper.cpp on-device. No network call required.
 - **Clipboard fallback** — if auto-paste isn't available, text is copied with a ⌘V reminder
-
-## vs. the paid alternatives
-
-| | **OpenFlow** | Wispr Flow | SuperWhisper | Voibe |
-|---|---|---|---|---|
-| Price | Free | $180/yr | $85/yr | $50/yr |
-| Open source | ✓ | ✗ | ✗ | ✗ |
-| Bring your own key | ✓ | ✗ | ✗ | ✗ |
-| Takes screenshots | **Never** | ✓ | ✗ | ✗ |
-| macOS | ✓ | ✓ | ✓ | ✓ |
-| Windows | ✓ | ✗ | ✗ | ✗ |
-
-## Quick start
-
-1. Download the latest `.dmg` (Mac) or `.exe` (Windows) from [Releases](../../releases)
-2. Open OpenFlow — the setup wizard appears
-3. Paste your [Groq API key](https://console.groq.com) (free, takes 30 seconds)
-4. Hold **Right Option (⌥)** anywhere and speak
 
 ## How it works
 
-```mermaid
-graph LR
-  A[Hold hotkey] --> B[Record audio\nvia MediaRecorder]
-  B --> C[Release hotkey]
-  C --> D[Whisper transcription\nGroq / OpenAI]
-  D --> E[LLM cleanup\ncontext-aware]
-  E --> F[AppleScript paste\nor clipboard]
-```
+Your audio goes: **mic → your API key → your cursor**. Yappr servers are not in the path.
 
-Your audio goes: **mic → your API key → your cursor**. OpenFlow is the courier, not the destination.
+## Quick start
+
+1. Download the latest build from [yappr.app/download](https://yappr.app/download)
+2. Open Yappr — the setup wizard appears
+3. Paste your [Groq API key](https://console.groq.com) (free, takes 30 seconds) — or pick local whisper.cpp
+4. Hold **Right Option (⌥)** anywhere and speak
 
 ## FAQ
 
-**Is this really free?**
-OpenFlow itself is free and open source. You pay only for API calls — with Groq, a typical dictation costs less than $0.001.
-
 **How much does BYOK actually cost?**
-Groq's `whisper-large-v3-turbo` costs roughly $0.04/hour of audio. At 10 minutes of dictation a day, that's about $0.007/day — under $3/year.
+Groq's `whisper-large-v3-turbo` costs roughly $0.04/hour of audio. At 10 minutes of dictation a day, that's about $0.007/day — under $3/year. Local whisper.cpp is free after a one-time model download.
 
-**Why not local Whisper?**
-Local inference requires a GPU or is very slow on CPU. API-based transcription is faster, cheaper for most users, and avoids a 1–2 GB model download. Local support is planned for v2.
-
-**Does OpenFlow see my screen?**
-No. This is an explicit anti-feature. Wispr Flow captures screenshots for "context." We don't. We never will.
+**Does Yappr see my screen?**
+No. This is an explicit anti-feature. We don't capture screenshots, and we never will.
 
 **Does it work offline?**
-No — transcription requires an API call. Offline support is planned for v2 via local Whisper.
+Yes — switch to the bundled local whisper.cpp provider. No network call required.
 
-## Contributing
+## Legal
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed — PRs welcome.
+Yappr is a proprietary commercial product. See [LICENSE](LICENSE) for terms and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the open-source components incorporated under their respective licenses.
+
+Built with Llama. Llama 3 is licensed under the Llama 3 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+Slack, Gmail, iMessage, Notion, Cursor, ChatGPT, Claude, Groq, Llama, and Whisper are trademarks of their respective owners. Yappr is not affiliated with or endorsed by these companies.

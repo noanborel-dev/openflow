@@ -1,21 +1,22 @@
-MIT License
+OpenFlow
 
-Copyright (c) 2026 OpenFlow Contributors
+Copyright (c) 2026 OpenFlow Labs. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software is proprietary and confidential. No part of this software,
+including source code, design, or documentation, may be copied, modified,
+distributed, sublicensed, or used to create derivative works without prior
+written permission from OpenFlow Labs.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The OpenFlow application is distributed in binary form to end users under
+a separate end-user license agreement (EULA) included with the installed
+product.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+OpenFlow incorporates third-party open-source software. The license terms
+for those components are reproduced in THIRD_PARTY_LICENSES.md, and the
+respective copyright holders retain all rights to their work.
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+OPENFLOW LABS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING
+FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE.

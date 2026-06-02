@@ -29,7 +29,7 @@ We attempted this in commit **`7a2a3cb`** (`feat(local): scaffold local Whisper 
 
 - Shelled out to `/opt/homebrew/bin/whisper-cli` and `/opt/homebrew/bin/ffmpeg`
 - Required user to `brew install whisper-cpp ffmpeg` manually
-- Stored `ggml-large-v3-turbo-q5_0.bin` (547MB) at `~/Library/Application Support/OpenFlow/models/`
+- Stored `ggml-large-v3-turbo-q5_0.bin` (547MB) at `~/Library/Application Support/Yappr/models/`
 - Wired `provider: 'local'` into the type union and `buildProviders()` in `src/main/pipeline.ts`
 - Added basic hallucination detection mapping (same thresholds as the Groq provider)
 
@@ -39,7 +39,7 @@ The reverted code is at `git show 7a2a3cb` — useful as a starting reference fo
 
 ## Constraints
 
-1. **No Homebrew dep.** The user runs `OpenFlow.app`; they should not need to install anything else. Ship the `whisper-cli` binary inside the `.app`'s `Resources/`.
+1. **No Homebrew dep.** The user runs `Yappr.app`; they should not need to install anything else. Ship the `whisper-cli` binary inside the `.app`'s `Resources/`.
 2. **Mac + Windows.** macOS Apple Silicon is the primary target (where whisper.cpp's Metal acceleration shines). Windows comes second; whisper.cpp has Windows binaries but no Metal — performance gap is acceptable.
 3. **Model lives in user-data, not the bundle.** The `ggml-large-v3-turbo-q5_0.bin` model is ~547MB. Bundling it doubles the installer size and most users would never use the local mode. First-run download UX instead: settings tab "Local" button → download with progress → ready to use.
 4. **Cloud must keep working alongside.** Existing Groq/OpenAI/Anthropic flows continue. Provider switch is in Settings → Provider (already has the radio cards). Local becomes a fourth card.
@@ -112,7 +112,7 @@ When the user picks "Local" in Settings → Provider:
 1. Check `whisperModelDownloaded()` (we have this helper, see reverted `src/main/local-models.ts`)
 2. If not downloaded:
    - Replace the provider card body with a "Download model (547MB)" button + a progress bar
-   - Stream the model from HuggingFace (`https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin`) to `~/Library/Application Support/OpenFlow/models/ggml-large-v3-turbo-q5_0.bin` with a `.partial` rename-on-completion pattern
+   - Stream the model from HuggingFace (`https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin`) to `~/Library/Application Support/Yappr/models/ggml-large-v3-turbo-q5_0.bin` with a `.partial` rename-on-completion pattern
    - On completion, flip the radio to selected
 3. If downloaded:
    - Show a "✓ Ready" badge and the model size
@@ -125,7 +125,7 @@ The same flow should be in the onboarding Provider step (step 3) — currently s
 A user should be able to:
 
 1. Download the `.dmg` from GitHub Releases (or whatever distribution channel we land on)
-2. Install OpenFlow, complete onboarding choosing "Local"
+2. Install Yappr, complete onboarding choosing "Local"
 3. See a model download with progress (~30–60s on typical broadband)
 4. Press the hotkey, dictate, see text appear in their target app within ~500ms for short clips, ~800ms for medium-length clips
 5. Disconnect WiFi entirely, repeat step 4 — same result
@@ -157,6 +157,6 @@ Total: ~half a day of focused work for a developer who already has Apple Develop
 
 Paste this into the new Claude Code tab:
 
-> I want to add local on-device transcription to OpenFlow using whisper.cpp. Read `docs/local-whisper-spec.md` for the full plan, then start with phase 1: re-add the `local` provider type and skeleton without breaking anything. We're in `/Users/noanborel/OpenFlow`, on `main`. The reverted earlier attempt is at `git show 7a2a3cb` if you want reference code for the provider interface.
+> I want to add local on-device transcription to Yappr using whisper.cpp. Read `docs/local-whisper-spec.md` for the full plan, then start with phase 1: re-add the `local` provider type and skeleton without breaking anything. We're in `/Users/noanborel/Yappr`, on `main`. The reverted earlier attempt is at `git show 7a2a3cb` if you want reference code for the provider interface.
 
 That's enough context — the new session can read the spec, look at the reverted commit for reference, and start clean.
