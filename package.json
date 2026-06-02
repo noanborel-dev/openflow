@@ -9,6 +9,8 @@
     "package": "electron-vite build && electron-builder",
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "bash scripts/swap-dev-icon.sh || true; electron-rebuild -f -w better-sqlite3 || true"
   },
   "keywords": [
@@ -47,6 +49,7 @@
     "eslint": "^8.56.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.8"
   }
 }
