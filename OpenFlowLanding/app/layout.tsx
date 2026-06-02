@@ -46,18 +46,18 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: "OpenFlow — Speak naturally. Send without editing.",
+  title: "YAPPR",
   description:
     "Voice to clean, context-aware text — anywhere you can type. Bring your own keys, keep your audio private.",
   openGraph: {
-    title: "OpenFlow",
+    title: "Yappr",
     description:
       "Voice to clean text — anywhere you can type. Bring your own keys, keep your audio private.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "OpenFlow",
+    title: "Yappr",
     description:
       "Voice to clean text — anywhere you can type. Bring your own keys, keep your audio private.",
   },

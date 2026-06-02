@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface Props {
   phase: "idle" | "listening" | "polishing" | "pasted";
   polished: string;
@@ -12,7 +14,14 @@ export function GmailShell({ phase, polished, showComposeCard, flashing }: Props
     <div className="hero-app h-gmail active" data-app="gmail">
       <div className="topbar">
         <div className="gm-logo">
-          <div className="g-icon" />
+          <Image
+            src="/logos/gmail.webp"
+            alt=""
+            width={22}
+            height={22}
+            className="g-icon"
+            aria-hidden="true"
+          />
           Gmail
         </div>
         <div className="searchbar">⌕ Search mail</div>

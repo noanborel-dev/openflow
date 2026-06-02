@@ -79,7 +79,7 @@ export function SlackShell({
 
       <div className="sb">
         <div className="sb-team">
-          <span className="sb-team-name">OpenFlow</span>
+          <span className="sb-team-name">Yappr</span>
         </div>
         <div className="sb-group">
           <div className="sb-group-head">Channels</div>

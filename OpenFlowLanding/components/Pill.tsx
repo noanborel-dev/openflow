@@ -49,9 +49,9 @@ export function Pill({ state, label }: PillProps) {
       role="status"
       aria-label={
         state === "listening"
-          ? "OpenFlow is listening"
+          ? "Yappr is listening"
           : state === "polishing"
-            ? "OpenFlow is polishing your dictation"
+            ? "Yappr is polishing your dictation"
             : "Dictation copied. Press Command V to paste."
       }
     >

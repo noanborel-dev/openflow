@@ -27,14 +27,14 @@ export function PillLogo({ size = "md" }: PillLogoProps) {
         lineHeight: 1,
         letterSpacing: "-.005em",
       }}
-      aria-label="OpenFlow"
+      aria-label="Yappr"
     >
       <span
         className="pill-dot"
         style={{ width: s.dot, height: s.dot }}
         aria-hidden="true"
       />
-      OpenFlow
+      Yappr
     </span>
   );
 }

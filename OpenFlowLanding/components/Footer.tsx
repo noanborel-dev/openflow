@@ -4,10 +4,14 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
   {
     title: "Product",
     links: [
+      { label: "Try it", href: "#demo" },
       { label: "Hotkey", href: "#hotkey" },
+      { label: "AI coding", href: "#ai-coding" },
+      { label: "Local", href: "#local" },
       { label: "Privacy", href: "#privacy" },
       { label: "Dictionary", href: "#dictionary" },
       { label: "Pricing", href: "#pricing" },
+      { label: "FAQ", href: "#faq" },
     ],
   },
   {
@@ -75,11 +79,30 @@ export function Footer() {
         ))}
 
         <div
-          className="col-span-full border-t flex justify-between font-mono text-[11px] tracking-[0.08em] uppercase pt-6 mt-8"
+          className="col-span-full border-t pt-6 mt-8 space-y-3"
           style={{ borderColor: "#2a2c33" }}
         >
-          <span>© 2026 OpenFlow Labs</span>
-          <span>Made in San Francisco</span>
+          <div className="flex justify-between font-mono text-[11px] tracking-[0.08em] uppercase">
+            <span>© 2026 Yappr Labs</span>
+            <span>Made in San Francisco</span>
+          </div>
+          <p
+            className="text-[11px] leading-[1.55] max-w-[820px] m-0"
+            style={{ color: "#6a6859" }}
+          >
+            Built with Llama. Llama 3 is licensed under the{" "}
+            <a
+              href="https://www.llama.com/llama3_3/license/"
+              className="underline underline-offset-2 hover:text-cream"
+              style={{ color: "#8a8779" }}
+            >
+              Llama 3 Community License
+            </a>
+            , Copyright © Meta Platforms, Inc. All Rights Reserved. Slack, Gmail,
+            iMessage, Notion, Cursor, ChatGPT, Claude, Groq, Llama, and Whisper
+            are trademarks of their respective owners. Yappr is not
+            affiliated with or endorsed by these companies.
+          </p>
         </div>
       </div>
     </footer>

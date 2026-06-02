@@ -15,8 +15,8 @@ export function FinalCTA() {
           <br />
           <em>Start talking.</em>
         </h2>
-        <p className="text-[18px] text-ink-2 max-w-[480px] mx-auto mb-9 m-0">
-          Free forever. No account. Free Groq tier covers most users.
+        <p className="text-[18px] text-ink-2 max-w-[520px] mx-auto mb-9 m-0">
+          2,000 words a week, free. Unlimited at $10/mo. Or pay once.
         </p>
         <a
           href="#"

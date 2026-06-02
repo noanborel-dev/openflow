@@ -27,7 +27,7 @@ export function ClaudeCodeShell({ text, flashing }: Props) {
               </svg>
             </div>
             <div style={{ color: "#fff", fontSize: 13, marginTop: 4 }}>Opus 4.7 · Max 20x</div>
-            <div style={{ color: "#fff", fontSize: 13 }}>~/Dev/openflow-landing</div>
+            <div style={{ color: "#fff", fontSize: 13 }}>~/Dev/yappr-landing</div>
           </div>
           <div>
             <div className="cc-section">

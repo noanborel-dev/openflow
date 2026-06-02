@@ -15,7 +15,7 @@ export function TerminalShell({ text, flashing }: Props) {
       <div className="term-body">
         <div>
           <span className="ps">noan@laptop</span>{" "}
-          <span className="user">~/dev/openflow</span>{" "}
+          <span className="user">~/dev/yappr</span>{" "}
           <span className="arrow">›</span>{" "}
           <span className={flashing ? "land-flash" : ""}>{text}</span>
         </div>
