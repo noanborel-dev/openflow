@@ -26,8 +26,10 @@
 //     { type: 'error', id: number | null, message: string }
 //
 // The 'partial' messages stream during transcription via fugood's
-// onNewSegments callback. Each one carries the cumulative transcript
-// so far. Hosts that don't want streaming just ignore them. This
+// onNewSegments callback. Each one carries only the NEWLY completed
+// segment(s), NOT the cumulative transcript — a host that wants a
+// running total must accumulate them itself. Hosts that don't want
+// streaming just ignore them. This
 // doesn't change total inference time — it just lets the indicator
 // show words as they're transcribed instead of waiting for the
 // complete result. Perceived latency drops dramatically on long
