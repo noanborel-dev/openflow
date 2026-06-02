@@ -13,11 +13,21 @@ during the hold**, so that when the user releases the hotkey, nearly all the aud
 is already transcribed and only a short final chunk plus the existing cleanup pass
 remain. The user feels the result appear almost immediately after they stop talking.
 
-This must work for **both** transcription backends:
+**Streaming is a local-transcription feature.** Decided 2026-06-02:
 
-- **Cloud Groq Whisper** — the default/managed path (`provider: 'groq'`, the path
-  most users pay for).
-- **Local whisper.cpp** — the opt-in privacy/BYOK path (`provider: 'local'`).
+- **Local whisper.cpp is the streaming path, and becomes the default on capable
+  hardware** (`provider: 'local'`). Transcription happens on-device, chunked during
+  the hold; the cloud is used **only** for the single LLM cleanup at the end.
+  Rationale: it's the lowest-latency option (the only post-release network call is
+  the cleanup), it incurs **zero cloud cost for transcription**, and it's the most
+  private and most outage-resilient.
+- **Cloud Groq transcription stays the one-shot fallback**, unchanged from today, for
+  machines that can't run a good local model fast enough and for users who don't want
+  the model download. We do **not** build cloud chunking (Groq has no streaming API
+  anyway). This is "local-first with a cloud safety net," not local-only.
+
+We want to **minimize cloud usage for transcription** because it incurs per-second
+cost; local transcription removes that line item entirely.
 
 ### Non-goals
 
@@ -143,19 +153,27 @@ We considered and rejected (documented for posterity):
 5. **Session guard.** A per-recording session id is stamped on every chunk and
    checked at assembly, so a stale chunk from a superseded dictation can't bleed in.
 
-### 4.3 Backend differences
+### 4.3 Streaming path (local) vs. fallback (cloud)
 
-- **Cloud Groq:** each chunk is an independent `audio/transcriptions` request
-  (~20ms compute at 216× real-time + network RTT). No streaming socket; the
-  orchestrator fires per-chunk requests and assembles results by sequence index.
-- **Local whisper.cpp:** chunks are queued to the in-process worker. (Native
-  sliding-window streaming exists but is deferred; chunk-and-transcribe unifies both
-  backends.)
+- **Local whisper.cpp (the streaming path):** chunks are queued to the in-process
+  worker as they're cut at silence. With ~25–35× real-time headroom on Apple Silicon,
+  each chunk finishes long before the next arrives, so the worker idles between
+  chunks and the final chunk is near-instant at release. (Native sliding-window
+  streaming exists in whisper.cpp but chunk-and-transcribe is simpler and sufficient.)
+- **Cloud Groq (the fallback, unchanged):** stays the existing one-shot path — full
+  audio uploaded and transcribed at release. We do **not** chunk to the cloud (Groq
+  has no streaming API, and per-chunk uploads would incur cost and RTT we're
+  explicitly avoiding). A machine that can't stream locally falls back to this.
+
+**Eligibility:** at first run / hold-start we decide whether this machine can stream
+locally (model present + measured real-time factor above a threshold — see §8/§9). If
+not, it uses the cloud one-shot fallback. The streaming feature itself only
+implements the **local** path; the cloud path already exists.
 
 **Key decision: chunk orchestration lives in the pipeline/session layer, not inside
-the providers.** `transcribe()` stays a single-buffer call for both providers; the
-orchestrator owns chunking, ordering, language-inheritance, and assembly. This
-avoids forcing a streaming contract onto the cloud provider that it can't honor.
+the provider.** `transcribe()` stays a single-buffer call; the orchestrator owns
+chunking, ordering, language-inheritance, and assembly. This keeps the provider
+simple and means the cloud fallback needs no streaming contract it can't honor.
 
 ### 4.4 New interfaces (the architectural backbone)
 
@@ -166,10 +184,12 @@ They replace today's god-file + stringly-typed surfaces (see Phase 0):
   transcription-session lifecycle, and the dictation state machine — extracted out
   of `index.ts`. Created at hotkey press, fed chunks during the hold, finalized at
   release.
-- **`StreamingTranscriptionSession` abstraction.** `pushChunk({seq, pcm, isFinal})`,
-  `finalize(): Promise<string>` (transcribes the final chunk and returns the ordered
-  assembled transcript), `onPartial(text)`. Cloud impl = per-chunk requests; local
-  impl = queued worker calls.
+- **`StreamingTranscriptionSession` abstraction (local).** `pushChunk({seq, pcm,
+  isFinal})`, `finalize(): Promise<string>` (transcribes the final chunk and returns
+  the ordered assembled transcript). Backed by queued local-worker calls. When a
+  machine is ineligible for local streaming, the session is bypassed and the existing
+  cloud one-shot `transcribe(fullBuffer)` path runs instead — the `:813` seam accepts
+  either an assembled transcript (streaming) or a one-shot result (fallback).
 - **Structured indicator events.** Replace the prefix-string `broadcastState`
   (`'partial:'` / `'error:'` / state) with a discriminated union defined once in
   `shared/types` (`{kind:'state'|'partial'|'error', …}`) or separate IPC channels.
@@ -248,11 +268,13 @@ protocols, and a transcription layer that corrupts output.
    over the structured IPC contract (`createCaptureGraph`).
 2. **Orchestrator** — `StreamingTranscriptionSession`: queue, order, language-inherit,
    short-chunk merge, `finalize()`, `onPartial`.
-3. **Provider adaptation** — per-chunk WAV/PCM for cloud Groq and local; tier locked
-   at hold-start for local (full duration is unknowable mid-stream).
-4. **Wire the seam** — `pipeline.ts:813` calls `session.finalize()` instead of
-   `transcribe(fullBlob)`. Steps 5–12 unchanged; assert `transcript` is the full
-   assembled text.
+3. **Local provider adaptation** — per-chunk PCM into the local worker; tier locked at
+   hold-start (full duration is unknowable mid-stream). Plus an **eligibility check**
+   (model present + real-time factor above threshold) that routes ineligible machines
+   to the cloud one-shot fallback.
+4. **Wire the seam** — `pipeline.ts:813` calls `session.finalize()` (streaming) or the
+   existing `transcribe(fullBlob)` (fallback). Steps 5–12 unchanged; assert
+   `transcript` is the full assembled text either way.
 5. **Pill UX** — `listening` (hold) → `polishing` (release / cleanup) → `pasted`. No
    live transcript text (decided §1).
 6. **Eval gate** — see §8.
@@ -269,8 +291,8 @@ A communicating team, coordinated through brainstorming → writing-plans → ex
   emission. ⇄ Orchestrator on the IPC contract.
 - **⚙️ Orchestrator Agent** — `StreamingTranscriptionSession`, ordering, assembly,
   language inheritance, `finalize()`. ⇄ Capture, ⇄ Provider.
-- **🧠 Provider/ASR Agent** — per-chunk transcription for cloud + local, tier lock,
-  short-chunk merge, per-chunk hallucination reject. → Eval.
+- **🧠 Provider/ASR Agent** — per-chunk local transcription, tier lock, short-chunk
+  merge, per-chunk hallucination reject, and the local-vs-cloud eligibility check. → Eval.
 - **📊 Eval/Quality Agent** — the WER + latency + code-switch harness; the merge gate.
 - **🔪 Adversarial Reviewer** — races: out-of-order chunks, release mid-flight, stale
   session, mid-stream chunk failure, the worker load-state race.
@@ -314,18 +336,22 @@ this (foundation), with 0a (bug fixes) shippable independently as quick wins.
   defeat the "one fast call at the end" goal.)
 - **Tier-lock at hold-start** for local (Accurate for code apps as today, the user's
   pick otherwise), since full duration is unknowable mid-stream.
+- **Transcription is local-first; streaming is a local-only feature.** Local
+  whisper.cpp becomes the default on capable hardware and is the streaming path;
+  cloud Groq stays the unchanged one-shot **fallback** for ineligible machines / no-
+  download users. We minimize cloud transcription cost — the only cloud call in the
+  streaming path is the single LLM cleanup. (See §1, §4.3.)
 
-**Open — the one consequential decision:**
+**Open — genuine empirical unknowns (need measurement, not opinion):**
 
-- **Is transcription local or cloud?** Streaming-during-the-hold fits **local**
-  whisper.cpp cleanly — on-device, zero per-chunk network cost, and it matches the
-  intended model ("transcribe locally, cloud only for the LLM"). But the product's
-  *current default* is **cloud Groq** transcription (`provider: 'groq'`,
-  `store.ts:9`). Adopting the local model means **local transcription becomes the
-  streaming path, and likely the default**, with the cloud reserved for the single
-  LLM cleanup. To settle: does local transcription become the default for everybody,
-  or does streaming apply **only** when the user is in local mode (cloud-transcription
-  users keep today's one-shot path)? This choice reshapes §4.3 and the cost risk in §8.
+- **Chunking WER delta** — how much accuracy silence-cut chunking costs vs one-shot.
+  Gates whether streaming ships; the eval harness (§8) answers it.
+- **Real-time-factor threshold** — what local inference speed (per machine class /
+  model tier) is fast enough to keep up with speech, to set the local-vs-cloud-
+  fallback line. Needs measurement across representative hardware.
+- **First-run experience** — if local becomes default, the ~573MB (or ~190MB small)
+  model download must be handled gracefully on first launch (or fall back to cloud
+  until downloaded). Product/UX decision once the above thresholds are known.
 
 ---
 
