@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { fork, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import { logInfo, logError } from './log'
+import { SerialQueue } from './serial-queue'
 import type { TranscribeOptions } from '@fugood/whisper.node'
 
 // Host-side wrapper around the whisper worker child process.
@@ -43,6 +44,12 @@ let loadResolve: (() => void) | null = null
 let loadReject: ((err: Error) => void) | null = null
 const pending = new Map<number, PendingRequest>()
 let nextRequestId = 1
+
+// Serializes ALL worker transcribes so the single non-reentrant
+// WhisperContext only ever has one transcribeData() in flight (M1).
+// Streaming issues overlapping chunk transcribes; without this they
+// would race on the shared context and crash.
+const transcribeQueue = new SerialQueue()
 
 function workerScriptPath(): string {
   // electron-vite emits the worker next to main's index.js.
@@ -189,18 +196,24 @@ export async function workerTranscribe(
   options: TranscribeOptions,
   onPartial?: (text: string) => void,
 ): Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }> {
-  await loadModel(modelPath)
-  const id = nextRequestId++
-  const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
-    pending.set(id, { resolve, reject, onPartial })
+  // Serialize the entire load+send+await sequence. The queue guarantees
+  // the worker never has two transcribeData() calls in flight at once
+  // (M1). loadModel() is awaited INSIDE the task, so a model load can't
+  // interleave with another task's transcribe either.
+  return transcribeQueue.run(async () => {
+    await loadModel(modelPath)
+    const id = nextRequestId++
+    const result = new Promise<{ text: string; segments: Array<{ text: string; t0: number; t1: number }>; ms: number }>((resolve, reject) => {
+      pending.set(id, { resolve, reject, onPartial })
+    })
+    // Node IPC can't send ArrayBuffer directly. Buffer.from(pcm) wraps
+    // it, then we encode as base64 in the message envelope. Worker
+    // decodes back to ArrayBuffer. ~5ms encode + decode for 200KB of
+    // PCM, vs ~1000ms inference — negligible.
+    const pcmBase64 = Buffer.from(pcm).toString('base64')
+    proc!.send({ type: 'transcribe', id, pcmBase64, options })
+    return result
   })
-  // Node IPC can't send ArrayBuffer directly. Buffer.from(pcm) wraps
-  // it, then we encode as base64 in the message envelope. Worker
-  // decodes back to ArrayBuffer. ~5ms encode + decode for 200KB of
-  // PCM, vs ~1000ms inference — negligible.
-  const pcmBase64 = Buffer.from(pcm).toString('base64')
-  proc!.send({ type: 'transcribe', id, pcmBase64, options })
-  return result
 }
 
 export async function workerFree(): Promise<void> {
