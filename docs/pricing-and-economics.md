@@ -1,10 +1,36 @@
-# OpenFlow Pricing & Economics
+# Yappr Pricing & Economics
 
 **Status:** Draft, decided but not implemented. Holds the Pro-tier plan, Groq
 unit economics, infra build-out, and rationale so the next session doesn't
 re-derive any of it.
 
-**Last updated:** 2026-05-17
+**Last updated:** 2026-06-02
+
+> **⚠️ 2026-06-02 — Local-default transcription changes the metering anchor.**
+> The streaming-transcription work (`docs/superpowers/specs/2026-06-02-streaming-
+> transcription-design.md`) makes **local on-device transcription the default** on
+> capable hardware, at the **Accurate (`large-v3-turbo`)** tier. This removes the
+> dominant COGS line item — **cloud whisper minutes** — for most users; llama cleanup
+> remains, and it is rounding-error (~$0.002–$0.14/user/mo even for a power-monster).
+>
+> **What changes:**
+> - **The meter moves from cloud-transcription-minutes → cloud-cleanup-words.**
+>   Transcription is now free/local/unlimited for everyone; the single thing Free is
+>   limited on is **cloud LLM cleanup** (keep ~2,000 words/week), plus the **context-
+>   memory** feature gate.
+> - **Free gets *better* transcription than the old plan** (Accurate, unlimited,
+>   private) at ~$0 COGS. Over-cap Free users degrade gracefully to local-transcript +
+>   regex (still usable) — that gap is the upgrade incentive.
+> - **Pro ($10/mo) stays the structure** but is repositioned around *cleanup quality +
+>   features*: unlimited cloud LLM cleanup at all strictness, **context memory**,
+>   command mode, emoji.
+> - **No lifetime license, no local LLM** — explicitly decided to keep it a simple,
+>   standard SaaS. (Supersedes the "lifetime worth considering" note below and the
+>   v1.1 lifetime-tier idea for this product.)
+> - **The proxy now carries only cheap cleanup traffic**, so the power-monster margin
+>   risk and the whisper-RPM ceiling concerns below are largely mooted for local-
+>   default users. The per-user-cost tables below remain accurate *for cloud-fallback
+>   users only*.
 
 ## TL;DR
 
@@ -14,7 +40,7 @@ re-derive any of it.
   cloud transcription, full cleanup, command mode, emoji, all features.
 
 Hard rule decided: **users do NOT bring their own Groq key in the managed
-plan.** OpenFlow runs everything through our own Groq account behind a
+plan.** Yappr runs everything through our own Groq account behind a
 backend proxy. BYOK stays available as an "advanced" toggle so existing
 users aren't broken, but it's not the default flow.
 
@@ -183,7 +209,7 @@ dictation audio.
 
 ### Why a backend proxy is non-negotiable
 
-You CANNOT ship the OpenFlow Groq API key embedded in the app binary. It
+You CANNOT ship the Yappr Groq API key embedded in the app binary. It
 would be extracted within minutes (Electron apps are unpacked .asar
 archives — anyone can read the source). The proxy keeps our key on a
 server we control, validates the user's JWT before forwarding each
@@ -191,11 +217,11 @@ request, and tracks usage against the free-tier quota.
 
 ### Privacy positioning
 
-Current copy: "Audio goes straight to your provider, OpenFlow never proxies"
+Current copy: "Audio goes straight to your provider, Yappr never proxies"
 — that was the BYOK pitch. Under managed mode we DO proxy, so the copy
 needs updating:
 
-- ✅ "OpenFlow never stores your audio. Each dictation is forwarded to
+- ✅ "Yappr never stores your audio. Each dictation is forwarded to
    Groq for transcription and discarded immediately."
 - ✅ "Transcripts are passed through our cleanup pipeline once, then
    discarded. We never train on your dictations."
@@ -231,7 +257,7 @@ Don't force-migrate. Add a setting toggle `useManagedCloud: boolean`
 defaulting to **true for new users, false for users with an existing
 groqKey**. The Settings → AI Provider tab gets a switch:
 
-- ✅ "Use OpenFlow Cloud (Pro)" — default for new installs
+- ✅ "Use Yappr Cloud (Pro)" — default for new installs
 - ⚪ "Bring your own Groq key" — for advanced users
 
 This way the people who set up BYOK still work after the upgrade, and we
@@ -241,7 +267,7 @@ don't break anyone's setup.
 
 ### You become responsible for uptime
 When Groq is down, your users are stuck. Under BYOK they could blame Groq;
-under managed they blame OpenFlow. **Mitigation:** keep Local mode working
+under managed they blame Yappr. **Mitigation:** keep Local mode working
 as a graceful fallback. When the proxy returns 503, the app can offer
 "Switch to Local mode for this dictation?" with one click.
 
@@ -288,3 +314,11 @@ free, so the friction is small for honest users.
   default transcription model to whisper-large-v3-turbo (2.78× cheaper,
   same WER). Backend proxy / auth / billing deferred until app is ready
   to ship.
+- **2026-06-02**: Streaming-transcription spec makes **local on-device
+  transcription the default** at the Accurate tier. Metering anchor moves
+  from cloud-transcription-minutes → **cloud-cleanup-words**; context
+  memory becomes the Pro feature gate. **No lifetime license, no local
+  LLM** — decided to keep a simple two-tier SaaS like the rest of the
+  market. COGS collapses ~95% (whisper minutes gone; llama cleanup is
+  rounding-error). See the banner at the top of this file and the
+  streaming spec §9.
