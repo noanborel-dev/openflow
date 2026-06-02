@@ -12,3 +12,6 @@ __pycache__/
 
 # Next.js build cache from the landing-page subproject
 OpenFlowLanding/.next/
+
+# TypeScript incremental build artifacts
+*.tsbuildinfo

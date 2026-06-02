@@ -6,7 +6,7 @@ name: Release
 # GitHub Release matching the tag.
 #
 # Once published, the landing page can link directly to:
-#   https://github.com/OWNER/REPO/releases/latest/download/OpenFlow-arm64.dmg
+#   https://github.com/OWNER/REPO/releases/latest/download/Yappr-arm64.dmg
 # That URL always serves the most recent release's asset by exact name.
 
 on:

@@ -1,7 +1,7 @@
 {
-  "name": "openflow",
+  "name": "yappr",
   "version": "0.1.0",
-  "description": "Free, open-source voice dictation. Bring your own API key.",
+  "description": "Voice dictation for macOS. Bring your own API key.",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -9,7 +9,7 @@
     "package": "electron-vite build && electron-builder",
     "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "postinstall": "bash scripts/swap-dev-icon.sh || true"
+    "postinstall": "bash scripts/swap-dev-icon.sh || true; electron-rebuild -f -w better-sqlite3 || true"
   },
   "keywords": [
     "dictation",
@@ -17,27 +17,25 @@
     "voice",
     "electron"
   ],
-  "author": "OpenFlow Contributors",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/openflow-app/openflow.git"
-  },
-  "homepage": "https://openflow.app",
+  "author": "Yappr",
+  "license": "UNLICENSED",
+  "private": true,
+  "homepage": "https://yappr.app",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.17.1",
     "@electron-toolkit/utils": "^4.0.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@fugood/whisper.node": "^1.0.18",
+    "better-sqlite3": "^11.10.0",
     "electron-store": "^8.2.0",
-    "ffmpeg-static": "^5.3.0",
     "groq-sdk": "^0.3.3",
     "node-global-key-listener": "^0.3.0",
-    "openai": "^4.28.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "simple-icons": "^16.18.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",

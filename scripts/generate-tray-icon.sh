@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generates the OpenFlow menubar (tray) icon directly via SVG → sips.
+# Generates the Yappr menubar (tray) icon directly via SVG → sips.
 #
 # Output: assets/tray.png (1x) + assets/tray@2x.png (2x).
 #

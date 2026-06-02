@@ -70,6 +70,36 @@ module.exports = {
           '50%':  { transform: 'translate(10%, 6%) scale(1.15)' },
           '100%': { transform: 'translate(-10%, -10%) scale(1)' },
         },
+        // Same as stepIn but longer slide distance — for staggered
+        // entries inside a step where each piece comes from further
+        // below than the page-level fade.
+        slideUp: {
+          '0%':   { opacity: '0', transform: 'translateY(18px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        // Spring-scale: overshoots slightly and settles. Used for
+        // selection state changes — clicking a provider card, a
+        // strictness level, etc. Replaces "flat instant" with kinetic.
+        springScale: {
+          '0%':   { transform: 'scale(0.94)' },
+          '55%':  { transform: 'scale(1.04)' },
+          '100%': { transform: 'scale(1)' },
+        },
+        // Subtle horizontal highlight sweep — gives a "polished glass"
+        // feel on the active provider card. Loops infinitely but
+        // mostly transparent so it's a hint of life, not distracting.
+        shimmer: {
+          '0%':   { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+        // Confetti dot — used on the Done step. Each particle spawns
+        // at center, fades out as it travels outward (parent provides
+        // the angle via --tx/--ty CSS vars).
+        confettiPop: {
+          '0%':   { opacity: '1', transform: 'translate(0,0) scale(0.4)' },
+          '40%':  { opacity: '1', transform: 'translate(calc(var(--tx) * 0.6), calc(var(--ty) * 0.6)) scale(1)' },
+          '100%': { opacity: '0', transform: 'translate(var(--tx), var(--ty)) scale(0.6)' },
+        },
       },
       animation: {
         stepIn:    'stepIn 380ms cubic-bezier(0.22,1,0.36,1) both',
@@ -77,6 +107,10 @@ module.exports = {
         checkPop:  'checkPop 380ms cubic-bezier(0.34,1.56,0.64,1) both',
         voltPulse: 'voltPulse 1.6s ease-in-out infinite',
         bgDrift:   'bgDrift 22s ease-in-out infinite',
+        slideUp:    'slideUp 520ms cubic-bezier(0.22,1,0.36,1) both',
+        springScale:'springScale 360ms cubic-bezier(0.34,1.56,0.64,1) both',
+        shimmer:    'shimmer 3.6s linear infinite',
+        confettiPop:'confettiPop 1100ms cubic-bezier(0.22,1,0.36,1) forwards',
       },
     },
   },

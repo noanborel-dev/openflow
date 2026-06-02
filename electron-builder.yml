@@ -1,6 +1,6 @@
-appId: app.openflow
-productName: OpenFlow
-copyright: Copyright © 2026 OpenFlow Contributors
+appId: app.yappr
+productName: Yappr
+copyright: Copyright © 2026 Yappr
 
 # Where electron-builder uploads artifacts when --publish is on. The
 # GitHub provider matches the repo from the GIT_REPO env var or
@@ -27,19 +27,19 @@ extraResources:
 # or dlopen()s must live outside the asar archive so the runtime can
 # resolve real filesystem paths:
 #   - node-global-key-listener: precompiled MacKeyServer helper
-#   - ffmpeg-static: per-platform ffmpeg binary (used by Local provider)
+#   - @ffmpeg-installer/ffmpeg: per-platform ffmpeg binary (LGPL-2.1).
+#     The actual binary lives in a per-platform sub-package
+#     (@ffmpeg-installer/darwin-arm64, /darwin-x64, /win32-x64, etc.),
+#     resolved at runtime via the parent package's `.path` export.
 #   - @fugood/whisper.node + per-platform `@fugood/node-whisper-*`
 #     packages: prebuilt NAPI addons that load libwhisper at runtime.
-#     The .node binary lives in @fugood/node-whisper-darwin-arm64/index.node
-#     (and equivalents per arch). No source compilation needed at install
-#     or pack time — we just need the .node file on disk where dlopen
-#     can find it.
+#   - better-sqlite3: NAPI addon (Feature 4 context-memory store).
 asarUnpack:
   - node_modules/node-global-key-listener/**/*
-  - node_modules/ffmpeg-static/ffmpeg
-  - node_modules/ffmpeg-static/ffmpeg.exe
+  - node_modules/@ffmpeg-installer/**/*
   - node_modules/@fugood/whisper.node/**/*
   - node_modules/@fugood/node-whisper-*/**/*
+  - node_modules/better-sqlite3/**/*
 
 mac:
   category: public.app-category.productivity
@@ -58,7 +58,8 @@ mac:
   # binaries explicitly is the supported pattern.
   # Paths are relative to Contents/ inside the .app.
   binaries:
-    - Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg
+    - Resources/app.asar.unpacked/node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg
+    - Resources/app.asar.unpacked/node_modules/@ffmpeg-installer/darwin-x64/ffmpeg
     - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-arm64/index.node
     - Resources/app.asar.unpacked/node_modules/@fugood/node-whisper-darwin-x64/index.node
   hardenedRuntime: true
@@ -68,12 +69,12 @@ mac:
   # without app context.
   extendInfo:
     NSMicrophoneUsageDescription: >-
-      OpenFlow records audio when you press your hotkey, then sends it
+      Yappr records audio when you press your hotkey, then sends it
       to your chosen API provider for transcription.
     NSAppleEventsUsageDescription: >-
-      OpenFlow uses Apple Events to paste your dictated text into the
+      Yappr uses Apple Events to paste your dictated text into the
       focused app.
-    # LSUIElement makes OpenFlow a tray-only app — no Dock icon, no
+    # LSUIElement makes Yappr a tray-only app — no Dock icon, no
     # menu bar. The recording pill + tray menu are the entire surface.
     LSUIElement: true
   notarize: false
@@ -81,7 +82,7 @@ mac:
 dmg:
   title: ${productName} ${version}
   # Versionless filenames so the landing page can hardcode:
-  #   .../releases/latest/download/OpenFlow-arm64.dmg
+  #   .../releases/latest/download/Yappr-arm64.dmg
   # and never break on a new release. The version is still embedded
   # inside the .app bundle's Info.plist for auto-update + diagnostics.
   artifactName: ${productName}-${arch}.${ext}

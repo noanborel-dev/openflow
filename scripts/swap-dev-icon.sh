@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Swap the bundled Electron.app icon (used in `npm run dev`) for the
-# OpenFlow icon so the dock / app switcher / window menu all show our
+# Yappr icon so the dock / app switcher / window menu all show our
 # brand instead of the default Electron logo in development.
 #
 # Packaged builds use assets/icon.icns via electron-builder.yml, so this
@@ -28,4 +28,4 @@ cp "$SRC" "$DEST"
 # the process launches.
 touch "node_modules/electron/dist/Electron.app"
 
-echo "✓ swapped Electron.app dev icon to OpenFlow"
+echo "✓ swapped Electron.app dev icon to Yappr"
