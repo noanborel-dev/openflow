@@ -12,31 +12,7 @@ import { ffmpegPath, ffmpegAvailable } from '../local-binaries'
 import { getSettings } from '../store'
 import { getFocusedApp } from '../focused-app'
 import { workerTranscribe, workerFree } from '../whisper-host'
-
-// Whisper-cpp hallucinates these strings on silent / near-silent
-// audio. Same heuristic the cloud pipeline uses (see pipeline.ts'
-// HALLUCINATIONS set). Kept local because fugood's binding doesn't
-// expose per-token confidence so we can't replicate the cloud
-// provider's confidence-based guard.
-const HALLUCINATION_STRINGS = new Set([
-  '',
-  '.',
-  '...',
-  'thanks for watching',
-  'thanks for watching!',
-  'thank you',
-  'thank you.',
-  'thanks',
-  'you',
-  'bye',
-  'bye.',
-  '[blank_audio]',
-  '[silence]',
-  '[music]',
-  '[no audio]',
-  '(silence)',
-  '(soft music)',
-])
+import { buildDecodeOptions, isLikelyHallucination } from '../transcribe-core'
 
 export class LocalModelMissingError extends Error {
   constructor() {
@@ -230,14 +206,6 @@ async function webmToPcm16(audio: Buffer): Promise<ArrayBuffer> {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
 }
 
-function isLikelyHallucination(text: string): boolean {
-  const cleaned = text.trim().toLowerCase().replace(/[.!?,]+$/g, '')
-  if (cleaned.length === 0) return true
-  if (HALLUCINATION_STRINGS.has(cleaned)) return true
-  if (cleaned.length < 2) return true
-  return false
-}
-
 export function createLocalWhisperProvider(): TranscriptionProvider {
   return {
     name: 'Local',
@@ -290,47 +258,21 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
         logInfo(`Auto-elevated → ${tierLabel}`, { reason: reasonLabel })
       }
 
-      const dict = options.dictionary ?? []
-      const prompt = dict.length > 0 ? dict.join(', ') : undefined
-      // All current local models are multilingual; auto-detect lets
-      // users switch between languages without rebinding the setting.
-      // The detection pass is fast on small/base (~10-20ms) and the
-      // wins for bilingual / trilingual users are large.
-      const language = options.language ?? 'auto'
-
       // Inference runs in the whisper utility process — see
       // src/main/whisper-host.ts and src/main/whisper-worker.ts.
-      // Doing it there instead of in main avoids Chromium's macOS
-      // QoS class downgrade (especially under LSUIElement) which
-      // would otherwise halve the Metal command-queue throughput.
+      // Doing it there instead of in main avoids Chromium's macOS QoS
+      // class downgrade (especially under LSUIElement) which would
+      // otherwise halve the Metal command-queue throughput. Decode
+      // params + bias prompt come from the shared transcribeCore so the
+      // one-shot and streaming paths never drift.
       const inferStart = Date.now()
       const result = await workerTranscribe(
         localModelPath(modelId),
         pcm,
-        {
-          // Greedy decoding (beam=1, best_of=1, temp=0) is faster AND
-          // more deterministic than the default beam=5. Dictation
-          // values determinism — same audio → same transcript —
-          // and the accuracy delta on clean speech is negligible.
-          beamSize: 1,
-          bestOf: 1,
-          temperature: 0,
-          // M-series has ~6 performance cores; more threads pushes
-          // work onto efficiency cores (3-4x slower per thread).
-          // 4 threads ties 8 threads on M5 Pro standalone and leaves
-          // headroom for the rest of the app.
-          maxThreads: 4,
-          language,
-          // Dictionary becomes Whisper's initial prompt — biases
-          // toward known spellings.
-          ...(prompt ? { prompt } : {}),
-        },
-        // Forward fugood's per-segment callback through the worker IPC
-        // to the pipeline. The caller drives the indicator pill with
-        // these so the user sees words appearing as whisper produces
-        // them — perceived latency on a 35s clip drops from ~1400ms to
-        // ~200ms (time to first segment).
-        options.onPartial
+        buildDecodeOptions({ dictionary: options.dictionary ?? [], language: options.language }),
+        // Forward fugood's per-segment callback so the indicator can show
+        // words as whisper produces them (time-to-first-segment ~200ms).
+        options.onPartial,
       )
       const inferMs = Date.now() - inferStart
 
