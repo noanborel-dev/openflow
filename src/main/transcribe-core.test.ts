@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildDecodeOptions } from './transcribe-core'
+import { buildDecodeOptions, isLikelyHallucination, isChunkArtifact } from './transcribe-core'
 
 describe('buildDecodeOptions', () => {
   it('uses deterministic greedy decode params', () => {
@@ -26,5 +26,45 @@ describe('buildDecodeOptions', () => {
   it('omits prompt entirely when the dictionary is empty', () => {
     expect('prompt' in buildDecodeOptions()).toBe(false)
     expect('prompt' in buildDecodeOptions({ dictionary: [] })).toBe(false)
+  })
+})
+
+describe('isLikelyHallucination (whole-utterance, permissive)', () => {
+  it('flags empty / pure-punctuation / known artifacts', () => {
+    expect(isLikelyHallucination('')).toBe(true)
+    expect(isLikelyHallucination('...')).toBe(true)
+    expect(isLikelyHallucination('[blank_audio]')).toBe(true)
+    expect(isLikelyHallucination('Thanks for watching!')).toBe(true)
+  })
+
+  it('flags bare real-word artifacts as a WHOLE utterance', () => {
+    expect(isLikelyHallucination('you')).toBe(true)
+    expect(isLikelyHallucination('thanks')).toBe(true)
+  })
+
+  it('flags sub-2-char output', () => {
+    expect(isLikelyHallucination('a')).toBe(true)
+  })
+
+  it('passes real speech', () => {
+    expect(isLikelyHallucination('ship the pricing tomorrow')).toBe(false)
+  })
+})
+
+describe('isChunkArtifact (per-chunk, strict)', () => {
+  it('flags only true artifact tokens', () => {
+    expect(isChunkArtifact('')).toBe(true)
+    expect(isChunkArtifact('[silence]')).toBe(true)
+    expect(isChunkArtifact('(soft music)')).toBe(true)
+  })
+
+  it('does NOT drop real words that the whole-utterance set rejects', () => {
+    // Mid-stream, "thanks" / "you" can be real speech — never drop them.
+    expect(isChunkArtifact('thanks')).toBe(false)
+    expect(isChunkArtifact('you')).toBe(false)
+  })
+
+  it('does NOT reject on length (a short chunk can be real)', () => {
+    expect(isChunkArtifact('a')).toBe(false)
   })
 })

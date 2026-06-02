@@ -1,5 +1,56 @@
 import type { TranscribeOptions } from '@fugood/whisper.node'
 
+// Whisper-cpp hallucinates these strings on silent / near-silent audio.
+// TWO distinct sets (spec §4.4):
+//
+//  - WHOLE_UTTERANCE_HALLUCINATIONS: PERMISSIVE — used to bail on a full
+//    assembled transcript (the one-shot / pipeline silence bail).
+//    Includes real words like "you" / "thanks" that, as an ENTIRE
+//    utterance, are almost always silence artifacts.
+//
+//  - CHUNK_ARTIFACTS: STRICT — used per-chunk during streaming. ONLY true
+//    Whisper artifact tokens, NEVER real words: dropping a chunk that
+//    legitimately said "thanks" mid-stream would delete real speech. A
+//    pure-artifact chunk is dropped-and-continue, never aborts the session.
+export const WHOLE_UTTERANCE_HALLUCINATIONS = new Set<string>([
+  '', '.', '...',
+  'thanks for watching', 'thanks for watching!',
+  'thank you', 'thank you.',
+  'thanks', 'you', 'bye', 'bye.',
+  '[blank_audio]', '[silence]', '[music]', '[no audio]',
+  '(silence)', '(soft music)',
+])
+
+export const CHUNK_ARTIFACTS = new Set<string>([
+  '', '.', '...',
+  '[blank_audio]', '[silence]', '[music]', '[no audio]',
+  '(silence)', '(soft music)',
+])
+
+function normalizeForArtifactCheck(text: string): string {
+  return text.trim().toLowerCase().replace(/[.!?,]+$/g, '')
+}
+
+// Whole-utterance check: is this assembled transcript just a silence
+// artifact? Permissive (real-word artifacts included); also rejects
+// sub-2-char output.
+export function isLikelyHallucination(text: string): boolean {
+  const cleaned = normalizeForArtifactCheck(text)
+  if (cleaned.length === 0) return true
+  if (WHOLE_UTTERANCE_HALLUCINATIONS.has(cleaned)) return true
+  if (cleaned.length < 2) return true
+  return false
+}
+
+// Per-chunk check: is this chunk PURE artifact (drop it, keep streaming)?
+// STRICT — only true artifacts, never real words, and NO length rejection
+// (a legit 1-char chunk like "A" can be real mid-stream).
+export function isChunkArtifact(text: string): boolean {
+  const cleaned = normalizeForArtifactCheck(text)
+  if (cleaned.length === 0) return true
+  return CHUNK_ARTIFACTS.has(cleaned)
+}
+
 export interface DecodeParams {
   // Whisper bias dictionary → initial prompt (biases toward known spellings).
   dictionary?: string[]
