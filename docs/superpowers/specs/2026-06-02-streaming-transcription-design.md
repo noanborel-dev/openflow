@@ -468,6 +468,26 @@ Provider; Orchestrator integrates; Eval + Reviewer gate before anything touches
 
 ## 8. Risks & the eval gate
 
+### Headline risk — cross-chunk context loss (the primary driver of the WER delta)
+
+Whole-clip Whisper conditions every word on the entire utterance; **independent
+per-chunk transcription throws that conditioning away.** This — *not* the boundary cuts
+— is the **primary mechanism** behind the chunking WER delta the eval gates on (§9 open
+unknown #1). It bites hardest exactly where context disambiguates: proper nouns,
+technical terms, and any word whose correct spelling depends on something said seconds
+earlier.
+
+**Track it directly — do not let it average away.** The eval reports **boundary-
+localized WER** (errors within N words of a cut) as the *direct* tracker of context-loss
+damage, separate from bulk WER, so a single averaged number can't hide it.
+
+**The mitigation is eval-arbitrated, NOT default-on.** Seeding each chunk's prompt with
+the **tail of the previous chunk's assembled transcript** (merged with the dictionary,
+capped under the 224-token budget) restores some cross-chunk conditioning cheaply and
+locally — but prior-text conditioning is itself a known hallucination/repetition vector,
+so it ships **only if** boundary-localized WER shows a net win. Default build is **off**;
+the eval decides.
+
 ### Eval-gate methodology (M3 — pinned; the threshold *value* stays TBD, the *method* does not)
 
 - **Metric:** normalized **WER delta ≤ X%** of one-shot, on an **N-utterance corpus**.
@@ -501,12 +521,16 @@ Provider; Orchestrator integrates; Eval + Reviewer gate before anything touches
   model should add a per-chunk fixed-overhead term `O_chunk × N` (base64 IPC ~5ms,
   Metal encoder setup, per-chunk auto-detect, dictionary re-tokenization) and tie it to
   the slow-tier latency-delta measurement.
-- **Cross-chunk context loss.** Independent chunks lose the conditioning whole-clip
-  Whisper has. Optional mitigation: **seed each chunk's prompt with the tail of the
-  previous chunk's assembled transcript** (merged with the dictionary, capped under the
-  224-token budget). Make it a **tunable arbitrated by the eval**, not always-on (prior-
-  text conditioning is a known hallucination/repetition vector). Boundary-localized WER
-  measures whether it helps.
+- **Cross-chunk context loss** — **promoted to a headline risk; see the top of §8.**
+  (It is the primary driver of the WER delta; tracked directly via boundary-localized
+  WER; prev-tail prompt-seeding is the eval-arbitrated, default-off mitigation.)
+- **Command-mode regression — do not let it break silently.** `runCommandPipeline`
+  (`pipeline.ts:1085`) shares the capture rewrite (PCM) and the shared `transcribeCore`,
+  but is **not** exercised by the dictation WER corpus. Add a dedicated **command-mode
+  smoke/regression check** to the eval harness: a few "rewrite-my-selection" utterances
+  run through the new PCM→WAV path, asserting correct non-empty output. If we choose
+  not to build that check, the spec must **explicitly mark command mode as untested /
+  known-risk** for this change — never leave it silently uncovered.
 - **Cloud cost per chunk** — N/A under local (no per-chunk cloud calls; the only cloud
   request is the single LLM cleanup, billed once, exactly as today). The cloud path
   stays one-shot, so its billed audio is unchanged.
@@ -563,7 +587,8 @@ license, no local LLM**:
 **Open — genuine empirical unknowns (need measurement, not opinion):**
 
 - **Chunking WER delta** — how much accuracy silence-cut chunking costs vs one-shot at
-  Accurate. Gates whether streaming ships; the §8 harness answers it.
+  Accurate (primarily driven by **cross-chunk context loss** — see the §8 headline
+  risk). Gates whether streaming ships; the §8 harness answers it.
 - **Real-time-factor threshold + per-tier RTF table** — confirm the ~3× margin and
   publish measured RTF across representative hardware to set the eligibility line.
 - **Eval threshold X%** — owner + date to be assigned.
@@ -582,6 +607,9 @@ license, no local LLM**:
   <1.5s cases).
 - No regression in cleanup, regex passes, paste, or history (they run unchanged on the
   assembled transcript). The assembly/join rule is correct **without** cleanup.
+- **Command mode works through the capture / `transcribeCore` rewrite** — covered by a
+  dedicated regression check, or explicitly flagged untested/known-risk if deferred
+  (§8). It shares the PCM rewrite but is outside the dictation WER corpus.
 - **No silent partial transcripts:** an unrecoverable chunk loss throws and falls back to
   one-shot, never pastes a truncated result.
 - **Telemetry / measurable cost target:** log per-utterance streaming lag (backlog drain
