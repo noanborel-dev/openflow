@@ -361,7 +361,7 @@ export default function Indicator() {
                 : 'drop-shadow(0 2px 4px rgba(0,0,0,0.18))',
             }}
           >
-            {/* OpenFlow brand pill at idle size. Same SVG as the tray
+            {/* Yappr brand pill at idle size. Same SVG as the tray
                 icon + the Provider hero so the brand stays consistent. */}
             <svg viewBox="0 0 54 22" width="72" height="30">
               <defs>

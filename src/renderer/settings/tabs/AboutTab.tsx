@@ -10,7 +10,7 @@ export default function AboutTab() {
   const [settings, setSettings] = useState<Settings | null>(null)
 
   useEffect(() => {
-    window.openflow.getSettings().then(setSettings)
+    window.yappr.getSettings().then(setSettings)
   }, [])
 
   const providerName = providerLabel(settings?.provider.provider)
@@ -35,21 +35,27 @@ export default function AboutTab() {
                 up to date
               </span>
               <span className="px-2 py-1 rounded-pill bg-ink-08 text-ink-60 text-[10.5px] font-mono uppercase tracking-[0.12em]">
-                MIT license
+                BYOK
               </span>
               <span className="px-2 py-1 rounded-pill bg-ink-08 text-ink-60 text-[10.5px] font-mono uppercase tracking-[0.12em]">
-                open source
+                no telemetry
               </span>
             </div>
           </div>
           <button
-            onClick={() => window.open('https://github.com/openflow-app/openflow/releases', '_blank')}
+            onClick={() => window.open('https://yappr.app/download', '_blank')}
             className="bg-ink text-paper px-4 py-2.5 rounded-pill text-[12.5px] font-medium hover:opacity-90 transition-opacity shrink-0"
           >
             Check for updates
           </button>
         </div>
       </div>
+
+      {/* License key — placeholder UI. Persistence works; validation
+          and feature-gating ship with the Stripe SKU. Today it just
+          stores the key locally so the surface is real when payments
+          go live. */}
+      <LicenseCard settings={settings} onChange={setSettings} />
 
       {/* Voice flow diagram — emphasizes the proxy-skip story */}
       <div className="bg-card border border-ink-08 rounded-[16px] px-6 py-6">
@@ -59,12 +65,12 @@ export default function AboutTab() {
         <div className="flex items-center gap-3">
           <FlowNode label="Your Mac" icon="mic" />
           <FlowArrow />
-          <FlowNode label="OpenFlow servers" icon="proxy" badge="skipped" muted />
+          <FlowNode label="Yappr servers" icon="proxy" badge="skipped" muted />
           <FlowArrow />
           <FlowNode label="Your provider" icon="transcript" />
         </div>
         <p className="text-[11.5px] text-ink-60 leading-relaxed mt-4">
-          Your voice goes from your mic to your API provider. OpenFlow never sees or stores your audio,
+          Your voice goes from your mic to your API provider. Yappr never sees or stores your audio,
           transcripts, or API keys on any server we control.
         </p>
       </div>
@@ -74,9 +80,9 @@ export default function AboutTab() {
         <div className="bg-card border border-ink-08 rounded-[16px] px-5 py-5">
           <div className="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-3">Resources</div>
           <div className="space-y-3">
-            <ResourceLink href="https://github.com/openflow-app/openflow" label="github.com/openflow-app/openflow" />
-            <ResourceLink href="https://docs.openflow.app" label="docs.openflow.app" />
-            <ResourceLink href="https://github.com/openflow-app/openflow/releases" label="Release notes" />
+            <ResourceLink href="https://yappr.app" label="yappr.app" />
+            <ResourceLink href="https://yappr.app/privacy" label="Privacy policy" />
+            <ResourceLink href="https://yappr.app/licenses" label="Third-party licenses" />
           </div>
         </div>
         <div className="bg-card border border-ink-08 rounded-[16px] px-5 py-5">
@@ -87,7 +93,7 @@ export default function AboutTab() {
             label="Log file"
             value={
               <button
-                onClick={() => window.openflow.revealLog()}
+                onClick={() => window.yappr.revealLog()}
                 className="text-ink underline underline-offset-2 hover:opacity-70 cursor-pointer text-[11.5px]"
               >
                 Reveal in Finder ↗
@@ -99,7 +105,13 @@ export default function AboutTab() {
       </div>
 
       <p className="text-[10.5px] text-ink-45 px-1 leading-relaxed">
-        Your voice goes from your mic to your API provider. OpenFlow never sees or stores your audio, transcripts, or API keys on any server we control.
+        Your voice goes from your mic to your API provider. Yappr never sees or stores your audio, transcripts, or API keys on any server we control.
+      </p>
+
+      <p className="text-[10px] text-ink-45 px-1 leading-relaxed">
+        Built with Llama. Llama 3 is licensed under the Llama 3 Community License, Copyright © Meta Platforms, Inc.
+        Slack, Gmail, iMessage, Notion, Cursor, ChatGPT, Claude, Groq, Llama, and Whisper are trademarks of their
+        respective owners. Yappr is not affiliated with or endorsed by these companies.
       </p>
     </div>
   )
@@ -207,8 +219,114 @@ function DiagRow({
 }
 
 function providerLabel(p?: string): string {
-  if (p === 'openai')    return 'OpenAI · Whisper'
-  if (p === 'anthropic') return 'Anthropic · Claude'
-  if (p === 'local')     return 'Local · whisper.cpp'
+  if (p === 'local') return 'Local · whisper.cpp'
   return 'Groq · Whisper'
+}
+
+// Lifetime / Pro license-key card. The Stripe checkout isn't live yet,
+// so this is an interest-capture + persistence surface only:
+//   - Empty state → "Coming soon" with a "Get notified" mailto button.
+//   - User pastes a key anyway → we store it locally (no network call,
+//     no validation) so when activation ships the key will already be
+//     in place and we can validate on next launch.
+function LicenseCard({
+  settings,
+  onChange,
+}: {
+  settings: Settings | null
+  onChange: (s: Settings) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setDraft(settings?.licenseKey ?? '')
+  }, [settings?.licenseKey])
+
+  if (!settings) return null
+
+  const stored = settings.licenseKey ?? ''
+  const dirty = draft.trim() !== stored.trim()
+
+  async function save() {
+    if (!settings) return
+    const key = draft.trim()
+    await window.yappr.setSettings({ licenseKey: key })
+    onChange({ ...settings, licenseKey: key })
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 1500)
+  }
+
+  async function clear() {
+    if (!settings) return
+    setDraft('')
+    await window.yappr.setSettings({ licenseKey: '' })
+    onChange({ ...settings, licenseKey: '' })
+  }
+
+  return (
+    <div className="bg-card border border-ink-08 rounded-[16px] px-6 py-5">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10.5px] font-mono uppercase tracking-[0.16em] text-ink-45">
+          Lifetime license
+        </div>
+        <span className="px-2 py-0.5 rounded-pill bg-ink-08 text-ink-60 text-[9.5px] font-mono uppercase tracking-[0.12em]">
+          Coming soon
+        </span>
+      </div>
+
+      <p className="text-[11.5px] text-ink-60 leading-relaxed mb-3">
+        Paid tiers aren&rsquo;t live yet. When Lifetime launches you&rsquo;ll
+        get a one-time activation key by email; paste it here to unlock
+        Pro features forever. Everything in Yappr today is free.
+      </p>
+
+      <div className="flex items-stretch gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Paste your license key…"
+          className="flex-1 bg-paper border border-ink-08 rounded-[10px] px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted"
+          spellCheck={false}
+          autoComplete="off"
+        />
+        {stored.length > 0 && !dirty ? (
+          <button
+            onClick={clear}
+            className="text-[11.5px] text-ink-60 hover:text-ink hover:bg-ink-08 border border-ink-08 rounded-[10px] px-3 transition-colors"
+          >
+            Remove
+          </button>
+        ) : (
+          <button
+            onClick={save}
+            disabled={!dirty || draft.trim().length === 0}
+            className={`text-[11.5px] font-medium rounded-[10px] px-4 transition-colors ${
+              saved
+                ? 'bg-ok/15 text-ok border border-ok/30'
+                : 'bg-ink text-paper hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed'
+            }`}
+          >
+            {saved ? 'Saved' : 'Save'}
+          </button>
+        )}
+        <button
+          onClick={() => window.open(
+            'mailto:hello@yappr.app?subject=Notify%20me%20when%20Lifetime%20launches',
+            '_blank',
+          )}
+          className="text-[11.5px] text-ink-60 hover:text-ink hover:bg-ink-08 border border-ink-08 rounded-[10px] px-3 transition-colors"
+        >
+          Notify me
+        </button>
+      </div>
+
+      {stored.length > 0 && !dirty && (
+        <p className="text-[10.5px] text-ink-45 mt-2.5 font-mono">
+          Key stored locally. Validation will run when activation ships.
+        </p>
+      )}
+    </div>
+  )
 }

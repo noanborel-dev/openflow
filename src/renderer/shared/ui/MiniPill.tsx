@@ -1,4 +1,4 @@
-// Faithful miniature of the actual OpenFlow indicator pill — charcoal
+// Faithful miniature of the actual Yappr indicator pill — charcoal
 // liquid-glass background with the refractive top edge, red recording
 // dot with glow, animated cobalt waveform bars, italic-serif state
 // label. Used inside per-app mockups across the Settings tabs so users

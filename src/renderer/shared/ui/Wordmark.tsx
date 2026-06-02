@@ -1,5 +1,5 @@
-// The OpenFlow wordmark: charcoal pill, red recording dot, italic serif
-// "OpenFlow" text. Mirrors the actual indicator pill the user sees in
+// The Yappr wordmark: charcoal pill, red recording dot, italic serif
+// "Yappr" text. Mirrors the actual indicator pill the user sees in
 // the wild, just static (no breathing, no waveform). Four canonical
 // sizes so it stays legible from hero down to favicon.
 
@@ -57,7 +57,7 @@ export function Wordmark({ size = 'button', withoutDot }: Props) {
           textShadow: '0 1px 2px rgba(0,0,0,0.35)',
         }}
       >
-        OpenFlow
+        Yappr
       </span>
     </span>
   )

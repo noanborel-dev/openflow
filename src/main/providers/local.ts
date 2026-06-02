@@ -207,7 +207,7 @@ function runProcess(cmd: string, args: string[]): Promise<{ code: number; stderr
 // expects. We write a tmp raw file because ffmpeg's stdout-piping can
 // fragment on large clips (~5ms overhead, acceptable).
 async function webmToPcm16(audio: Buffer): Promise<ArrayBuffer> {
-  const tmp = path.join(os.tmpdir(), `openflow-${crypto.randomUUID()}`)
+  const tmp = path.join(os.tmpdir(), `yappr-${crypto.randomUUID()}`)
   const inPath = `${tmp}.webm`
   const outPath = `${tmp}.raw`
   await fs.writeFile(inPath, audio)
@@ -274,19 +274,21 @@ export function createLocalWhisperProvider(): TranscriptionProvider {
       }
       const modelId = selection.id
 
-      // Make the model decision LOUD in the logs.
-      const tierLabel =
-        selection.id === 'large-v3-turbo' ? 'ACCURATE (large-v3-turbo)' :
-        selection.id === 'small' ? 'BALANCED (small)' :
-        'FAST (base)'
-      const reasonLabel =
-        selection.reason === 'auto-code' ? `auto-elevated — focused app ${selection.focusedBundleId} is a code editor`
-        : selection.reason === 'auto-email-long' ? `auto-elevated — long email (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.emailSeconds}s)`
-        : selection.reason === 'auto-docs-long' ? `auto-elevated — long doc dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.docsSeconds}s)`
-        : selection.reason === 'auto-long' ? `auto-elevated — long dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.longSeconds}s)`
-        : selection.reason === 'user-pick' ? 'user-selected tier'
-        : 'fallback default'
-      logInfo(`Local model: ${tierLabel}`, { reason: reasonLabel })
+      // Only log the model decision when auto-elevation actually fires —
+      // the user-pick path is the boring default. The model + reason
+      // also appear in the `Local whisper inference` line below.
+      if (selection.reason !== 'user-pick' && selection.reason !== 'default') {
+        const tierLabel =
+          selection.id === 'large-v3-turbo' ? 'ACCURATE (large-v3-turbo)' :
+          selection.id === 'small' ? 'BALANCED (small)' :
+          'FAST (base)'
+        const reasonLabel =
+          selection.reason === 'auto-code' ? `focused app ${selection.focusedBundleId} is a code editor`
+          : selection.reason === 'auto-email-long' ? `long email (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.emailSeconds}s)`
+          : selection.reason === 'auto-docs-long' ? `long doc dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.docsSeconds}s)`
+          : `long dictation (${seconds.toFixed(1)}s ≥ ${AUTO_THRESHOLDS.longSeconds}s)`
+        logInfo(`Auto-elevated → ${tierLabel}`, { reason: reasonLabel })
+      }
 
       const dict = options.dictionary ?? []
       const prompt = dict.length > 0 ? dict.join(', ') : undefined

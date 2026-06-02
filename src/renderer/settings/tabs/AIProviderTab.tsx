@@ -46,7 +46,7 @@ export default function AIProviderTab() {
   const [downloaded, setDownloaded] = useState<Record<string, boolean>>({})
 
   function refreshStatus() {
-    window.openflow.getLocalModelStatus().then((s) => {
+    window.yappr.getLocalModelStatus().then((s) => {
       setLocalReadiness(s.readiness)
       setDownloaded(s.downloaded)
       const seed: Record<string, LocalModelProgress> = {}
@@ -56,9 +56,9 @@ export default function AIProviderTab() {
   }
 
   useEffect(() => {
-    window.openflow.getSettings().then(setSettings)
+    window.yappr.getSettings().then(setSettings)
     refreshStatus()
-    const off = window.openflow.onLocalModelProgress((p) => {
+    const off = window.yappr.onLocalModelProgress((p) => {
       setLocalProgress((prev) => ({ ...prev, [p.modelId]: p }))
       if (p.status === 'done') {
         refreshStatus()
@@ -74,7 +74,7 @@ export default function AIProviderTab() {
   async function save(partial: Partial<Settings['provider']>) {
     if (!settings) return
     const updated = { ...settings.provider, ...partial }
-    await window.openflow.setSettings({ provider: updated })
+    await window.yappr.setSettings({ provider: updated })
     setSettings({ ...settings, provider: updated })
     setTestResult(null)
   }
@@ -83,7 +83,7 @@ export default function AIProviderTab() {
     if (!settings) return
     setTesting(true)
     setTestResult(null)
-    const result = await window.openflow.testProvider('groq', settings.provider.groqKey)
+    const result = await window.yappr.testProvider('groq', settings.provider.groqKey)
     setTestResult(result)
     setTesting(false)
   }
@@ -104,7 +104,7 @@ export default function AIProviderTab() {
         label="PROVIDER"
         accent="coral"
         headline={<>Audio goes <em className="font-display italic">straight</em> through.</>}
-        body="Bring your own keys. OpenFlow never proxies — your audio goes straight to your provider. Keys live in macOS Keychain (eventually) and are never sent to OpenFlow servers."
+        body="Bring your own keys. Yappr never proxies — your audio goes straight to your provider. Keys live in macOS Keychain (eventually) and are never sent to Yappr servers."
         visual={<AudioFlowDiagram apiKeyMasked={maskKey(keyField.value)} />}
       />
 
@@ -128,7 +128,7 @@ export default function AIProviderTab() {
               ].join(' ')}
             >
               <div className="flex items-center gap-3.5">
-                {/* Local provider shows the bare OpenFlow pill (no
+                {/* Local provider shows the bare Yappr pill (no
                     tile background) — it IS the brand mark. Groq keeps
                     the colored tile so its wordmark has contrast. */}
                 {p.brand === 'local' ? (
@@ -204,7 +204,7 @@ export default function AIProviderTab() {
             <div className="flex items-center justify-between mt-2.5">
               <p className="text-[10.5px] text-ink-45 leading-relaxed max-w-[440px]">
                 {keyField.value
-                  ? <>Without a key, dictations stay 100% on your Mac. With one, OpenFlow uses cloud cleanup for polish, list formatting, and command-mode rewrites.</>
+                  ? <>Without a key, dictations stay 100% on your Mac. With one, Yappr uses cloud cleanup for polish, list formatting, and command-mode rewrites.</>
                   : <>Skip this to stay fully offline. Add a key later if you want polished prose, list formatting, or command-mode rewrites. <a onClick={() => window.open(`https://${keyField.help}`, '_blank')} className="text-ink-60 hover:text-ink underline cursor-pointer">Get a free Groq key ↗</a></>
                 }
               </p>
@@ -252,7 +252,7 @@ export default function AIProviderTab() {
       <p className="text-[10.5px] text-ink-45 mt-4 leading-relaxed">
         {provider === 'local'
           ? 'Audio never leaves your device. The model is stored in your user-data folder.'
-          : 'Stored locally. Never sent to OpenFlow servers.'}
+          : 'Stored locally. Never sent to Yappr servers.'}
       </p>
     </div>
   )
@@ -286,7 +286,7 @@ function LocalModelPanel({
       <div className="bg-card border border-danger/40 rounded-[14px] px-4 py-4">
         <div className="text-[10.5px] font-mono uppercase tracking-[0.14em] text-danger mb-1">ffmpeg not found</div>
         <p className="text-[11.5px] text-ink-60 leading-relaxed">
-          Run <code className="font-mono">npm install</code> to pull <code className="font-mono">@ffmpeg-installer/ffmpeg</code>, or reinstall OpenFlow.
+          Run <code className="font-mono">npm install</code> to pull <code className="font-mono">@ffmpeg-installer/ffmpeg</code>, or reinstall Yappr.
         </p>
       </div>
     )
@@ -386,7 +386,7 @@ function LocalModelCard({
     e.stopPropagation()
     setBusy(true)
     setError(null)
-    const result = await window.openflow.downloadLocalModel(meta.id)
+    const result = await window.yappr.downloadLocalModel(meta.id)
     setBusy(false)
     if (!result.ok) setError(result.error ?? 'Download failed')
   }
@@ -395,13 +395,13 @@ function LocalModelCard({
     e.stopPropagation()
     setBusy(true)
     setError(null)
-    await window.openflow.uninstallLocalModel(meta.id)
+    await window.yappr.uninstallLocalModel(meta.id)
     setBusy(false)
   }
 
   function cancel(e: React.MouseEvent) {
     e.stopPropagation()
-    window.openflow.cancelLocalModel()
+    window.yappr.cancelLocalModel()
   }
 
   // The whole card is clickable when downloaded — pick this model.
@@ -495,7 +495,7 @@ function AudioFlowDiagram({ apiKeyMasked }: { apiKeyMasked: string }) {
   )
 }
 
-// The OpenFlow brand pill — same design as the tray-icon SVG
+// The Yappr brand pill — same design as the tray-icon SVG
 // (scripts/generate-tray-icon.sh). Charcoal liquid-glass gradient,
 // red recording dot with halo, six cobalt waveform bars. No label.
 // Rendered as inline SVG so it crisp at any size.

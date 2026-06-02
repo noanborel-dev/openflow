@@ -9,13 +9,14 @@ import slack from '../logos/slack.png'
 import claude from '../logos/claude.png'
 import chatgpt from '../logos/chatgpt.png'
 import cursor from '../logos/cursor.png'
+import groq from '../logos/groq.png'
 
 export type BrandSlug =
   | 'imessage' | 'gmail' | 'notion' | 'slack'
-  | 'claude' | 'chatgpt' | 'cursor'
+  | 'claude' | 'chatgpt' | 'cursor' | 'groq'
 
 const SOURCES: Record<BrandSlug, string> = {
-  imessage, gmail, notion, slack, claude, chatgpt, cursor,
+  imessage, gmail, notion, slack, claude, chatgpt, cursor, groq,
 }
 
 const TITLES: Record<BrandSlug, string> = {
@@ -26,6 +27,7 @@ const TITLES: Record<BrandSlug, string> = {
   claude: 'Claude',
   chatgpt: 'ChatGPT',
   cursor: 'Cursor',
+  groq: 'Groq',
 }
 
 interface Props {

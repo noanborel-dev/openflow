@@ -67,6 +67,13 @@ export function createGroqTranscriptionProvider(
         // languages (forcing 'en' produced phonetic garbage on Spanish).
         ...(options.language ? { language: options.language } : {}),
         ...(prompt ? { prompt } : {}),
+      }, {
+        // Upload + transcribe of a long clip can legitimately take a
+        // few seconds; 15s is comfortably above typical worst case
+        // (~3s for a 60s clip) but well under SDK default 60s.
+        // maxRetries 0 because withRetry handles the retry policy.
+        timeout: 15000,
+        maxRetries: 0,
       })
       const response = raw as unknown as VerboseTranscription
 
@@ -107,24 +114,200 @@ export function createGroqTranscriptionProvider(
   }
 }
 
+// Strip LLM meta-commentary that leaks through despite the
+// OUTPUT_GUARD prompt. The 8B model has a few stubborn habits:
+//   1. Prepending "Here is the cleaned text:" / "Cleaned:" / etc.
+//   2. Appending a trailing "I removed the fillers..." explanation,
+//      usually after a blank line.
+//   3. Wrapping the whole output in quotes or code fences.
+//   4. Asking clarifying questions when input is ambiguous.
+// If the model goes fully off-rails ("I'd like to understand...")
+// and there's no recoverable cleaned text, we return the original
+// transcript untouched — better to paste raw Whisper than to paste
+// the LLM's clarifying question.
+// LLM artifact stripper. The 8B cleanup model has several stubborn
+// ways of leaking non-output text into its response. We catch each.
+//
+// Order matters: hard-cut at the first blank line followed by clearly-
+// meta content, THEN strip leading labels, THEN trim surrounding quotes.
+function stripLLMArtifacts(raw: string, fallback: string): string {
+  let s = raw.trim()
+
+  // 1. HARD CUT at the first blank line followed by anything that looks
+  // like instruction-echo, meta-commentary, or rule listing. This is
+  // the most destructive pattern — once the model says "\n\n1. remove
+  // filler tokens..." it's gone off-rails and everything after the
+  // blank line is garbage. Keep only what came before.
+  const META_AFTER_BLANK = new RegExp(
+    [
+      '\\n\\s*\\n',                                      // blank line
+      '(?:',
+      [
+        '\\d+\\.\\s+\\w',                                 // "1. word..."
+        '[-*]\\s+\\w',                                    // "- word..."
+        '(?:note|here|the\\s+dictated|output|result|cleaned)\\b',
+        'i\\s+(?:removed|cleaned|corrected|kept|fixed|added|made|left|did|polished|restructured|preserved|hope|tried|will|have|just|did|am|did|did)\\b',
+        'this\\s+(?:is|version|output|response)\\b',
+        '(?:do|let)\\s+(?:you|me)\\b',
+        'i[\'’]?(?:d|m|ll|ve)\\s+(?:like|happy|going|here)\\b',
+        '(?:could|can|would|please)\\s+(?:you|i|provide|clarify)\\b',
+        'what\\s+(?:is|are|did|do)\\b',
+        '\\(?\\s*note[:.]\\s',
+      ].join('|'),
+      ')[^]*$',
+    ].join(''),
+    'i',
+  )
+  s = s.replace(META_AFTER_BLANK, '')
+
+  // 2. Single-line trailing meta (no blank line) — model appends one
+  // line directly below: "...dinner at 7 p.m.\nI removed the fillers"
+  s = s.replace(
+    /\n(?:i\s+(?:removed|cleaned|corrected|kept|fixed|added|made|left|did|polished|restructured|preserved|hope|tried)|note[:.]?\s|the\s+(?:result|output|cleaned|dictated)|i['’]d\s+like\s+to|could\s+you|can\s+you\s+(?:clarify|provide)|this\s+(?:is|version)|let\s+me\s+know|hope\s+(?:this|that))\b[^\n]*$/i,
+    '',
+  )
+
+  // 3. Strip surrounding code fences / quotes.
+  s = s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '')
+  s = s.replace(/^["“‘'](.*)["”’']$/s, '$1')
+
+  // 4. Strip leading labels: "Cleaned:", "Output:", "Here is the cleaned text:", etc.
+  s = s.replace(
+    /^(here['’]?s?\s+(?:the|your|a)\s+(?:cleaned|polished|cleaned[- ]up|final|edited|formatted|fixed|corrected)\s+(?:text|version|message|output|prompt|dictation)?:?\s*\n?|cleaned\s*(?:text|message|version)?:\s*\n?|output:\s*\n?|result:\s*\n?|response:\s*\n?)/i,
+    '',
+  )
+
+  // 4b. Strip leading CONTEXT-ECHO phrases (Feature 4 Phase 1). The
+  // 8B model sometimes opens its output with "Based on the context..."
+  // / "As you mentioned..." / "Given your background..." — signals it
+  // leaked from the USER CONTEXT block into the output.
+  //
+  // We strip ONLY the intro clause up to the FIRST comma (these
+  // phrasings almost always end with a comma before the real content
+  // begins). If there's no comma in the first 100 chars, we leave it
+  // alone — the match might be a real sentence the user dictated.
+  s = s.replace(
+    /^(?:(?:based\s+on|given|considering|as\s+per)\s+(?:the\s+|your\s+|our\s+)?(?:context|background|overview|info(?:rmation)?|note)|as\s+(?:you|previously)\s+(?:mentioned|said|noted|wrote|stated)|from\s+what\s+you\s+(?:said|wrote|mentioned)|since\s+you\s+(?:mentioned|said|wrote)|given\s+(?:that\s+)?you[’']?re\s+\w[^,\n]{0,60})[^,\n]{0,80},\s*/i,
+    '',
+  )
+
+  s = s.trim()
+
+  // 5. If after stripping we have nothing or clearly-meta content,
+  // fall back to the raw transcript. Better to paste raw Whisper than
+  // a clarifying question or rules-echo.
+  if (
+    s.length === 0
+    || /^(?:i['’]?d\s+like\s+to|could\s+you|can\s+you|please\s+(?:provide|clarify)|what\s+(?:is|are)|i\s+don['’]?t\s+understand|\d+\.\s+\w)/i.test(s)
+  ) {
+    return fallback
+  }
+  return s
+}
+
+// Question-shaped opener patterns for the input transcript. If the user
+// dictated "how are you doing" or "what's up", the 8B cleanup model
+// sometimes treats it as a chat message and answers it instead of
+// cleaning it. We use these patterns as the first gate of the
+// loopback detector below.
+const LOOPBACK_INPUT_PATTERNS: readonly RegExp[] = [
+  /^how\s+(are|were|is|was|did|do)\b/i,
+  /^what\s+(are|were|is|was|did|do|you|s up|'?s up)\b/i,
+  /^how'?s\b/i,
+  /^what'?s\b/i,
+  /^you\s+(doing|going|good|okay|alright)\b/i,
+  /^are\s+you\b/i,
+  /^can\s+you\b/i,
+]
+
+// Reply-shaped openers the cleanup model emits when it answers a
+// question instead of cleaning it. Matched against the RAW LLM output
+// (pre-strip) so leading "Sure!" / "I'm doing well" is still visible.
+const LOOPBACK_REPLY_PATTERNS: readonly RegExp[] = [
+  /^i'?m\s+(doing\s+)?(well|good|great|fine|okay)/i,
+  /^doing\s+(well|good|great|fine|okay)/i,
+  /^thanks?\s+for\s+asking/i,
+  /^pretty\s+(good|well)/i,
+  /^not\s+(much|bad)/i,
+  /^just\s+(helping|chatting|hanging)/i,
+  /^sure[!,.\s]/i,
+  /^of\s+course/i,
+  /^absolutely/i,
+  /^happy\s+to\s+help/i,
+  /^here'?s\s+(how|what|the)/i,
+]
+
+// Safety net for the canonical failure shape: short question-shaped
+// transcript + reply-shaped or wildly-longer LLM output. Both gates
+// must pass to keep the false-positive rate near zero — we only fall
+// back when we're confident the model answered instead of cleaning.
+function detectLoopbackAnswer(rawOutput: string, originalTranscript: string): boolean {
+  const transcript = originalTranscript.trim()
+  if (transcript.length === 0 || transcript.length > 80) return false
+  if (!LOOPBACK_INPUT_PATTERNS.some(p => p.test(transcript))) return false
+
+  const output = rawOutput.trim()
+  if (output.length === 0) return false
+  const lengthBlew = output.length > transcript.length * 2
+  const replyShaped = LOOPBACK_REPLY_PATTERNS.some(p => p.test(output))
+  return lengthBlew || replyShaped
+}
+
 export function createGroqCleanupProvider(
   apiKey: string,
   model: string
 ): CleanupProvider {
   return {
     name: 'Groq',
-    async cleanup(text, { systemPrompt }) {
+    async cleanup(text, { systemPrompt, appCategory }) {
       const client = getClient(apiKey)
+      // max_tokens budget per category:
+      //
+      // - ai_prompt: 3× input. The cleanup REFORMATS rambling speech
+      //   into a structured prompt (headings, bullets, "Done when",
+      //   "Constraints") and must preserve every detail — so output
+      //   commonly exceeds input length. Cap at 2048 to allow long
+      //   multi-section prompts.
+      // - everything else: ~1.5× input. Output is roughly input
+      //   length minus fillers, plus added punctuation.
+      //
+      // Each token is ~4 chars (rough).
+      const inputTokens = Math.ceil(text.length / 4)
+      const maxTokens = appCategory === 'ai_prompt'
+        ? Math.max(160, Math.min(2048, inputTokens * 3 + 120))
+        : Math.max(80, Math.min(1024, Math.ceil(inputTokens * 1.5) + 80))
       const response = await client.chat.completions.create({
         model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: text },
         ],
-        temperature: 0.3,
-        max_tokens: 2048,
+        // Lower temperature = more deterministic, less rambling, fewer
+        // hallucinated suffixes. 0.2 still lets the model fix grammar
+        // creatively without going off-prompt.
+        temperature: 0.2,
+        max_tokens: maxTokens,
+      }, {
+        // SDK defaults: timeout 60s, maxRetries 2 → worst case ~3min
+        // before our withRetry sees a rejection. Cleanup normally
+        // takes 500-900ms; if Groq stalls, fail fast and let the
+        // pipeline's withRetry try once on a fresh connection.
+        timeout: 8000,
+        maxRetries: 0,
       })
-      return response.choices[0]?.message?.content?.trim() ?? text
+      const raw = response.choices[0]?.message?.content?.trim() ?? text
+      const cleaned = stripLLMArtifacts(raw, text)
+      if (detectLoopbackAnswer(raw, text)) {
+        // Model answered the dictated question instead of cleaning it.
+        // Return the raw transcript so deterministic post-passes in
+        // pipeline.ts still run on the user's actual message.
+        logInfo('Cleanup loopback detected, falling back to transcript', {
+          transcriptPreview: text.slice(0, 60),
+          outputPreview: raw.slice(0, 60),
+        })
+        return text
+      }
+      return cleaned
     },
   }
 }
@@ -241,6 +424,11 @@ export async function judgeEmoji(
       // 4 tokens is enough for either an emoji (1-2 tokens) or "NONE"
       // (1 token). Capping prevents the model from rambling.
       max_tokens: 8,
+    }, {
+      // Emoji is nice-to-have and runs in parallel with cleanup —
+      // never let it become the long pole. Cap tighter than cleanup.
+      timeout: 5000,
+      maxRetries: 0,
     })
     const raw = response.choices[0]?.message?.content?.trim() ?? ''
     if (!raw || raw.toUpperCase().startsWith('NONE')) return ''

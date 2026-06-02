@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { Settings } from '../../../shared/types'
 import { SectionHero } from '../../shared/ui/SectionHero'
 import { BrandLogo } from '../../shared/ui/BrandLogo'
 import { MiniPill } from '../../shared/ui/MiniPill'
@@ -10,7 +11,7 @@ import { MiniPill } from '../../shared/ui/MiniPill'
 //   BODY: cycles through realistic app mockups (iMessage / Gmail /
 //   Notion). Each shows the full screen-recording moment:
 //     1. cursor drags across text → native blue selection appears
-//     2. OpenFlow indicator pill fades in at the bottom in
+//     2. Yappr indicator pill fades in at the bottom in
 //        "listening" state with a live-style waveform
 //     3. spoken instruction bubble appears
 //     4. selected text fades to the rewritten version
@@ -23,7 +24,7 @@ export default function AITab() {
         label="AI"
         accent="violet"
         headline={<>Prompts engineered from your <em className="font-display italic">voice.</em></>}
-        body="When you're typing into Claude, ChatGPT, or Cursor, OpenFlow rewrites your speech as a clean prompt — not a transcript."
+        body="When you're typing into Claude, ChatGPT, or Cursor, Yappr rewrites your speech as a clean prompt — not a transcript."
         visual={<ChatPromptMock />}
       />
 
@@ -31,6 +32,8 @@ export default function AITab() {
         Or — highlight, speak, rewrite. Anywhere.
       </div>
       <AppMockCycle />
+
+      <ContextMemoryCard />
     </div>
   )
 }
@@ -227,7 +230,7 @@ function MacCursor() {
 //
 //   0–15%   app at rest
 //   15–30%  cursor drags across text, native-blue selection grows
-//   30–55%  cursor fades, OpenFlow pill enters listening, instruction
+//   30–55%  cursor fades, Yappr pill enters listening, instruction
 //           bubble pops in, raw text starts to fade
 //   55–75%  cleaned text fades in
 //   75–95%  pill switches to polishing → fades out, instruction fades
@@ -362,7 +365,7 @@ function IMessageMock({ instruction }: { instruction: string }) {
         </div>
       </div>
 
-      {/* OpenFlow pill — always pinned to bottom-center of the mock,
+      {/* Yappr pill — always pinned to bottom-center of the mock,
           regardless of which app is showing. Instruction floats above. */}
       <div className="mock-pill absolute left-1/2 -translate-x-1/2 bottom-4 pointer-events-none">
         <MiniPill />
@@ -614,4 +617,397 @@ function NotionRow({ icon, label, active }: { icon: string; label: string; activ
       <span className="truncate">{label}</span>
     </div>
   )
+}
+
+// ─── Context memory card (Feature 4 Phase 1) ──────────────────────
+//
+// Lets the user write a short "Who you are" paragraph that gets
+// injected as background context into the cleanup LLM prompt. The
+// overview lives in userData/context.db (not the Settings store) so
+// Phase 3's auto-compaction can refresh it independently. The toggle
+// itself lives in Settings.
+//
+// UX shape:
+//   1. Description + opt-in framing — context memory is OFF by default.
+//   2. Toggle row: "Use background context in cleanup."
+//   3. Textarea for the overview paragraph, ~150 words max.
+//   4. Save button + saved-just-now flash.
+//   5. Plain "background only — never sent without your Groq key" footer.
+
+const OVERVIEW_MAX_CHARS = 1000  // mirrors src/main/context/store.ts
+// Target word count for the "Copy prompt" helper. ~150 words at
+// ~6 chars/word ≈ 900 chars, comfortably under the 1000-char store
+// cap. We tell the AI to stay under 150 words so even a slightly-over
+// response still fits.
+const OVERVIEW_TARGET_WORDS = 150
+
+// The prompt template the "Copy prompt" button drops into the user's
+// clipboard. Designed for ChatGPT / Claude / any general AI chat. The
+// user pastes it, optionally edits the bracketed sections, sends it,
+// then pastes the response back into the textarea above.
+//
+// Why this shape:
+//   - Tells the AI exactly what the paragraph is FOR (background
+//     context to a dictation-cleanup model), so the response stays
+//     on-topic and useful.
+//   - Hard-caps the word count so the response fits the 1000-char
+//     storage limit without trimming.
+//   - "Output ONLY the paragraph" is the same OUTPUT_GUARD discipline
+//     we use elsewhere — the user shouldn't have to strip preamble
+//     before pasting.
+//   - Bracketed placeholders the user fills in are visually distinct
+//     so it's obvious what needs editing before sending.
+function buildContextPromptTemplate(): string {
+  return `I'm setting up "background context" for a voice-dictation app called Yappr. Yappr cleans up my dictations using a small LLM, and this paragraph will be passed to that LLM as background so its polish sounds more like me.
+
+Please write a single paragraph (max ${OVERVIEW_TARGET_WORDS} words) describing me, covering:
+
+- What I do for work, in 1-2 sentences. [Replace this bracketed line with your role / projects, or leave it for me to invent something plausible.]
+- Names I mention often — collaborators, products, places. [Replace with 3-5 names you actually use, or skip.]
+- Tools, languages, or frameworks I use day-to-day. [Replace with yours, or skip.]
+- My voice across contexts — e.g. "casual in iMessage, professional in email, terse in code chats." [Replace, or use a reasonable default.]
+- Topics or recurring themes that come up in my dictations. [Optional.]
+
+Style rules for the paragraph:
+- Write it as one flowing paragraph, third-person factual ("Noan works on…", or use whatever name I gave). NOT a bulleted list.
+- Keep it under ${OVERVIEW_TARGET_WORDS} words. Shorter is fine.
+- No filler like "this person is..." or "based on the above..."
+- OUTPUT ONLY the paragraph. No preamble, no quotes around it, no commentary after. I'm going to paste your response directly into a settings field.`
+}
+
+interface ContextStatus {
+  count: number
+  threshold: number
+  lastCompactionAt: number
+  compacting: boolean
+}
+
+function ContextMemoryCard() {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [overview, setOverview] = useState('')
+  const [persisted, setPersisted] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [copiedFlash, setCopiedFlash] = useState(false)
+  const [status, setStatus] = useState<ContextStatus | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [refreshedFlash, setRefreshedFlash] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      window.yappr.getSettings(),
+      window.yappr.getContextOverview(),
+      window.yappr.getContextStatus(),
+    ]).then(([s, ov, st]) => {
+      if (!alive) return
+      setSettings(s)
+      setOverview(ov)
+      setPersisted(ov)
+      setStatus(st)
+    })
+    return () => { alive = false }
+  }, [])
+
+  // Poll status every 4s while the card is mounted — cheap, IPC is in-
+  // process, and surfaces the counter incrementing live as the user
+  // dictates without needing a push channel.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      window.yappr.getContextStatus().then(setStatus).catch(() => undefined)
+    }, 4000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  if (!settings) return null
+
+  const dirty = overview.trim() !== persisted.trim()
+  const enabled = settings.useContextMemory
+
+  async function toggleEnabled() {
+    if (!settings) return
+    const next = !settings.useContextMemory
+    setSettings({ ...settings, useContextMemory: next })
+    await window.yappr.setSettings({ useContextMemory: next })
+  }
+
+  async function toggleAutoUpdate() {
+    if (!settings) return
+    const next = !settings.autoContextUpdate
+    setSettings({ ...settings, autoContextUpdate: next })
+    await window.yappr.setSettings({ autoContextUpdate: next })
+  }
+
+  async function refreshNow() {
+    setRefreshing(true)
+    setRefreshError(null)
+    try {
+      const res = await window.yappr.refreshContextNow()
+      if (res.ok) {
+        const [ov, st] = await Promise.all([
+          window.yappr.getContextOverview(),
+          window.yappr.getContextStatus(),
+        ])
+        setOverview(ov)
+        setPersisted(ov)
+        setStatus(st)
+        setRefreshedFlash(true)
+        window.setTimeout(() => setRefreshedFlash(false), 1800)
+      } else {
+        setRefreshError(res.error ?? 'Refresh failed')
+      }
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  async function save() {
+    setSaving(true)
+    const trimmed = overview.slice(0, OVERVIEW_MAX_CHARS)
+    await window.yappr.setContextOverview(trimmed)
+    setPersisted(trimmed)
+    setSaving(false)
+    setSavedFlash(true)
+    window.setTimeout(() => setSavedFlash(false), 1500)
+  }
+
+  async function clear() {
+    setOverview('')
+    setPersisted('')
+    await window.yappr.setContextOverview('')
+  }
+
+  // Drop the ready-to-paste prompt template into the clipboard. The
+  // user pastes it into ChatGPT / Claude, edits the bracketed
+  // sections, sends, and pastes the response into the textarea above.
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(buildContextPromptTemplate())
+      setCopiedFlash(true)
+      window.setTimeout(() => setCopiedFlash(false), 1500)
+    } catch {
+      // Clipboard write can fail on some platforms / focus states.
+      // Silently no-op; the user can re-click.
+    }
+  }
+
+  const charCount = overview.length
+  const overLimit = charCount > OVERVIEW_MAX_CHARS
+
+  return (
+    <div className="mt-8 bg-card border border-ink-08 rounded-[16px] px-6 py-6">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="text-[13px] font-semibold leading-tight">Background context</div>
+          <p className="text-[11.5px] text-ink-60 mt-1 leading-relaxed max-w-[480px]">
+            Write a short paragraph about yourself — what you do, names you mention often, tools you use, voice. Yappr passes it to the cleanup LLM as background so polish sounds more like you. Never sent without your Groq key. Stays on this Mac.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={toggleEnabled}
+          aria-pressed={enabled}
+          className={[
+            'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative ml-4',
+            enabled ? 'bg-ink' : 'bg-ink-08',
+          ].join(' ')}
+          title={enabled ? 'Click to disable' : 'Click to enable'}
+        >
+          <span
+            className={[
+              'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+              enabled ? 'left-[18px]' : 'left-0.5',
+            ].join(' ')}
+          />
+        </button>
+      </div>
+
+      <textarea
+        value={overview}
+        onChange={(e) => setOverview(e.target.value)}
+        placeholder="e.g. I'm Noan, building Yappr — a Mac dictation app. I work in TypeScript and Electron, talk a lot about prompts, Claude, and Groq. My team is small. Voice should stay casual when I'm texting friends, but professional in email."
+        rows={5}
+        className="w-full bg-paper border border-ink-08 rounded-[10px] px-3 py-2.5 text-[12.5px] leading-relaxed mt-3 focus:outline-none focus:border-volt focus:ring-2 focus:ring-volt-muted resize-none"
+        spellCheck
+      />
+
+      <div className="flex items-center justify-between mt-2">
+        <div className={[
+          'text-[10.5px] font-mono',
+          overLimit ? 'text-[#C94A2A]' : 'text-ink-45',
+        ].join(' ')}>
+          {charCount} / {OVERVIEW_MAX_CHARS}
+          {overLimit && ' — trimmed on save'}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={copyPrompt}
+            title="Copies a ready-to-paste prompt to your clipboard. Paste into ChatGPT or Claude, fill in the bracketed sections, then paste the response back here."
+            className={[
+              'text-[11.5px] font-medium rounded-[10px] px-3 py-1.5 transition-colors border',
+              copiedFlash
+                ? 'bg-ok/15 text-ok border-ok/30'
+                : 'bg-paper text-ink-60 hover:text-ink hover:bg-ink-08 border-ink-08',
+            ].join(' ')}
+          >
+            {copiedFlash ? 'Copied — paste into ChatGPT / Claude' : 'Copy prompt'}
+          </button>
+          {persisted.length > 0 && (
+            <button
+              type="button"
+              onClick={clear}
+              className="text-[11.5px] text-ink-60 hover:text-ink hover:bg-ink-08 border border-ink-08 rounded-[10px] px-3 py-1.5 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={save}
+            disabled={!dirty || saving}
+            className={[
+              'text-[11.5px] font-medium rounded-[10px] px-4 py-1.5 transition-colors',
+              savedFlash
+                ? 'bg-ok/15 text-ok border border-ok/30'
+                : 'bg-ink text-paper hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed',
+            ].join(' ')}
+          >
+            {savedFlash ? 'Saved' : saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      <p className="text-[10.5px] text-ink-45 mt-2 leading-relaxed">
+        Don&rsquo;t want to write it yourself? Click <span className="font-mono">Copy prompt</span>, paste into ChatGPT or Claude with your details, then paste the answer back here.
+      </p>
+
+      {!enabled && persisted.length > 0 && (
+        <p className="text-[10.5px] text-ink-45 mt-3 font-mono leading-relaxed">
+          Saved but not in use. Flip the toggle to enable.
+        </p>
+      )}
+
+      <AutoUpdateRow
+        settings={settings}
+        status={status}
+        refreshing={refreshing}
+        refreshError={refreshError}
+        refreshedFlash={refreshedFlash}
+        onToggleAuto={toggleAutoUpdate}
+        onRefreshNow={refreshNow}
+      />
+    </div>
+  )
+}
+
+interface AutoUpdateRowProps {
+  settings: Settings
+  status: ContextStatus | null
+  refreshing: boolean
+  refreshError: string | null
+  refreshedFlash: boolean
+  onToggleAuto: () => void
+  onRefreshNow: () => void
+}
+
+function AutoUpdateRow({
+  settings,
+  status,
+  refreshing,
+  refreshError,
+  refreshedFlash,
+  onToggleAuto,
+  onRefreshNow,
+}: AutoUpdateRowProps) {
+  const autoOn = settings.autoContextUpdate
+  const hasGroqKey = settings.provider.groqKey.trim().length > 0
+  const count = status?.count ?? 0
+  const threshold = status?.threshold ?? 50
+  const lastAt = status?.lastCompactionAt ?? 0
+  const compacting = status?.compacting ?? false
+
+  const lastLabel = lastAt > 0 ? formatRelativeTime(lastAt) : null
+
+  return (
+    <div className="mt-5 pt-5 border-t border-ink-08">
+      <div className="flex items-center justify-between">
+        <div className="min-w-0">
+          <div className="text-[12px] font-semibold leading-tight">Auto-update context</div>
+          <p className="text-[11px] text-ink-60 mt-1 leading-relaxed max-w-[480px]">
+            Every {threshold} dictations, Yappr refreshes the paragraph above from your recent transcripts. Runs in the background only when you&rsquo;re not dictating. Requires a Groq key.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleAuto}
+          aria-pressed={autoOn}
+          disabled={!hasGroqKey}
+          className={[
+            'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative ml-4 disabled:opacity-40 disabled:cursor-not-allowed',
+            autoOn ? 'bg-ink' : 'bg-ink-08',
+          ].join(' ')}
+          title={!hasGroqKey ? 'Add a Groq key to enable auto-update' : (autoOn ? 'Click to disable' : 'Click to enable')}
+        >
+          <span
+            className={[
+              'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+              autoOn ? 'left-[18px]' : 'left-0.5',
+            ].join(' ')}
+          />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mt-3">
+        <div className="text-[10.5px] font-mono text-ink-45 leading-relaxed">
+          {compacting
+            ? 'Refreshing now…'
+            : lastLabel
+              ? <>Last updated {lastLabel} <span className="text-ink-30">·</span> {count}/{threshold} since last refresh</>
+              : <>Never refreshed automatically <span className="text-ink-30">·</span> {count}/{threshold} dictations</>}
+        </div>
+        <button
+          type="button"
+          onClick={onRefreshNow}
+          disabled={refreshing || !hasGroqKey}
+          className={[
+            'text-[11.5px] font-medium rounded-[10px] px-3 py-1.5 transition-colors border',
+            refreshedFlash
+              ? 'bg-ok/15 text-ok border-ok/30'
+              : 'bg-paper text-ink-60 hover:text-ink hover:bg-ink-08 border-ink-08 disabled:opacity-40 disabled:cursor-not-allowed',
+          ].join(' ')}
+          title={!hasGroqKey ? 'Add a Groq key to enable refresh' : 'Run a compaction now using your recent dictations'}
+        >
+          {refreshedFlash ? 'Refreshed' : refreshing ? 'Refreshing…' : 'Refresh now'}
+        </button>
+      </div>
+
+      {!hasGroqKey && (
+        <p className="text-[10.5px] text-ink-45 mt-2 leading-relaxed">
+          Auto-update requires a Groq key. Add one in the Provider tab to enable.
+        </p>
+      )}
+
+      {refreshError && (
+        <p className="text-[10.5px] text-[#C94A2A] mt-2 leading-relaxed">
+          {refreshError}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const diffSec = Math.max(0, (Date.now() - timestamp) / 1000)
+  if (diffSec < 60) return 'just now'
+  const diffMin = diffSec / 60
+  if (diffMin < 60) return `${Math.round(diffMin)}m ago`
+  const diffHr = diffMin / 60
+  if (diffHr < 24) return `${Math.round(diffHr)}h ago`
+  const diffDay = diffHr / 24
+  if (diffDay < 7) return `${Math.round(diffDay)}d ago`
+  const diffWk = diffDay / 7
+  if (diffWk < 5) return `${Math.round(diffWk)}w ago`
+  return `${Math.round(diffDay / 30)}mo ago`
 }

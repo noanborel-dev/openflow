@@ -31,7 +31,7 @@ export default function HotkeysTab() {
   const [listening, setListening] = useState(false)
 
   useEffect(() => {
-    window.openflow.getSettings().then(s => setHotkeys(s.hotkeys))
+    window.yappr.getSettings().then(s => setHotkeys(s.hotkeys))
   }, [])
 
   useEffect(() => {
@@ -43,8 +43,8 @@ export default function HotkeysTab() {
       setHotkeys(prev => {
         if (!prev) return prev
         const updated = { ...prev, pushToTalk: next }
-        window.openflow.setSettings({ hotkeys: updated }).then(() => {
-          window.openflow.reloadHotkeys()
+        window.yappr.setSettings({ hotkeys: updated }).then(() => {
+          window.yappr.reloadHotkeys()
         })
         return updated
       })
@@ -104,7 +104,7 @@ export default function HotkeysTab() {
   )
 }
 
-// ---------- Three Behaviors (ported from OpenFlowLanding) ----------
+// ---------- Three Behaviors (ported from YapprLanding) ----------
 
 type Mode = 'tap' | 'hold' | 'double'
 

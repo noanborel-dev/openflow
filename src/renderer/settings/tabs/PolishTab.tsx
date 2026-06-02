@@ -96,7 +96,7 @@ export default function PolishTab() {
   const [activeBucket, setActiveBucket] = useState<Bucket>('personal')
 
   useEffect(() => {
-    window.openflow.getSettings().then((s: Settings) => setStrictness(s.strictness))
+    window.yappr.getSettings().then((s: Settings) => setStrictness(s.strictness))
   }, [])
 
   function setLevel(bucket: Bucket, lvl: Strictness) {
@@ -104,7 +104,7 @@ export default function PolishTab() {
     const next = { ...strictness, [bucket]: lvl }
     setStrictness(next)
     setActiveBucket(bucket)
-    window.openflow.setSettings({ strictness: next })
+    window.yappr.setSettings({ strictness: next })
   }
 
   if (!strictness) return <div className="text-ink-45 text-sm">Loading…</div>
@@ -207,7 +207,61 @@ export default function PolishTab() {
         </div>
       </div>
 
+      <PauseCleanupRow />
       <EmojiToggleRow />
+    </div>
+  )
+}
+
+// Pause toggle. When on, the LLM cleanup pass is skipped entirely and
+// the pasted text is the raw Whisper transcript (after the
+// deterministic regex passes — brand-name fixes, user dictionary,
+// self-correction, spelled-name collapse, question marks). Use this
+// for maximum speed (no Groq round-trip) or when you specifically want
+// voice-faithful output without any LLM restyling.
+function PauseCleanupRow() {
+  const [paused, setPaused] = useState<boolean | null>(null)
+  useEffect(() => {
+    window.yappr.getSettings().then((s: Settings) => setPaused(s.pauseCleanup))
+  }, [])
+  function flip() {
+    if (paused === null) return
+    const next = !paused
+    setPaused(next)
+    window.yappr.setSettings({ pauseCleanup: next })
+  }
+  if (paused === null) return null
+  return (
+    <div className="bg-card border border-ink-08 rounded-[14px] mt-3 p-4 flex items-start gap-3">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <div className="text-[13.5px] font-semibold">Pause AI cleanup</div>
+          {paused && (
+            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono uppercase tracking-[0.14em] bg-[#C94A2A]/12 text-[#C94A2A] border border-[#C94A2A]/25">
+              Active
+            </span>
+          )}
+        </div>
+        <p className="text-[11.5px] text-ink-60 mt-1 leading-relaxed">
+          Skip the LLM polish entirely and paste exactly what Whisper heard. Regex passes still run (brand names, your dictionary, self-correction, spelled-name collapse, question marks). Faster — no Groq round-trip — but no register adaptation, no flow, no Markdown structure. Best for when you want voice-faithful output.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={flip}
+        aria-pressed={paused}
+        className={[
+          'shrink-0 mt-0.5 w-9 h-5 rounded-full transition-colors relative',
+          paused ? 'bg-ink' : 'bg-ink-08',
+        ].join(' ')}
+      >
+        <span
+          className={[
+            'absolute top-0.5 w-4 h-4 rounded-full bg-paper transition-all',
+            paused ? 'left-[18px]' : 'left-0.5',
+          ].join(' ')}
+        />
+      </button>
     </div>
   )
 }
@@ -332,7 +386,7 @@ function EmailMock({ raw, cleaned }: { raw: string; cleaned: string }) {
       <div className="px-4 py-3 min-h-[120px]">
         <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">You said</div>
         <div className="text-[11.5px] text-ink-45 italic mb-3 leading-snug">"{raw}"</div>
-        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">OpenFlow types</div>
+        <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink-45 mb-1.5">Yappr types</div>
         <div className="text-[13px] text-ink leading-snug">
           {typed}
           <span className="inline-block w-[2px] h-[14px] bg-ink ml-0.5 align-text-bottom animate-pulse" />
@@ -396,13 +450,13 @@ function TerminalMock() {
 function EmojiToggleRow() {
   const [emoji, setEmoji] = useState<boolean | null>(null)
   useEffect(() => {
-    window.openflow.getSettings().then((s: Settings) => setEmoji(s.emojiInMessages))
+    window.yappr.getSettings().then((s: Settings) => setEmoji(s.emojiInMessages))
   }, [])
   function flip() {
     if (emoji === null) return
     const next = !emoji
     setEmoji(next)
-    window.openflow.setSettings({ emojiInMessages: next })
+    window.yappr.setSettings({ emojiInMessages: next })
   }
   if (emoji === null) return null
   return (

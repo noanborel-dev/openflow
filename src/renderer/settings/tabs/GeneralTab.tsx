@@ -11,14 +11,14 @@ export default function GeneralTab() {
   const [audioCues, setAudioCues] = useState<boolean>(true)
 
   useEffect(() => {
-    window.openflow.getLaunchAtLogin().then(setLaunchAtLogin)
+    window.yappr.getLaunchAtLogin().then(setLaunchAtLogin)
   }, [])
 
   useEffect(() => {
     let cancelled = false
     Promise.all([
       navigator.mediaDevices.enumerateDevices(),
-      window.openflow.getSettings(),
+      window.yappr.getSettings(),
     ]).then(([devices, settings]) => {
       if (cancelled) return
       setMics(devices.filter((d) => d.kind === 'audioinput'))
@@ -30,27 +30,27 @@ export default function GeneralTab() {
 
   function handleSelectMic(id: string | null) {
     setInputDeviceId(id)
-    window.openflow.setSettings({ inputDeviceId: id })
+    window.yappr.setSettings({ inputDeviceId: id })
   }
 
   function toggleAudioCues(next: boolean) {
     setAudioCues(next)
-    window.openflow.setSettings({ audioCues: next })
+    window.yappr.setSettings({ audioCues: next })
   }
 
   async function toggleLaunchAtLogin(next: boolean) {
     setLaunchAtLogin(next)
-    await window.openflow.setLaunchAtLogin(next)
+    await window.yappr.setLaunchAtLogin(next)
   }
 
   async function resetIndicatorPosition() {
     setResetting(true)
-    await window.openflow.setSettings({ indicatorPosition: null })
+    await window.yappr.setSettings({ indicatorPosition: null })
     setTimeout(() => setResetting(false), 1200)
   }
 
   function reopenOnboarding() {
-    window.openflow.openOnboarding()
+    window.yappr.openOnboarding()
   }
 
   return (
@@ -68,7 +68,7 @@ export default function GeneralTab() {
         <div className="grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 border-b border-ink-08">
           <div>
             <div className="text-[13px] font-semibold leading-tight">Microphone</div>
-            <div className="text-[11px] text-ink-45 mt-0.5">Which input device OpenFlow records from.</div>
+            <div className="text-[11px] text-ink-45 mt-0.5">Which input device Yappr records from.</div>
           </div>
           <select
             value={inputDeviceId ?? ''}
@@ -97,7 +97,7 @@ export default function GeneralTab() {
         <div className="grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 border-b border-ink-08">
           <div>
             <div className="text-[13px] font-semibold leading-tight">Launch at login</div>
-            <div className="text-[11px] text-ink-45 mt-0.5">OpenFlow starts in the background when you log in.</div>
+            <div className="text-[11px] text-ink-45 mt-0.5">Yappr starts in the background when you log in.</div>
           </div>
           {launchAtLogin === null ? (
             <span className="text-[11px] text-ink-45">Loading…</span>

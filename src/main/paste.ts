@@ -3,6 +3,7 @@ import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
 import { logInfo } from './log'
 import { getFocusedApp } from './focused-app'
+import { BROWSER_BUNDLE_IDS, AX_OPAQUE_APPS } from '../shared/constants'
 
 const exec = promisify(execFile)
 
@@ -141,9 +142,14 @@ const EXPLICIT_TEXT_ROLES = new Set([
 ])
 
 function canPasteIntoRole(role: string, bundleId: string): boolean {
-  // No focused element at all — Desktop, Finder, app without focus →
-  // there is nowhere to paste, route to the fallback popup.
-  if (role === 'no-focus' || role === '') return false
+  // 'no-focus' in browsers and Electron apps is a lie — their AX tree
+  // is opaque past the web-view boundary and reports no focus even
+  // when the user is typing into a contenteditable. Trust the
+  // keystroke to land where the OS thinks focus actually is.
+  if (role === 'no-focus' || role === '') {
+    if (BROWSER_BUNDLE_IDS.has(bundleId) || AX_OPAQUE_APPS.has(bundleId)) return true
+    return false
+  }
   // Script error → AX permission probably denied. We've already given
   // up trying to be clever; let the actual paste attempt happen and
   // surface whatever error it produces.
@@ -170,7 +176,7 @@ export interface PasteOptions {
   // Skip the AX-role gate entirely. Used by code paths where the
   // user has explicitly asked us to paste (Insert button on the
   // fallback popup, double-tap paste-last) — the AX probe at those
-  // moments sees OpenFlow's own popup/indicator as the focused
+  // moments sees Yappr's own popup/indicator as the focused
   // window and incorrectly routes BACK to the fallback. Bypassing
   // the gate makes the keystroke fire against whatever the OS
   // considers focused at that millisecond, which in practice is
@@ -192,12 +198,10 @@ export async function pasteText(
     const role = await (options.rolePromise ?? probeFocusedAXRole())
     const { bundleId } = getFocusedApp()
     const canPaste = canPasteIntoRole(role, bundleId)
-    logInfo('Paste pre-check', { bundleId, focusedAXRole: role, canPaste })
     if (!canPaste) {
+      logInfo('Paste blocked — falling back to clipboard', { bundleId, focusedAXRole: role })
       return { method: 'clipboard' }
     }
-  } else {
-    logInfo('Paste pre-check skipped (explicit user action)')
   }
 
   // Lazily start the helper on first paste, then reuse it forever.

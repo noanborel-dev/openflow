@@ -100,7 +100,7 @@ export async function downloadWhisperModel(modelId: LocalModelId): Promise<void>
 
   try {
     const headers: Record<string, string> = {
-      'user-agent': `OpenFlow/${app.getVersion()}`,
+      'user-agent': `Yappr/${app.getVersion()}`,
     }
     if (resumeFrom > 0) headers.range = `bytes=${resumeFrom}-`
 

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
 import type { Settings } from '../shared/types'
 
-contextBridge.exposeInMainWorld('openflow', {
+contextBridge.exposeInMainWorld('yappr', {
   getSettings: (): Promise<Settings> =>
     ipcRenderer.invoke(IPC.SETTINGS_GET),
   setSettings: (partial: Partial<Settings>): Promise<void> =>
@@ -13,6 +13,21 @@ contextBridge.exposeInMainWorld('openflow', {
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.PROVIDER_TEST, { provider, key }),
   getHistory: () => ipcRenderer.invoke(IPC.HISTORY_GET),
+  getAllHistory: () => ipcRenderer.invoke(IPC.HISTORY_GET_ALL),
+  clearHistory: () => ipcRenderer.invoke(IPC.HISTORY_CLEAR),
+  getContextOverview: (): Promise<string> =>
+    ipcRenderer.invoke(IPC.CONTEXT_OVERVIEW_GET),
+  setContextOverview: (text: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CONTEXT_OVERVIEW_SET, text),
+  refreshContextNow: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC.CONTEXT_REFRESH_NOW),
+  getContextStatus: (): Promise<{
+    count: number
+    threshold: number
+    lastCompactionAt: number
+    compacting: boolean
+  }> =>
+    ipcRenderer.invoke(IPC.CONTEXT_STATUS_GET),
   requestMicPermission: () => ipcRenderer.invoke(IPC.MIC_PERMISSION),
   getMicPermissionStatus: (): Promise<'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'> =>
     ipcRenderer.invoke(IPC.MIC_PERMISSION_STATUS),

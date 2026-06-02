@@ -8,7 +8,7 @@ export default function DictionaryTab() {
   const [draft, setDraft] = useState('')
 
   useEffect(() => {
-    window.openflow.getSettings().then(setSettings)
+    window.yappr.getSettings().then(setSettings)
   }, [])
 
   if (!settings) return <div className="text-ink-45 text-sm">Loading…</div>
@@ -17,7 +17,7 @@ export default function DictionaryTab() {
 
   async function persist(next: string[]) {
     if (!settings) return
-    await window.openflow.setSettings({ userDictionary: next })
+    await window.yappr.setSettings({ userDictionary: next })
     setSettings({ ...settings, userDictionary: next })
   }
 
@@ -42,7 +42,7 @@ export default function DictionaryTab() {
         label="DICTIONARY"
         accent="cobalt"
         headline={<>Names &amp; <em className="font-display italic">jargon</em>, recognized.</>}
-        body="Add words OpenFlow should always get right. Built-in terms (Claude, GitHub, OAuth, etc.) are already covered — add the names, products, or jargon Whisper keeps mishearing."
+        body="Add words Yappr should always get right. Built-in terms (Claude, GitHub, OAuth, etc.) are already covered — add the names, products, or jargon Whisper keeps mishearing."
         visual={<DictionaryExample />}
       />
 
@@ -95,7 +95,7 @@ export default function DictionaryTab() {
   )
 }
 
-// Hero visual — a live-transcription mock showing how OpenFlow correctly
+// Hero visual — a live-transcription mock showing how Yappr correctly
 // recognizes dictionary terms. Cycles through three transcripts every
 // 4.5s. Within each transcript, the "without" version (left side, with
 // red-strikethrough mistranscriptions) cross-fades into the "with"

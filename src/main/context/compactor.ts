@@ -1,0 +1,255 @@
+// Phase 3 of Feature 4 (context memory). See:
+//   docs/superpowers/plans/2026-05-18-feature-4-context-memory-plan.md
+//
+// Background auto-compaction of the user_overview paragraph. Triggered
+// 50 dictations after the previous successful run, only when the user
+// has been idle for >=60s of no dictation AND OS-level idle >30s — so
+// it never competes for resources with the hot path. Local-only users
+// (no Groq key) silently no-op.
+//
+// Why a module-level lock: maybeRunCompaction can be called from a
+// setTimeout AND from the IPC handler ("Refresh now"). Both must see
+// the same in-progress flag, and finally{} must clear it even if the
+// LLM call throws.
+//
+// Why rebuild-every-10: additive compaction can drift — the model may
+// accidentally drop the "moved to Berlin in March" fact when blending
+// 10 new dictations into a paragraph. Forcing a from-scratch rebuild
+// every 10th successful cycle (so cycles 10, 20, 30…) bounds drift to
+// ~500 dictations per uptime.
+
+import { powerMonitor } from 'electron'
+import Groq from 'groq-sdk'
+import {
+  getUserOverview,
+  setUserOverview,
+  resetDictationCount,
+  setLastCompaction,
+  getLastCompaction,
+  getDictationCount,
+  incrementDictationCount,
+} from './store'
+import { loadPersistedHistory } from '../history-store'
+import { getSettings } from '../store'
+import { logInfo, logError } from '../log'
+
+const THRESHOLD = 50
+const IDLE_MS = 60_000
+const OS_IDLE_SECONDS = 30
+const OVERVIEW_MAX_CHARS = 1000
+const REBUILD_EVERY = 10
+
+let lastDictationActivityAt = 0
+let compacting = false
+let successfulCompactions = 0
+
+export function notifyDictationCompleted(): void {
+  lastDictationActivityAt = Date.now()
+  const count = incrementDictationCount()
+  if (count >= THRESHOLD && !compacting) {
+    setTimeout(() => {
+      maybeRunCompaction().catch((err) => {
+        logError('[compactor] scheduled run threw', err)
+      })
+    }, 0)
+  }
+}
+
+export function markDictationActive(): void {
+  lastDictationActivityAt = Date.now()
+}
+
+export function getCompactionStatus(): {
+  count: number
+  threshold: number
+  lastCompactionAt: number
+  compacting: boolean
+} {
+  return {
+    count: getDictationCount(),
+    threshold: THRESHOLD,
+    lastCompactionAt: getLastCompaction(),
+    compacting,
+  }
+}
+
+export async function maybeRunCompaction(): Promise<{ ran: boolean; reason?: string }> {
+  if (compacting) return { ran: false, reason: 'in-progress' }
+
+  const settings = getSettings()
+  const apiKey = settings.provider.groqKey
+  if (!apiKey) return { ran: false, reason: 'no-key' }
+
+  const recentDictation = Date.now() - lastDictationActivityAt <= IDLE_MS
+  const osIdle = powerMonitor.getSystemIdleTime() > OS_IDLE_SECONDS
+  if (recentDictation || !osIdle) return { ran: false, reason: 'busy' }
+
+  compacting = true
+  try {
+    const rebuild = successfulCompactions > 0 && successfulCompactions % REBUILD_EVERY === 0
+    const result = await runCompaction(apiKey, settings.provider.cleanupModel, rebuild)
+    if (!result.ok) {
+      logError('[compactor] compaction failed', new Error(result.error ?? 'unknown'))
+      return { ran: false, reason: result.error ?? 'failed' }
+    }
+    setUserOverview(result.overview)
+    resetDictationCount()
+    setLastCompaction(Date.now())
+    successfulCompactions += 1
+    logInfo('[compactor] compaction complete', {
+      rebuild,
+      chars: result.overview.length,
+      successfulCompactions,
+    })
+    return { ran: true }
+  } catch (err) {
+    logError('[compactor] unexpected error', err)
+    return { ran: false, reason: 'exception' }
+  } finally {
+    compacting = false
+  }
+}
+
+export async function forceCompaction(): Promise<{ ok: boolean; error?: string }> {
+  if (compacting) return { ok: false, error: 'A compaction is already running' }
+
+  const settings = getSettings()
+  const apiKey = settings.provider.groqKey
+  if (!apiKey) return { ok: false, error: 'No Groq API key configured' }
+
+  compacting = true
+  try {
+    const rebuild = successfulCompactions > 0 && successfulCompactions % REBUILD_EVERY === 0
+    const result = await runCompaction(apiKey, settings.provider.cleanupModel, rebuild)
+    if (!result.ok) {
+      logError('[compactor] forced compaction failed', new Error(result.error ?? 'unknown'))
+      return { ok: false, error: result.error ?? 'Compaction failed' }
+    }
+    setUserOverview(result.overview)
+    resetDictationCount()
+    setLastCompaction(Date.now())
+    successfulCompactions += 1
+    logInfo('[compactor] forced compaction complete', {
+      rebuild,
+      chars: result.overview.length,
+    })
+    return { ok: true }
+  } catch (err) {
+    logError('[compactor] forced compaction threw', err)
+    return { ok: false, error: err instanceof Error ? err.message : 'Unexpected error' }
+  } finally {
+    compacting = false
+  }
+}
+
+type CompactionResult =
+  | { ok: true; overview: string }
+  | { ok: false; error: string }
+
+async function runCompaction(
+  apiKey: string,
+  cleanupModel: string | undefined,
+  rebuildFromScratch: boolean,
+): Promise<CompactionResult> {
+  const dictations = loadPersistedHistory()
+    .filter((d) => d.transcript !== '(rewrite)')
+    .slice(0, 50)
+
+  if (dictations.length === 0) {
+    return { ok: false, error: 'No dictations available to compact' }
+  }
+
+  const formatted = dictations
+    .map((d, i) => {
+      const body = (d.cleaned && d.cleaned.trim().length > 0) ? d.cleaned : d.transcript
+      const when = relativeTime(d.timestamp)
+      const app = d.appName || 'unknown app'
+      return `${i + 1}. [${app}, ${when}] ${body}`
+    })
+    .join('\n')
+
+  const existing = rebuildFromScratch ? '' : getUserOverview()
+  const header = rebuildFromScratch
+    ? `Write a fresh user overview from these ${dictations.length} recent dictations. Ignore any prior overview. Output ONE paragraph, ~120 words max.`
+    : (existing
+        ? `Here is the user's current overview (preserve its spine, add/refine only based on the new dictations below). Output ONE paragraph, ~120 words max.\n\nCURRENT OVERVIEW:\n${existing}`
+        : `Write a fresh user overview from these ${dictations.length} recent dictations. Output ONE paragraph, ~120 words max.`)
+
+  const userPrompt = `${header}\n\nRECENT DICTATIONS:\n${formatted}`
+
+  const client = new Groq({ apiKey })
+  let raw = ''
+  try {
+    const response = await client.chat.completions.create({
+      model: cleanupModel || 'llama-3.1-8b-instant',
+      messages: [
+        { role: 'system', content: COMPACTION_SYSTEM },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 600,
+    }, {
+      timeout: 15000,
+      maxRetries: 0,
+    })
+    raw = response.choices[0]?.message?.content?.trim() ?? ''
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Groq request failed' }
+  }
+
+  const cleaned = stripCompactionArtifacts(raw)
+  if (!cleaned) return { ok: false, error: 'Empty response from model' }
+
+  return { ok: true, overview: cleaned.slice(0, OVERVIEW_MAX_CHARS) }
+}
+
+const COMPACTION_SYSTEM = `You write a single short user-overview paragraph that summarizes who the user is and what they've been working on, based on their recent dictations.
+
+OUTPUT FORMAT (MANDATORY — VIOLATING THIS IS A FATAL ERROR):
+- Output ONLY the overview paragraph. Nothing else.
+- One single paragraph. Approximately 120 words, hard maximum 1000 characters.
+- Third person. Factual and casual. No marketing language.
+- DO NOT add any preamble, suffix, explanation, or commentary.
+  Forbidden: "Here is the overview:", "Based on the dictations,", "I noticed that...", "Let me know if..."
+- DO NOT use bullets, numbered lists, headings, or markdown.
+- DO NOT wrap the output in quotes, backticks, or code fences.
+- DO NOT echo the dictations verbatim — summarize the user's role, focus areas, ongoing projects, and recurring people or tools.
+- If the input is ambiguous, do your best with what you have. Never ask clarifying questions.
+- Your entire response must be the overview paragraph and nothing else.`
+
+// Targeted strip of the artifacts the 8B model leaks despite the
+// OUTPUT_GUARD-style system prompt. Smaller than the cleanup stripper
+// because overview output is one paragraph — we mainly need to drop
+// leading labels, surrounding quotes/fences, and trailing meta lines.
+function stripCompactionArtifacts(raw: string): string {
+  let s = raw.trim()
+  s = s.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '')
+  s = s.replace(/^["“‘'](.*)["”’']$/s, '$1')
+  s = s.replace(
+    /^(?:here['’]?s?\s+(?:the|your|a)\s+(?:user\s+)?(?:overview|summary|paragraph)[^\n:]*:?\s*\n?|overview:\s*\n?|summary:\s*\n?|output:\s*\n?|result:\s*\n?|based\s+on[^,\n]{0,80},\s*)/i,
+    '',
+  )
+  s = s.replace(
+    /\n\s*\n(?:i\s+(?:noticed|hope|tried|wrote|kept|made|removed|summari[sz]ed)|note[:.]?\s|let\s+me\s+know|this\s+(?:overview|paragraph|summary))\b[^]*$/i,
+    '',
+  )
+  s = s.replace(
+    /\n(?:i\s+(?:noticed|hope|tried|wrote|kept|made|removed|summari[sz]ed)|note[:.]?\s|let\s+me\s+know|this\s+(?:overview|paragraph|summary))\b[^\n]*$/i,
+    '',
+  )
+  return s.trim()
+}
+
+function relativeTime(timestamp: number): string {
+  const diffSec = Math.max(0, (Date.now() - timestamp) / 1000)
+  if (diffSec < 60) return 'just now'
+  const diffMin = diffSec / 60
+  if (diffMin < 60) return `${Math.round(diffMin)}m ago`
+  const diffHr = diffMin / 60
+  if (diffHr < 24) return `${Math.round(diffHr)}h ago`
+  const diffDay = diffHr / 24
+  if (diffDay < 7) return `${Math.round(diffDay)}d ago`
+  const diffWk = diffDay / 7
+  if (diffWk < 5) return `${Math.round(diffWk)}w ago`
+  return `${Math.round(diffDay / 30)}mo ago`
+}

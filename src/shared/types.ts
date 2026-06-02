@@ -1,4 +1,13 @@
-export type AppCategory = 'messaging' | 'email' | 'code' | 'docs' | 'other'
+// 'code' = actual code editor / terminal — dictation is treated as
+//          verbatim because the user might be typing identifiers,
+//          commands, or technical instructions.
+// 'ai_prompt' = AI chat surface (Claude Code chat, Cursor AI chat,
+//               ChatGPT, Claude desktop, Gemini, Perplexity) — the
+//               user is composing a prompt and wants their rambling
+//               restructured into a clear, well-engineered request.
+//               Same apps as 'code' often, distinguished by AX role
+//               + bundle ID inside pipeline.ts.
+export type AppCategory = 'messaging' | 'email' | 'code' | 'ai_prompt' | 'docs' | 'other'
 
 export type DictationState = 'idle' | 'recording' | 'processing' | 'done' | 'error'
 
@@ -77,6 +86,34 @@ export interface Settings {
   // celebrations, apologies). Off by default — users opt in during
   // onboarding or in Settings. Other categories ignore this flag.
   emojiInMessages: boolean
+  // When true, the cleanup pipeline skips the LLM polish pass entirely
+  // and pastes the raw Whisper transcript (after the deterministic
+  // regex passes — brand-name normalization, dictionary auto-replace,
+  // self-correction, spelled-name collapse, question marks). Use this
+  // when you want maximum speed or want voice-faithful output without
+  // any LLM restyling. Per-app rules still override category routing,
+  // but cleanup itself is bypassed.
+  pauseCleanup: boolean
+  // Lifetime license key. Stored locally only — validation will be
+  // wired up when the Stripe SKU launches. For now the field exists
+  // so the user-facing surface is real and the persistence path is
+  // ready; nothing in the app is gated by this value yet.
+  licenseKey: string
+  // Phase 1 of Feature 4 (context memory): when true AND the user
+  // has written a user_overview in Settings, the cleanup system prompt
+  // gets a "Who you are" background block. Default off — users opt in
+  // after writing their overview. The overview itself is NOT stored
+  // in Settings; it lives in userData/context.db so Phase 3's
+  // auto-compaction loop can update it without going through the
+  // electron-store layer. See:
+  //   docs/superpowers/plans/2026-05-18-feature-4-context-memory-plan.md
+  useContextMemory: boolean
+  // Phase 3 of Feature 4 (context memory): when true, the compactor
+  // auto-refreshes user_overview every 50 dictations using the last
+  // 50 transcripts. Default true (gated by useContextMemory being on
+  // AND a Groq key being configured). Toggle off to freeze the
+  // overview at its current hand-edited value.
+  autoContextUpdate: boolean
 }
 
 export interface DictationResult {
@@ -97,6 +134,17 @@ export const IPC = {
   SETTINGS_SET: 'settings:set',
   PROVIDER_TEST: 'provider:test',
   HISTORY_GET: 'history:get',
+  HISTORY_GET_ALL: 'history:get-all',
+  HISTORY_CLEAR: 'history:clear',
+  // Feature 4 Phase 1: read/write the user_overview paragraph used as
+  // background context in cleanup prompts. Backed by SQLite, not the
+  // electron-store Settings file, so Phase 3's auto-compaction can
+  // update it without touching the Settings layer.
+  CONTEXT_OVERVIEW_GET: 'context:overview:get',
+  CONTEXT_OVERVIEW_SET: 'context:overview:set',
+  // Phase 3: force-compaction trigger + status read for the UI.
+  CONTEXT_REFRESH_NOW: 'context:refresh-now',
+  CONTEXT_STATUS_GET: 'context:status:get',
   OPEN_SETTINGS: 'open-settings',
   OPEN_ONBOARDING: 'open-onboarding',
   MIC_PERMISSION: 'mic:permission',

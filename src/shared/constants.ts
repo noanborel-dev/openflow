@@ -28,7 +28,7 @@ export const HOTKEY_TIMING = {
 
 export const APP_CATEGORY_MAP: Record<string, AppCategory> = {
   'com.tinyspeck.slackmacgap': 'messaging',
-  'com.discord': 'messaging',
+  'com.hnc.Discord': 'messaging',
   'com.apple.MobileSMS': 'messaging',
   'ru.keepcoder.Telegram': 'messaging',
   'com.apple.mail': 'email',
@@ -83,6 +83,27 @@ export const BROWSER_BUNDLE_IDS = new Set<string>([
   'com.operasoftware.Opera',
 ])
 
+// Apps with opaque AX trees — Chromium/Electron apps where the focused
+// element under a web view often reports 'no-focus' through AX even
+// when the user has a text input actively focused. We trust the
+// keystroke to land on whatever the OS considers focused at the
+// moment of paste rather than blocking on the stale/lying probe.
+//
+// Browsers are handled separately via BROWSER_BUNDLE_IDS. This set
+// covers known Electron-based desktop apps where we've observed the
+// same 'no-focus' false-positive blocking paste.
+export const AX_OPAQUE_APPS = new Set<string>([
+  'com.google.antigravity',           // Google Antigravity (Cursor fork)
+  'com.todesktop.230313mzl4w4u92',    // Cursor
+  'com.exafunction.windsurf',         // Windsurf
+  'com.microsoft.VSCode',             // VS Code
+  'com.tinyspeck.slackmacgap',        // Slack
+  'com.hnc.Discord',                  // Discord
+  'notion.id',                        // Notion
+  'com.linear',                       // Linear
+  'com.figma.Desktop',                // Figma
+])
+
 // Window-title routing for browser-based web apps. Order matters —
 // first match wins. Patterns are intentionally lenient because browser
 // title formatting varies ("Gmail" alone, "Inbox – Gmail", "(3) Inbox -
@@ -117,13 +138,20 @@ export const BROWSER_TITLE_ROUTES: BrowserTitleRoute[] = [
   { pattern: /\bClickUp\b/i, category: 'docs', appName: 'ClickUp' },
   { pattern: /\bMonday\.com\b/i, category: 'docs', appName: 'Monday' },
   { pattern: /\bCoda\b/, category: 'docs', appName: 'Coda' },
-  // AI chat surfaces — treated as 'code' for now since dictation there
-  // is usually prompts/instructions that benefit from list formatting
-  // and tech-term preservation. Revisit when we add an 'ai_prompt' category.
-  { pattern: /\bClaude\b/, category: 'code', appName: 'Claude' },
-  { pattern: /\bChatGPT\b/, category: 'code', appName: 'ChatGPT' },
-  { pattern: /\bGemini\b/, category: 'code', appName: 'Gemini' },
-  { pattern: /\bPerplexity\b/i, category: 'code', appName: 'Perplexity' },
+  // AI chat surfaces (in browser tabs) — routed to ai_prompt so the
+  // dictation gets prompt-engineered (structured into markdown sections,
+  // imperative voice, detail-preserving) instead of pasted verbatim.
+  // This is the Chrome/Arc/Safari path: the dedicated AI desktop apps
+  // (com.openai.chat, com.anthropic.claudefordesktop, ai.perplexity.mac)
+  // get the same routing via PRIMARY_AI_CHAT_BUNDLES in pipeline.ts.
+  { pattern: /\bClaude\b/, category: 'ai_prompt', appName: 'Claude' },
+  { pattern: /\bChatGPT\b/, category: 'ai_prompt', appName: 'ChatGPT' },
+  { pattern: /\bGemini\b/, category: 'ai_prompt', appName: 'Gemini' },
+  { pattern: /\bPerplexity\b/i, category: 'ai_prompt', appName: 'Perplexity' },
+  { pattern: /\b(Cursor|cursor\.com\/dashboard)\b/, category: 'ai_prompt', appName: 'Cursor' },
+  { pattern: /\bv0\.dev\b/i, category: 'ai_prompt', appName: 'v0' },
+  { pattern: /\bGrok\b/, category: 'ai_prompt', appName: 'Grok' },
+  { pattern: /\bMistral\b/i, category: 'ai_prompt', appName: 'Mistral' },
 ]
 
 // IDEs with @-mention chip support in their AI chat panes. Used to

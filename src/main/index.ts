@@ -23,6 +23,8 @@ app.commandLine.appendSwitch('force-high-performance-gpu')
 app.commandLine.appendSwitch('disable-features', 'MacUtilityProcessQoSPolicy')
 import { join } from 'path'
 import { registerIpcHandlers, addToHistory, getHistory } from './ipc'
+import { notifyDictationCompleted, markDictationActive } from './context/compactor'
+import { closeContextStore } from './context/store'
 import { registerHotkey, unregisterAll } from './hotkeys'
 import { getSettings, setSettings } from './store'
 import { runCommandPipeline, runDictationPipeline } from './pipeline'
@@ -168,7 +170,7 @@ function createSettingsWindow(): BrowserWindow {
     show: false,
     titleBarStyle: 'hiddenInset',
     // Inset the traffic lights so they sit centered in our 30px drag
-    // strip — without this they collide with the OpenFlow wordmark in
+    // strip — without this they collide with the Yappr wordmark in
     // the sidebar.
     trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: '#FAFAF5',
@@ -317,7 +319,7 @@ function updateTrayMenu(): void {
   }))
 
   const menu = Menu.buildFromTemplate([
-    { label: 'OpenFlow', enabled: false },
+    { label: 'Yappr', enabled: false },
     { type: 'separator' },
     { label: 'Settings…', click: () => createSettingsWindow() },
     { label: 'Reopen Onboarding…', click: () => createOnboardingWindow() },
@@ -326,7 +328,7 @@ function updateTrayMenu(): void {
       ? [{ label: 'Recent Dictations', enabled: false } as Electron.MenuItemConstructorOptions, ...historyItems]
       : [{ label: 'No dictations yet', enabled: false } as Electron.MenuItemConstructorOptions]),
     { type: 'separator' },
-    { label: 'Quit OpenFlow', role: 'quit' },
+    { label: 'Quit Yappr', role: 'quit' },
   ])
 
   tray.setContextMenu(menu)
@@ -341,7 +343,7 @@ function setupTray(): void {
     icon = nativeImage.createEmpty()
   }
 
-  // Full-color tray icon — the OpenFlow pill with red dot + cobalt
+  // Full-color tray icon — the Yappr pill with red dot + cobalt
   // bars. NOT a template image (template mode would strip the colors
   // and only render the silhouette). The pill is already dark, so it
   // reads fine on both light and dark menubars. assets/tray.png +
@@ -349,7 +351,7 @@ function setupTray(): void {
   // Electron picks the @2x variant on retina displays.
 
   tray = new Tray(icon)
-  tray.setToolTip('OpenFlow')
+  tray.setToolTip('Yappr')
   tray.on('click', () => createSettingsWindow())
   updateTrayMenu()
 }
@@ -374,6 +376,7 @@ function actionStartRecording(): void {
   captureSelectedText()
   captureAXRoleAtPress()
   positionIndicatorOnActiveDisplay()
+  markDictationActive()
   broadcastState('recording')
 }
 
@@ -455,7 +458,6 @@ function setupAudioIpc(): void {
     const selection = getSelectedText()
     const commandMode = selection.trim().length >= 5
     clearSelectedText()
-    logInfo('Pipeline mode', { mode: commandMode ? 'command' : 'dictate', selectionChars: selection.length })
 
     try {
       if (commandMode) {
@@ -474,6 +476,11 @@ function setupAudioIpc(): void {
           appCategory: focused.category,
           timestamp: Date.now(),
         })
+        // Rewrite/command-mode bumps the activity timestamp so the
+        // compactor's idle gate doesn't fire mid-session, but we don't
+        // count it toward the threshold — the compactor itself filters
+        // '(rewrite)' entries from its input list.
+        markDictationActive()
         updateTrayMenu()
 
         if (stillLatest()) {
@@ -503,6 +510,15 @@ function setupAudioIpc(): void {
       )
 
       addToHistory(result)
+      // Only count toward the 50-dictation threshold when both toggles
+      // are on. Counter increments otherwise would tick forever in the
+      // background even when the user has the feature off.
+      const s = getSettings()
+      if (s.useContextMemory && s.autoContextUpdate) {
+        notifyDictationCompleted()
+      } else {
+        markDictationActive()
+      }
       updateTrayMenu()
 
       if (stillLatest()) {
@@ -525,9 +541,7 @@ function setupAudioIpc(): void {
       // NO_SPEECH is expected user behavior (held the key, didn't talk),
       // not a true error — log info-level and dismiss faster than a real
       // pipeline failure.
-      if (userErr.code === 'NO_SPEECH') {
-        logInfo('No speech detected')
-      } else {
+      if (userErr.code !== 'NO_SPEECH') {
         logError('Pipeline error', err)
       }
       if (stillLatest()) {
@@ -619,7 +633,7 @@ function setupIpcListeners(): void {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin') {
-    // Point Electron at the bundled OpenFlow icon so Finder, Cmd-Tab,
+    // Point Electron at the bundled Yappr icon so Finder, Cmd-Tab,
     // and any other macOS surface that asks the app for its icon gets
     // the real one instead of the default Electron logo. In dev the
     // .icns lives in the repo's assets/; in production electron-builder
@@ -698,4 +712,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   shutdownPasteHelper()
+  closeContextStore()
 })

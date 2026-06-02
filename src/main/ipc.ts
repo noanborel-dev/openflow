@@ -14,16 +14,45 @@ import {
   getLocalModelProgress,
 } from './local-download'
 import { HISTORY_LIMIT } from '../shared/constants'
+import {
+  loadPersistedHistory,
+  persistHistoryEntry,
+  clearPersistedHistory,
+} from './history-store'
+import { getUserOverview, setUserOverview } from './context/store'
+import { forceCompaction, getCompactionStatus } from './context/compactor'
 
-const history: DictationResult[] = []
+// Hot in-memory cache for paste-last + indicator lookups. Always
+// reflects the most recent N entries (N = HISTORY_LIMIT). On startup
+// we hydrate this from the persistent store so paste-last works
+// immediately even before the dashboard is opened.
+const history: DictationResult[] = loadPersistedHistory().slice(0, HISTORY_LIMIT)
 
 export function addToHistory(result: DictationResult): void {
   history.unshift(result)
   if (history.length > HISTORY_LIMIT) history.splice(HISTORY_LIMIT)
+  // Persist asynchronously so cleanup pipeline never blocks on disk I/O.
+  // electron-store is sync but very fast (~1ms); fire-and-forget keeps
+  // the contract simple.
+  try {
+    persistHistoryEntry(result)
+  } catch {
+    // Disk failure shouldn't break dictation. Swallow.
+  }
 }
 
 export function getHistory(): DictationResult[] {
   return [...history]
+}
+
+// Full persisted history — used by the Settings dashboard tab.
+export function getPersistedHistory(): DictationResult[] {
+  return loadPersistedHistory()
+}
+
+export function clearHistory(): void {
+  history.length = 0
+  clearPersistedHistory()
 }
 
 export function registerIpcHandlers(): void {
@@ -55,6 +84,15 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.HISTORY_GET, () => getHistory())
+  ipcMain.handle(IPC.HISTORY_GET_ALL, () => getPersistedHistory())
+  ipcMain.handle(IPC.HISTORY_CLEAR, () => clearHistory())
+
+  ipcMain.handle(IPC.CONTEXT_OVERVIEW_GET, () => getUserOverview())
+  ipcMain.handle(IPC.CONTEXT_OVERVIEW_SET, (_e, text: string) => {
+    setUserOverview(typeof text === 'string' ? text : '')
+  })
+  ipcMain.handle(IPC.CONTEXT_REFRESH_NOW, () => forceCompaction())
+  ipcMain.handle(IPC.CONTEXT_STATUS_GET, () => getCompactionStatus())
 
   ipcMain.handle(IPC.MIC_PERMISSION, async () => {
     if (process.platform === 'darwin') {

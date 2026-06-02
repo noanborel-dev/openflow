@@ -16,7 +16,7 @@ declare global {
 }
 
 export default function PasteFallbackApp() {
-  // text is what OpenFlow tried to paste. retrying flips during the
+  // text is what Yappr tried to paste. retrying flips during the
   // brief delay between Insert-button click and the actual paste attempt.
   const [text, setText] = useState('')
   const [hotkey, setHotkey] = useState('CTRL')

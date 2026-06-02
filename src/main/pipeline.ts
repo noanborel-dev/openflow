@@ -1,6 +1,7 @@
-import { buildCleanupPrompt } from '../shared/prompts'
+import { buildCleanupPrompt, type Register } from '../shared/prompts'
+import { buildContextBlock } from './context/prompt-injector'
 import { MODELS, BUILTIN_DICTIONARY, IDE_EDITORS } from '../shared/constants'
-import type { DictationResult, Settings, Strictness } from '../shared/types'
+import type { AppCategory, DictationResult, Settings, Strictness } from '../shared/types'
 import type { FocusedApp } from './focused-app'
 import type { TranscriptionProvider, CleanupProvider } from './providers/types'
 import {
@@ -13,6 +14,27 @@ import { captureFocusedApp, getFocusedApp } from './focused-app'
 import { pasteText, probeFocusedAXRole, getPressTimeAXRolePromise } from './paste'
 import { logInfo, logError } from './log'
 import { NoSpeechError } from './errors'
+import { focusedTerminalRunningAiCli, TERMINAL_BUNDLE_IDS } from './terminal-ai-cli'
+
+// Apps that are PRIMARILY AI chat surfaces. Dictation here is always
+// a prompt to an AI assistant — route to 'ai_prompt' regardless of
+// AX role. Adding new entries: prefer apps where the entire surface
+// is AI chat (ChatGPT desktop, Claude desktop, Perplexity), NOT apps
+// that mix AI chat with other surfaces (those are detected via the
+// AXTextArea role inside a 'code'-categorized app).
+const PRIMARY_AI_CHAT_BUNDLES = new Set([
+  'com.openai.chat',           // ChatGPT desktop
+  'com.anthropic.claudefordesktop',  // Claude desktop
+  'ai.perplexity.mac',          // Perplexity
+])
+
+// AX roles that indicate the user is in an AI-chat input WITHIN a
+// 'code' category app (Cursor, Antigravity, VS Code with Copilot
+// Chat). AXTextArea = multi-line chat input. Code editor panes
+// usually report AXWebArea, AXTextField, or no-focus.
+const CODE_APP_AI_CHAT_ROLES = new Set([
+  'AXTextArea',
+])
 
 // Whisper hallucinates these on silent / near-silent audio. If the
 // transcript is exactly one of these (case-insensitive, trimmed of
@@ -106,6 +128,50 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// Cleanup-specific retry. On a Groq 429 the error message embeds
+// "Please try again in Ns" — parse it and wait up to a 5s cap before
+// the second attempt instead of the fixed 250ms used by withRetry.
+// Caps the wait because the hot path is user-facing: a 28s wait
+// here is worse than failing fast and falling back to the raw
+// transcript. For non-429 failures (network, timeout) we use the
+// existing fast retry.
+async function withCleanupRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (err instanceof NoSpeechError) throw err
+    const wait = parseRateLimitDelayMs(err)
+    logError('Cleanup failed (attempt 1) — retrying', err)
+    await new Promise(r => setTimeout(r, wait))
+    try {
+      return await fn()
+    } catch (err2) {
+      logError('Cleanup failed (attempt 2) — giving up', err2)
+      throw err2
+    }
+  }
+}
+
+const CLEANUP_RETRY_CAP_MS = 5000
+
+// Length-ratio guard thresholds. Only fire when the input is long
+// enough to be a real dictation (not a one-line message), and only
+// fail when the output is dramatically shorter than the input.
+// 0.4 means "if the cleaned output is less than 40% of the input
+// length, treat that as a summarization failure." Catches the 4%
+// and 1% production cases without false-positiving on normal
+// filler removal (~85-95% retention is typical).
+const LENGTH_GUARD_MIN_INPUT_CHARS = 300
+const LENGTH_GUARD_MIN_RATIO = 0.4
+function parseRateLimitDelayMs(err: unknown): number {
+  if (!(err instanceof Error)) return 250
+  const m = err.message.match(/Please try again in ([\d.]+)\s*s/i)
+  if (!m) return 250
+  const seconds = parseFloat(m[1])
+  if (!Number.isFinite(seconds) || seconds <= 0) return 250
+  return Math.min(CLEANUP_RETRY_CAP_MS, Math.ceil(seconds * 1000))
+}
+
 function buildDictionary(settings: Settings): string[] {
   const user = settings.userDictionary ?? []
   // Lowercased de-dup so the same term in different cases doesn't repeat.
@@ -132,10 +198,11 @@ function buildDictionary(settings: Settings): string[] {
 //     inputs where there's nothing meaningful to polish.
 const FILLER_RE = /\b(um+|uh+|er+|erm+|hmm*|uhh+|umm+)\b/i
 const STUTTER_RE = /\b(\w+)[, ]+\1\b/i  // "the the", "I, I"
-// "i mean" intentionally NOT in this list — it's too often a softener
-// ("I mean, it's fast") rather than a real correction. Letting it
-// trigger cleanup caused the LLM to over-edit clean transcripts.
-const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind|sorry,?\s+i mean)\b/i
+// "I mean" is contextual: as a sentence-opener / clause-opener ("I mean,
+// it's fast") it's a hedging softener, NOT a correction. As a mid-sentence
+// pivot after a comma ("at 6, I mean 7", "send to Alice, I mean Bob") it
+// IS a correction. We require the leading comma / pause to disambiguate.
+const CORRECTION_RE = /\b(actually|wait|scratch that|nevermind|never mind)\b|,\s*i mean\s+\w/i
 
 // Enumeration markers — when ≥2 of these appear in the transcript, the
 // user is dictating a list-shaped thought and cleanup should run so
@@ -161,21 +228,26 @@ function looksEnumerated(transcript: string): boolean {
   return false
 }
 
-function canSkipCleanup(transcript: string, category: 'messaging' | 'email' | 'code' | 'docs' | 'other'): boolean {
-  if (FILLER_RE.test(transcript)) return false
-  if (STUTTER_RE.test(transcript)) return false
-  if (CORRECTION_RE.test(transcript)) return false
-  if (looksEnumerated(transcript)) return false
-  if (category === 'code') return true
-  // Skip cleanup when nothing looks like it needs cleaning. The earlier
-  // <30 char gate ran the LLM on virtually every dictation because real
-  // dictations are 20-80 chars; with no fillers/stutters/lists detected
-  // the LLM was paying 500-700ms to produce nearly-identical output.
-  // Bumped to 200 chars so single-sentence messages take the fast path
-  // by default. Longer-than-200 dictations still pay LLM cleanup, but
-  // those are also the cases where polish actually matters (multi-
-  // paragraph thoughts, emails, docs).
-  return transcript.length < 200
+function canSkipCleanup(
+  transcript: string,
+  category: AppCategory,
+  _strictness: Strictness,
+): boolean {
+  // Code dictation = verbatim, no cleanup ever needed unless there's
+  // something to clean. The downstream regex passes handle the rest.
+  if (category === 'code') {
+    if (FILLER_RE.test(transcript)) return false
+    if (STUTTER_RE.test(transcript)) return false
+    if (CORRECTION_RE.test(transcript)) return false
+    return true
+  }
+  // Every non-code category (messaging at Light, email at Strict,
+  // docs at Balanced, ai_prompt always) runs through the LLM. The
+  // user explicitly asked for this: "The light setting should never
+  // skip the LLM for personal messaging or anything. The LLM should
+  // always be used." Strictness controls HOW the LLM cleans, not
+  // WHETHER it runs.
+  return false
 }
 
 // Deterministic regex pass for the most common Whisper mishearings of
@@ -197,9 +269,9 @@ const QUICK_FIXES: Array<[RegExp, string]> = [
   [/\bgit\s+hub\b/gi, 'GitHub'],
   [/\bvs\s+code\b/gi, 'VS Code'],
   [/\bco\s*-?\s*pilot\b/gi, 'Copilot'],
-  // GPT-N variants where Whisper hears "for" / "five" / "four" instead
-  // of the digit. Only triggers in obviously GPT-y context.
-  [/\bGPT\s+for\b/gi, 'GPT-4'],
+  // GPT-N variants where Whisper hears "five" / "four" instead of the
+  // digit. (Dropped "GPT for" → "GPT-4": it ate the preposition in
+  // "use GPT for coding" → "use GPT-4 coding".)
   [/\bGPT\s+four\b/gi, 'GPT-4'],
   [/\bGPT\s+five\b/gi, 'GPT-5'],
   [/\bGPT\s+(\d+)\b/g, 'GPT-$1'],
@@ -234,7 +306,7 @@ const PERSONAL_MESSAGING_BUNDLES = new Set([
 ])
 const WORK_MESSAGING_BUNDLES = new Set([
   'com.tinyspeck.slackmacgap',
-  'com.discord',
+  'com.hnc.Discord',
   'com.microsoft.teams',
   'com.microsoft.teams2',
 ])
@@ -242,6 +314,10 @@ const WORK_MESSAGING_BUNDLES = new Set([
 function strictnessBucket(focused: FocusedApp): 'personal' | 'work' | 'writing' | null {
   switch (focused.category) {
     case 'code': return null
+    // ai_prompt isn't a raw focused-app category (it's derived at
+    // pipeline time from code apps with chat AX roles), so this is
+    // mostly dead — but TS still needs the case for exhaustiveness.
+    case 'ai_prompt': return 'writing'
     case 'email': return 'work'
     case 'docs': return 'writing'
     case 'other': return 'writing'
@@ -264,6 +340,24 @@ function strictnessFor(focused: FocusedApp, settings: Settings): Strictness {
   return settings.strictness[bucket]
 }
 
+// Register hint for the cleanup LLM. Computed from the focused app:
+//   - iMessage / WhatsApp / Telegram / Messenger → 'imessage' (lowercase casual)
+//   - Slack / Discord / Teams → 'chat' (sentence-case casual)
+//   - everything else → 'default' (whatever strictness block dictates)
+// This drives a HARD final override at the end of the system prompt
+// so the LLM doesn't default to "proper" capitalization in iMessage.
+function registerFor(focused: FocusedApp, category: AppCategory): Register {
+  if (category !== 'messaging') return 'default'
+  if (PERSONAL_MESSAGING_BUNDLES.has(focused.bundleId)) return 'imessage'
+  if (WORK_MESSAGING_BUNDLES.has(focused.bundleId)) return 'chat'
+  // Browser-routed (Slack-in-Arc etc) — fall back to app name.
+  const n = focused.name.toLowerCase()
+  if (['imessage', 'messages', 'whatsapp', 'telegram', 'messenger'].includes(n)) return 'imessage'
+  if (['slack', 'discord', 'microsoft teams'].includes(n)) return 'chat'
+  // Unknown messaging app — default to iMessage casing (safer for personal).
+  return 'imessage'
+}
+
 function applyQuickFixes(text: string): string {
   let out = text
   for (const [re, replacement] of QUICK_FIXES) {
@@ -272,39 +366,435 @@ function applyQuickFixes(text: string): string {
   return out
 }
 
-// Deterministic strictness=1 (Light) cleanup. The Light prompt only
-// asks the LLM to:
-//   - strip exact filler tokens (um, uh, er, erm, hm, hmm)
-//   - collapse stutters (the the, I, I)
-//   - add sentence-end punctuation if missing
-// All three are cheap regex passes. Running them locally saves the
-// ~500-700ms cloud-LLM roundtrip on every personal-messaging
-// dictation. We only fall back to the LLM when there's a self-
-// correction marker (actually / wait / scratch that), which needs
-// semantic understanding to drop the right span.
-const FILLER_STRIP_RE = /\b(?:um+|uh+|er+|erm+|hmm*|uhh+|umm+)[,.]?\s*/gi
-const STUTTER_COLLAPSE_RE = /\b(\w+)(?:[,]?\s+\1\b)+/gi
-function applyLightCleanup(text: string): string {
+// Deterministic self-correction: drop the "wrong half" of a "<value>,
+// <marker> <value>" pivot where both <value>s look like the same kind
+// of thing (number, time, single name, short path/identifier).
+//
+// This is the safety net for two failure modes:
+//   1. Local-only mode has no LLM — needs the regex to do it.
+//   2. The 8B Groq cleanup model still keeps both halves of the
+//      correction ~40% of the time despite the SELF_CORRECTION prompt.
+//
+// We're deliberately CONSERVATIVE here: we only fire when the
+// pre-correction and post-correction spans are short and "shaped like"
+// the same thing. This avoids rewriting hedging uses ("I mean, it's fast"
+// — no comma+value+marker+value pattern) or rhetorical pivots ("I was
+// going to say X, actually let me tell you Y" — too long).
+//
+// Each entry below matches: `<value>, <marker> <value>` and rewrites to
+// just `<value>` (the second one). The leading comma is REQUIRED — it
+// distinguishes mid-sentence pivots from sentence-opener hedges.
+
+// Helper builders. Each "value" pattern is a small enumeration of
+// shapes that real corrections take.
+//
+// IMPORTANT: the value regex is built WITHOUT the case-insensitive
+// flag — only the marker words (i mean, actually, wait, sorry) are
+// matched case-insensitively, via inline (?i:...) groups. This is
+// because the NAME shape `[A-Z][a-z]+` only works as intended when
+// case-sensitive; with /i, [A-Z] matches lowercase too, which means
+// "at six" matches NAME and we end up eating the leading preposition.
+const NUM = '\\d{1,5}(?::\\d{2})?\\s*(?:am|pm)?'  // 6, 7, 3:15, 4pm
+const WORD_NUM_ANY = '(?:[Oo]ne|[Tt]wo|[Tt]hree|[Ff]our|[Ff]ive|[Ss]ix|[Ss]even|[Ee]ight|[Nn]ine|[Tt]en|[Ee]leven|[Tt]welve|[Tt]hirteen|[Ff]ourteen|[Ff]ifteen|[Ss]ixteen|[Ss]eventeen|[Ee]ighteen|[Nn]ineteen|[Tt]wenty|[Tt]hirty|[Ff]orty|[Ff]ifty)'
+const NAME = '[A-Z][a-z]{1,15}(?:\\s+[A-Z][a-z]{1,15})?'  // "Bob", "Alice Smith"
+const PATHY = '[\\w-]{1,15}[/.@][\\w/.@-]{1,30}'         // "/var/log", "jane@x.com", "src/main.ts"
+
+// PRE side: must be a number, sentence-positioned word-number,
+// capitalized name, or path-y string — NOT a bare lowercase word
+// (so we don't gobble "at", "to", "in").
+const PRE_VALUE = `(?:${NUM}|${WORD_NUM_ANY}|${NAME}|${PATHY})`
+// POST side: same shapes.
+const POST_VALUE = PRE_VALUE
+// "actually" doubles as a contrastive/emphatic adverb ("I love Paris,
+// actually Rome is better"), so the NAME-vs-NAME shape over-fires and
+// deletes a real clause ("I love Rome is better"). Restrict the
+// "actually" rule to numbers, times, and paths — where "actually"
+// almost always signals a correction ("at 6, actually 7", "port 3000,
+// actually 8080"). NAME corrections still get the unambiguous markers
+// (I mean / sorry / wait / scratch that / never mind) and the LLM
+// SELF_CORRECTION prompt.
+const ACTUALLY_VALUE = `(?:${NUM}|${WORD_NUM_ANY}|${PATHY})`
+
+// Helper: spell each letter as a [Aa] character class so the marker
+// matches both cases without using the /i flag (which would break the
+// case-sensitive NAME pattern).
+function ci(s: string): string {
+  return s.split('').map(c => {
+    if (/[a-zA-Z]/.test(c)) return `[${c.toLowerCase()}${c.toUpperCase()}]`
+    if (c === ' ') return '\\s+'
+    return c
+  }).join('')
+}
+
+const CORRECTION_REWRITES: Array<[RegExp, string]> = [
+  // "<value>, I mean <value>"   → "<value2>"
+  [new RegExp(`\\b(${PRE_VALUE})\\s*,\\s*${ci('i mean')}\\s+(${POST_VALUE})\\b`), '$2'],
+  // "<value>, actually <value>" → "<value2>" — numbers/times/paths only
+  // (NAME excluded; see ACTUALLY_VALUE note above).
+  [new RegExp(`\\b(${ACTUALLY_VALUE})\\s*,\\s*${ci('actually')}\\s+(${ACTUALLY_VALUE})\\b`), '$2'],
+  // "<value>, wait, <value>"    → "<value2>"
+  [new RegExp(`\\b(${PRE_VALUE})\\s*,\\s*${ci('wait')}\\s*,\\s*(${POST_VALUE})\\b`), '$2'],
+  // "<value>, sorry, <value>"   → "<value2>"
+  [new RegExp(`\\b(${PRE_VALUE})\\s*,\\s*${ci('sorry')}\\s*,\\s*(${POST_VALUE})\\b`), '$2'],
+  // "<value>, scratch that, <value>" → "<value2>"
+  [new RegExp(`\\b(${PRE_VALUE})\\s*,\\s*${ci('scratch that')}\\s*,?\\s*(${POST_VALUE})\\b`), '$2'],
+  // "<value>, never mind, <value>"   → "<value2>"
+  [new RegExp(`\\b(${PRE_VALUE})\\s*,\\s*${ci('never mind')}\\s*,?\\s*(${POST_VALUE})\\b`), '$2'],
+]
+
+function applySelfCorrection(text: string): string {
   let out = text
-    // Strip fillers, including any trailing comma/period that's now
-    // orphaned (e.g. "um, so" → "so", "well, uh, I think" → "well, I think").
-    .replace(FILLER_STRIP_RE, '')
-    // Collapse exact word repetitions ("the the the" → "the").
-    .replace(STUTTER_COLLAPSE_RE, '$1')
-    // Tidy up doubled spaces, leading commas/spaces left behind.
-    .replace(/\s{2,}/g, ' ')
-    .replace(/^[\s,]+/, '')
-    .replace(/\s+([,.!?])/g, '$1')
-    .trim()
-  // Capitalize first letter if it isn't already.
-  if (out.length > 0 && /[a-z]/.test(out[0])) {
-    out = out[0].toUpperCase() + out.slice(1)
+  for (const [re, replacement] of CORRECTION_REWRITES) {
+    out = out.replace(re, replacement)
   }
-  // Add trailing period if missing and the last token isn't already
-  // ending with one of .!? — only when the result is a clear single
-  // sentence (no internal punctuation might mean it's a fragment).
-  if (out.length > 0 && !/[.!?]$/.test(out)) {
-    out += '.'
+  return out
+}
+
+// QUESTION-MARK NORMALIZATION
+// Sentences that linguistically pose a question get a "?" if they end
+// in "." or have no terminal punctuation. The trigger is the SHAPE of
+// the sentence's opening, not just an inverted verb:
+//   - Wh-words: who/what/when/where/why/which/how
+//   - Yes/no inversions: "do you...", "can you...", "are you...",
+//     "is it...", "should we...", "would you...", "could you...",
+//     "did you...", "does it...", "have you...", "has it...", "will you...",
+//     "won't you...", "shouldn't we...", "isn't it...", "aren't you...",
+//     "wasn't it...", "weren't you...", "haven't you..."
+//   - Tag-question shape: "..., right?", "..., yeah?", "..., no?"
+//
+// We do NOT add "?" when:
+//   - The sentence already ends with "?" or "!" — leave it alone.
+//   - The "question word" is being used as a relative pronoun
+//     ("I know what you mean", "the place where we met", "this is how
+//     it works", "tell me when you arrive") — these start with a
+//     non-question subject like "I/we/this/the/that/he/she".
+//   - It's a polite directive disguised as a question ("can you pass
+//     the salt") — these we DO want to mark as questions actually,
+//     because a "?" is correct there. Leave the heuristic broad.
+//
+// Implementation: split on sentence boundaries, inspect first 1-3
+// words of each clause, swap trailing "." for "?" if it matches.
+
+const QUESTION_OPENERS = [
+  // Wh-questions
+  'who', 'what', 'when', 'where', 'why', 'which', 'how', 'whose', 'whom',
+  // Modal + subject inversions (most common forms)
+  'do you', 'do we', 'do they', 'do i',
+  'does he', 'does she', 'does it', 'does that', 'does this',
+  'did you', 'did we', 'did they', 'did he', 'did she', 'did it',
+  'are you', 'are we', 'are they', "aren't you", "aren't we", "aren't they",
+  'is he', 'is she', 'is it', 'is this', 'is that', 'is there',
+  "isn't he", "isn't she", "isn't it", "isn't this", "isn't that", "isn't there",
+  'was it', 'was he', 'was she', 'was that', 'was this', 'was there',
+  "wasn't it", "wasn't he", "wasn't she", "wasn't that", "wasn't this",
+  'were you', 'were we', 'were they', "weren't you", "weren't we", "weren't they",
+  'have you', 'have we', 'have they', "haven't you", "haven't we", "haven't they",
+  'has he', 'has she', 'has it', "hasn't he", "hasn't she", "hasn't it",
+  'had you', 'had we', "hadn't you",
+  'can you', 'can we', 'can they', 'can he', 'can she', 'can it', 'can i',
+  "can't you", "can't we", "can't they",
+  'could you', 'could we', 'could they', 'could he', 'could she', "couldn't you",
+  'would you', 'would we', 'would they', 'would he', 'would she', "wouldn't you",
+  'will you', 'will we', 'will they', 'will he', 'will she', 'will it',
+  "won't you", "won't we", "won't they",
+  'should you', 'should we', 'should they', 'should he', 'should she', 'should i', 'should it',
+  "shouldn't you", "shouldn't we", "shouldn't they",
+  'shall we', 'shall i',
+  'may i', 'may we',
+  'might you', 'might we',
+  // Common spoken stems that are usually questions
+  'any chance',
+  'wanna',
+  'gonna',
+]
+
+// Tag-question endings — the LAST 1-2 words of the sentence indicate
+// it's a question regardless of opener. ", right" / ", yeah" / ", no"
+// / ", okay" / ", correct".
+const TAG_QUESTION_END_RE = /,\s*(right|yeah|yea|no|ok|okay|correct|huh)\s*[.!?]?\s*$/i
+
+// Subjects that, when they OPEN the sentence, indicate the wh-word
+// later is a relative pronoun, NOT a question opener. Used to suppress
+// false positives like "I know what you mean."
+const STATEMENT_OPENER_RE = /^(?:i|we|you|he|she|they|it|this|that|the|my|our|your|his|her|their|its|tell|let|show|please)\b/i
+
+function isQuestionShape(sentence: string): boolean {
+  const trimmed = sentence.trim()
+  if (trimmed.length === 0) return false
+  // Already explicitly punctuated as a question or exclamation — leave it.
+  if (/[?!]\s*$/.test(trimmed)) return false
+  // Tag-question — fires regardless of opener.
+  if (TAG_QUESTION_END_RE.test(trimmed)) return true
+  // Statement-opener guard: "I know what you mean" should NOT be a question.
+  if (STATEMENT_OPENER_RE.test(trimmed)) return false
+  // Lowercase first 1-3 words, strip punctuation, check against openers.
+  const head = trimmed.toLowerCase().replace(/^[^a-z']+/, '').split(/\s+/).slice(0, 3).join(' ')
+  for (const opener of QUESTION_OPENERS) {
+    if (head === opener || head.startsWith(opener + ' ') || head.startsWith(opener + ',')) {
+      return true
+    }
+  }
+  return false
+}
+
+function applyQuestionMarks(text: string): string {
+  // Split on sentence boundaries but keep the trailing punctuation +
+  // following whitespace, so we can rebuild faithfully. We use a
+  // boundary regex that matches the punctuation as its own capture.
+  // Examples handled:
+  //   "do you want to go. yes" → "do you want to go? yes"
+  //   "lets go to the beach. do you wanna come" (no end punctuation on
+  //    second clause) → "lets go to the beach. do you wanna come?"
+  //   "hey, are you free tonight" → "hey, are you free tonight?"
+  // A terminator only counts when it's followed by whitespace or end-of-
+  // text. This guards intra-token periods — "app.tsx", "version 3.2",
+  // "v1.1" — from being treated as sentence boundaries (which used to
+  // corrupt them into "app?tsx" / "3?2" when the clause looked like a
+  // question). Sentences jammed without a space ("go.yes") won't split,
+  // which is rare and far safer than mangling code/decimals.
+  const parts = text.split(/([.!?]+(?:\s+|$))/)
+  // parts is interleaved: [sentence, terminator, sentence, terminator, ..., lastSentence?]
+  // Walk pairs and rewrite the terminator when the preceding sentence is question-shaped.
+  let out = ''
+  for (let i = 0; i < parts.length; i += 2) {
+    const sentence = parts[i] ?? ''
+    const terminator = parts[i + 1] ?? ''
+    if (sentence.length === 0 && terminator.length === 0) continue
+    if (isQuestionShape(sentence)) {
+      // Replace "." or "!" with "?" but keep the trailing whitespace.
+      // If terminator is empty (sentence didn't have one — end of text),
+      // append "?" + preserve nothing.
+      if (terminator.length === 0) {
+        out += sentence + '?'
+      } else {
+        const trailingWs = terminator.match(/\s*$/)?.[0] ?? ''
+        out += sentence + '?' + trailingWs
+      }
+    } else {
+      out += sentence + terminator
+    }
+  }
+  return out
+}
+
+// SPELLED-OUT NAME / WORD COLLAPSE
+// Whisper transcribes hyphen-separated spelled letters verbatim:
+//   "J-U-L-I-A" / "j.u.l.i.a" / "J U L I A"
+// Users spelling something out for clarity want the joined word in
+// the output — NEVER the hyphenated letters. Two cases:
+//
+//   1. Preceded by a redundant name ("Julia, J-U-L-I-A") → drop the
+//      spelled-out portion, keep the original name.
+//   2. Standalone ("text me J-U-L-I-A") → collapse the letters into
+//      a single word with appropriate casing (first letter caps if
+//      the spelled sequence was uppercase, else lowercase).
+//
+// "Self-correction" intent (different letters from a preceding name)
+// like "Julia, sorry, J-A-N-E" is handled by applySelfCorrection
+// (which runs first) — and even if it doesn't fire, the spelled-out
+// letters MUST still be collapsed into "Jane", not left as "J-A-N-E".
+//
+// Match shape: 2+ letter tokens separated by hyphens, dots, or
+// whitespace, each letter token being a single A-Z (case-insensitive).
+// Minimum 2 letters (so we don't match accidental "A-B" pairs in
+// non-spelling contexts like "page A-B").
+
+// CASE 1: preceded by a name (capitalized word) + connector. Drop the
+// spelled-out portion entirely.
+//
+// Connector covers: ", " | " spelled " | " spelt " | ": " | " - " |
+// " that's spelled " etc.
+const SPELL_AFTER_NAME_RE = /\b([A-Z][a-z]{1,20})(\s*[,:]?\s+(?:spelled|spelt|that's|that is|which is|like)\s+|\s*,\s+|\s+)((?:[A-Za-z](?:[-.\s]+[A-Za-z]){1,19}))\b/g
+
+// CASE 2: standalone hyphen/dot-separated letters anywhere. Collapse
+// to a joined word. Requires 2+ separator-joined letters where every
+// gap is exactly one of [-.\s] (so we don't accidentally match
+// natural phrases like "I - you - me").
+//
+// To avoid false positives we ONLY fire when the separators are
+// hyphens OR dots (NOT bare whitespace), since "A B C D" in dictation
+// is almost never a spelled word — Whisper would have emitted that as
+// a real word if the user said it as a word. The exception is when
+// 3+ single letters appear in a row with only whitespace, which is
+// also a clear spelling cadence.
+// Note on trailing dot: "U.S.A." has a final period that isn't between
+// letters. We allow an optional trailing `.` followed by a non-letter
+// (or end of string) so we eat the abbrev-style terminal period too.
+const SPELL_STANDALONE_HYPHEN_RE = /\b([A-Za-z](?:[-.]\s*[A-Za-z]){1,19})(\.?)(?=[^A-Za-z]|$)/g
+const SPELL_STANDALONE_SPACED_RE = /\b([A-Za-z](?:\s+[A-Za-z]){2,19})\b/g
+
+// Lowercase a string and strip non-letters, for dictionary lookup keys.
+function letterKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+// Build a lookup once at module load: lowercased-letters-only → canonical
+// form from BUILTIN_DICTIONARY. e.g. "github" → "GitHub", "nba" → "NBA"
+// (if it's in the list), "vscode" → "VS Code" (multi-word entries get
+// their internal spaces stripped from the key but preserved in the value).
+const CANONICAL_BY_LETTERS: Map<string, string> = (() => {
+  const m = new Map<string, string>()
+  for (const term of BUILTIN_DICTIONARY) {
+    const key = letterKey(term)
+    if (key.length >= 2 && !m.has(key)) m.set(key, term)
+  }
+  return m
+})()
+
+// A tiny set of frequent English words we definitely want to LOWERCASE
+// when the user spells them out. The dictionary lookup handles brand
+// names; this list handles common-noun spellings like "h.e.l.l.o" →
+// "hello", not "Hello". We keep it small to avoid false positives —
+// only add words that show up frequently in spoken speech and are
+// unambiguous (not also a name).
+const COMMON_WORD_LETTERS = new Set<string>([
+  'hello', 'world', 'cool', 'nice', 'okay', 'yes', 'no', 'yeah', 'nope',
+  'wait', 'stop', 'help', 'fine', 'good', 'bad', 'love', 'hate', 'sorry',
+  'thanks', 'please', 'maybe', 'sure', 'true', 'false', 'left', 'right',
+  'up', 'down', 'big', 'small', 'fast', 'slow', 'easy', 'hard',
+])
+
+// Pick the right casing for a spelled-out letter sequence based on
+// context. Order of checks:
+//   1. Built-in dictionary (brand names, acronyms with canonical case).
+//      "n.b.a" → "NBA", "g.i.t.h.u.b" → "GitHub".
+//   2. Common English word → all lowercase. "h.e.l.l.o" → "hello".
+//   3. All-uppercase short sequence (≤5 letters) → keep all-caps
+//      (acronym fallback). "a.b.c" → "ABC" only if the user said it
+//      uppercase ("A.B.C." in transcript). Lowercase 3-letter
+//      sequences pass through unchanged.
+//   4. Otherwise → title case (name-shaped default). "j-u-l-i-a" →
+//      "Julia", lowercase input still gets title-cased ONLY when it
+//      doesn't match cases 1-3.
+//
+// Special rule for case 4: if the SPELLED input was lowercase (no
+// uppercase letters at all), keep it lowercase. The user typed lower
+// so we preserve their intent.
+//   "hey j-u-l-i-a" → "hey julia" (lowercase preserved)
+//   "hey J-U-L-I-A" → "hey Julia" (titlecase because uppercase input)
+function joinSpelledLetters(s: string): string {
+  const letters = s.replace(/[-.\s]+/g, '')
+  if (letters.length === 0) return s
+  const key = letterKey(letters)
+
+  // 1. Canonical dictionary entry — use exactly as defined.
+  const canonical = CANONICAL_BY_LETTERS.get(key)
+  if (canonical) return canonical
+
+  // 2. Common English word — lowercase.
+  if (COMMON_WORD_LETTERS.has(key)) return key
+
+  const upper = letters.replace(/[^A-Z]/g, '').length
+  const total = letters.length
+  const allUpper = upper === total
+  const allLower = upper === 0
+
+  // 3. Short all-uppercase (≤4 letters) → keep all-caps acronym.
+  //    "A.B.C" → "ABC", "X-Y-Z" → "XYZ", "F.A.A.A" → "FAAA".
+  //    5+ letters even all-uppercase prefer title-case ("J-U-L-I-A"
+  //    → "Julia", not "JULIA") because real acronyms 5+ letters long
+  //    are usually in the dictionary already (case 1 catches them).
+  if (allUpper && total <= 4) return letters.toUpperCase()
+
+  // 4. Title case for name-shaped sequences.
+  //    But if the input was all-lowercase, preserve lowercase intent.
+  if (allLower) return letters.toLowerCase()
+  return letters.charAt(0).toUpperCase() + letters.slice(1).toLowerCase()
+}
+
+function applySpelledNameCollapse(text: string): string {
+  // CASE 1 first: when preceded by a name (whether or not the spelled
+  // letters match), prefer dropping the spelled-out portion entirely
+  // — the user said the name itself, the spelling was for clarity.
+  let out = text.replace(SPELL_AFTER_NAME_RE, (full, name: string, gap: string, letters: string) => {
+    const joined = letters.replace(/[-.\s]+/g, '').toLowerCase()
+    if (joined === name.toLowerCase()) {
+      // Letters match the name → drop the spelled portion, keep the name.
+      return name
+    }
+    // Letters DIFFER from the name → user probably re-spelled to
+    // override. Replace the whole "<Name> <connector> <L-L-L>" with
+    // the joined spelled word. Trim trailing whitespace from gap so
+    // we don't leave double spaces.
+    void gap  // intentionally unused
+    return joinSpelledLetters(letters)
+  })
+
+  // CASE 2: any remaining standalone hyphen/dot-separated letter
+  // sequences. Always collapse to a joined word.
+  out = out.replace(SPELL_STANDALONE_HYPHEN_RE, (match, core: string) => {
+    // Only fire on 3+ letters — pairs like "A-B" are likely things
+    // like a list label, not a spelled word.
+    const letters = core.replace(/[-.\s]+/g, '')
+    if (letters.length < 3) return match
+    return joinSpelledLetters(core)
+  })
+
+  // CASE 3: 3+ single letters separated only by whitespace
+  // ("J U L I A"). Conservative — requires 3+ letters because pairs
+  // like "I am" or "a B" are common false positives.
+  out = out.replace(SPELL_STANDALONE_SPACED_RE, (match) => {
+    const letters = match.replace(/\s+/g, '')
+    if (letters.length < 3) return match
+    // Extra guard: require that AT LEAST 2 of the letters are
+    // uppercase, otherwise "i am at" looks like a spelled-out word.
+    const upper = letters.replace(/[^A-Z]/g, '').length
+    if (upper < 2) return match
+    return joinSpelledLetters(match)
+  })
+
+  return out
+}
+
+// Escape a literal string for use inside a RegExp.
+function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Build a case-insensitive regex that matches the canonical form OR
+// the same letters with internal whitespace/hyphens — covering common
+// Whisper mishearings like "Yappr" → "open flow", "kubectl" →
+// "koob control", "TypeScript" → "type script".
+//
+// Rules:
+// - Skip terms shorter than 3 chars (too prone to false positives).
+// - Skip terms with spaces (already multi-word; user can use perAppRules
+//   or a different mechanism for those edge cases).
+// - Skip pure-letter ALL-CAPS acronyms shorter than 4 chars (e.g. "API"
+//   shouldn't rewrite "API" → "API"; nothing to fix).
+// - Word-boundary anchored so we don't clobber substrings.
+function buildDictionaryReplacers(terms: string[]): Array<[RegExp, string]> {
+  const out: Array<[RegExp, string]> = []
+  for (const term of terms) {
+    const t = term.trim()
+    if (t.length < 3) continue
+    if (/\s/.test(t)) continue
+    // Split CamelCase / kebab / snake into letter groups so we can
+    // accept either the joined form or a separator between groups.
+    // "Yappr" → ["Open", "Flow"]; "type-script" → ["type", "script"];
+    // "kubectl" → ["kubectl"] (no internal case boundary).
+    const parts = t
+      .split(/(?<=[a-z0-9])(?=[A-Z])|[-_]/)
+      .filter(Boolean)
+    if (parts.length >= 2) {
+      // Multi-part term: allow optional whitespace/hyphen between parts.
+      const pattern = parts.map(reEscape).join('[\\s-]*')
+      out.push([new RegExp(`\\b${pattern}\\b`, 'gi'), t])
+    } else {
+      // Single token: just enforce case-insensitive whole-word match.
+      // Skip if the term is already a short all-caps acronym (nothing
+      // to normalize — Whisper would have produced the same letters).
+      if (t.length < 4 && t === t.toUpperCase()) continue
+      out.push([new RegExp(`\\b${reEscape(t)}\\b`, 'gi'), t])
+    }
+  }
+  return out
+}
+
+function applyDictionaryReplacements(text: string, terms: string[]): string {
+  let out = text
+  for (const [re, canonical] of buildDictionaryReplacers(terms)) {
+    out = out.replace(re, canonical)
   }
   return out
 }
@@ -322,7 +812,6 @@ export async function runDictationPipeline(
 ): Promise<DictationResult & { pasteMethod: 'paste' | 'clipboard' }> {
   const start = Date.now()
   onState('processing')
-  logInfo('Pipeline start', { audioBytes: audioBuffer.length, provider: settings.provider.provider })
 
   const { transcription, cleanup } = buildProviders(settings)
   const dictionary = buildDictionary(settings)
@@ -343,7 +832,6 @@ export async function runDictationPipeline(
 
   await refreshFocusedApp
   const focusedApp = getFocusedApp()
-  logInfo('Focused app at release', { name: focusedApp.name, bundleId: focusedApp.bundleId })
 
   const category = settings.devModeApps.includes(focusedApp.bundleId)
     ? ('code' as const)
@@ -358,7 +846,40 @@ export async function runDictationPipeline(
   }
 
   const rule = settings.perAppRules.find(r => r.bundleId === focusedApp.bundleId)
-  const effectiveCategory = rule?.category ?? category
+  let effectiveCategory = rule?.category ?? category
+
+  // Detect AI-chat surface inside code apps. Code editors host BOTH
+  // actual code (where the user types identifiers / commands and we
+  // must preserve every word) AND an AI chat pane (Claude Code chat,
+  // Cursor chat) where the user is composing a prompt that should be
+  // restructured for clarity.
+  //
+  // Two signals combine:
+  //   - The AX role of the focused element (AXTextArea = chat-like,
+  //     AXTextField = single-line input, AXWebArea/no-focus = code editor)
+  //   - Apps that are PRIMARILY AI chat (ChatGPT, Claude desktop,
+  //     Perplexity, Gemini) always get ai_prompt regardless of role
+  //
+  // The press-time AX-role probe (paste.ts) is fired at hotkey press
+  // and resolves by now (overlapped with transcription). Reuse it.
+  if (effectiveCategory === 'code' || PRIMARY_AI_CHAT_BUNDLES.has(focusedApp.bundleId)) {
+    const axRole = await (getPressTimeAXRolePromise() ?? Promise.resolve('script-error'))
+    const isAiChat = PRIMARY_AI_CHAT_BUNDLES.has(focusedApp.bundleId)
+      || (effectiveCategory === 'code' && CODE_APP_AI_CHAT_ROLES.has(axRole))
+    if (isAiChat) {
+      effectiveCategory = 'ai_prompt'
+      logInfo('Routed to ai_prompt', { bundleId: focusedApp.bundleId, axRole })
+    } else if (effectiveCategory === 'code' && TERMINAL_BUNDLE_IDS.has(focusedApp.bundleId)) {
+      const cliCheck = await focusedTerminalRunningAiCli(focusedApp.bundleId)
+      if (cliCheck.isAiCli) {
+        effectiveCategory = 'ai_prompt'
+        logInfo('Routed to ai_prompt (terminal AI CLI)', {
+          bundleId: focusedApp.bundleId,
+          cli: cliCheck.cli,
+        })
+      }
+    }
+  }
 
   // Fast path: skip the LLM cleanup pass when there are no filler / stutter /
   // correction markers. The 8B-instant model over-edits when given long
@@ -393,31 +914,32 @@ export async function runDictationPipeline(
     effectiveCategory === 'messaging'
     && settings.emojiInMessages
     && settings.provider.groqKey.trim().length > 0
+    // Pause = no LLM. The emoji judge is a separate Groq call but
+    // it's still LLM polish — respect the user's bypass.
+    && !settings.pauseCleanup
   )
     ? judgeEmoji(settings.provider.groqKey, MODELS.groq.cleanup, transcript)
         .catch(() => '') // emoji is nice-to-have; never block paste
     : Promise.resolve('')
 
-  if (canSkipCleanup(transcript, effectiveCategory)) {
+  const effectiveStrictness = strictnessFor(focusedApp, settings)
+  if (settings.pauseCleanup) {
+    // User-controlled hard bypass. Skip the LLM entirely. The
+    // downstream regex passes (brand names, dictionary, self-
+    // correction, spelled-name collapse, question marks) still run.
+    logInfo('Cleanup skipped (user-paused)', { chars: transcript.length })
+  } else if (canSkipCleanup(transcript, effectiveCategory, effectiveStrictness)) {
+    // Only fires for code-category dictations with no filler/stutter/
+    // correction markers. Every non-code category runs the LLM
+    // regardless of strictness — strictness controls HOW it cleans.
     logInfo('Cleanup skipped (fast path)', { chars: transcript.length })
-  } else if (
-    strictnessFor(focusedApp, settings) === 1
-    && effectiveCategory !== 'code'
-    && !CORRECTION_RE.test(transcript)
-  ) {
-    // Strictness=1 deterministic path: the Light prompt only does
-    // filler/stutter strip + sentence-end punctuation — all regex-able
-    // in microseconds. Cloud LLM cleanup at this strictness was
-    // costing ~500-700ms to produce nearly-identical output. We only
-    // fall back to the LLM when there's a self-correction marker
-    // (actually / wait / scratch that), which needs semantic
-    // understanding to drop the right span.
-    const cStart = Date.now()
-    cleaned = applyLightCleanup(transcript)
-    logInfo('Light cleanup (regex)', { ms: Date.now() - cStart, chars: cleaned.length })
   } else {
     const editor = IDE_EDITORS[focusedApp.bundleId]
     const strictness = strictnessFor(focusedApp, settings)
+    const register = registerFor(focusedApp, effectiveCategory)
+    // Feature 4 Phase 1: optional "Who you are" block. Empty when
+    // disabled or no overview saved. Hot-path cost ~1ms (cached read).
+    const contextBlock = buildContextBlock({ enabled: settings.useContextMemory })
     const systemPrompt = buildCleanupPrompt(
       effectiveCategory,
       focusedApp.name,
@@ -425,26 +947,91 @@ export async function runDictationPipeline(
       editor,
       strictness,
       settings.emojiInMessages,
+      register,
+      contextBlock,
     ).replace('{text}', transcript)
-    logInfo('Cleanup prompt built', {
-      category: effectiveCategory,
-      bucket: strictnessBucket(focusedApp),
-      strictness,
-    })
     const cStart = Date.now()
-    cleaned = await withRetry('Cleanup', () =>
-      cleanup.cleanup(transcript, {
-        appName: focusedApp.name,
-        appCategory: effectiveCategory,
-        systemPrompt,
-      }))
-    logInfo('Cleaned', { ms: Date.now() - cStart, chars: cleaned.length })
+    try {
+      cleaned = await withCleanupRetry(() =>
+        cleanup.cleanup(transcript, {
+          appName: focusedApp.name,
+          appCategory: effectiveCategory,
+          systemPrompt,
+        }))
+      // The 8B cleanup model occasionally ignores LENGTH_PRESERVATION
+      // and summarizes long dictations down to a sentence. ai_prompt
+      // legitimately restructures (rambling → structured prompt), so
+      // it's exempt; everything else falls back to the raw transcript
+      // when the output is catastrophically shorter than the input.
+      if (
+        effectiveCategory !== 'ai_prompt'
+        && transcript.length >= LENGTH_GUARD_MIN_INPUT_CHARS
+        && cleaned.length < transcript.length * LENGTH_GUARD_MIN_RATIO
+      ) {
+        logError('Cleanup output too short — falling back to raw transcript', {
+          transcriptChars: transcript.length,
+          cleanedChars: cleaned.length,
+          ratio: Number((cleaned.length / transcript.length).toFixed(2)),
+          category: effectiveCategory,
+          cleanedPreview: cleaned.slice(0, 100),
+        })
+        cleaned = transcript
+      } else {
+        logInfo('Cleaned', {
+          ms: Date.now() - cStart,
+          chars: cleaned.length,
+          category: effectiveCategory,
+          strictness,
+          register,
+          contextChars: contextBlock.length,
+        })
+      }
+    } catch (err) {
+      // Cleanup failed (Groq down, rate limit beyond cap, network).
+      // Fall back to raw Whisper transcript so the user still gets
+      // their content. Deterministic passes below still run on it.
+      logError('Cleanup failed — falling back to raw transcript', err)
+      cleaned = transcript
+    }
   }
 
   // Always apply deterministic brand-name fixes — runs after the LLM
   // cleanup (which usually catches them) AND on fast-path output where
   // the LLM never ran.
   cleaned = applyQuickFixes(cleaned)
+
+  // User-dictionary auto-replace. Built on top of the Whisper bias
+  // prompt: the bias makes Whisper *more likely* to produce the right
+  // spelling, but it's probabilistic. This pass guarantees that "open
+  // flow" → "Yappr", "type script" → "TypeScript", etc., for any
+  // term the user added to their dictionary. Case-insensitive, word-
+  // boundary anchored, multi-part-aware (see buildDictionaryReplacers).
+  cleaned = applyDictionaryReplacements(cleaned, settings.userDictionary ?? [])
+
+  // Deterministic self-correction safety net. The LLM should handle
+  // "at 6, I mean 7" → "at 7" — but the 8B cleanup model still keeps
+  // both halves of the correction ~40% of the time, and local-only
+  // mode has no LLM at all. This regex pass catches the obvious shape:
+  // "<value>, <marker> <value>" where both values look like the same
+  // kind of thing (number, time, name, path). Conservative on purpose
+  // — see CORRECTION_REWRITES.
+  cleaned = applySelfCorrection(cleaned)
+
+  // Collapse spelled-out letters into joined words ALWAYS — the user
+  // never wants hyphenated letters in their final output:
+  //   "Julia, J-U-L-I-A" → "Julia"  (redundant spelling dropped)
+  //   "text me J-U-L-I-A" → "text me Julia"  (standalone collapse)
+  //   "Julia, J-A-N-E"    → "Jane"  (user re-spelled; spelled version wins)
+  // Runs BEFORE question-mark normalization so collapsed sentences
+  // are correctly punctuated.
+  cleaned = applySpelledNameCollapse(cleaned)
+
+  // Question-mark normalization: sentences shaped like questions
+  // ("do you want to go", "are you free tonight") get "?" appended
+  // or swapped from "." → "?". Statements like "I know what you mean"
+  // are left alone via the STATEMENT_OPENER_RE guard. See
+  // applyQuestionMarks for the full opener list + heuristics.
+  cleaned = applyQuestionMarks(cleaned)
 
   // Await the emoji judge (fired in parallel above) and append. The
   // emoji is appended to the CLEANED text, not stuffed in mid-sentence,
@@ -458,7 +1045,11 @@ export async function runDictationPipeline(
   }
 
   const { method: pasteMethod } = await pasteText(cleaned, { rolePromise: axRolePromise })
-  logInfo('Pasted', { method: pasteMethod, totalMs: Date.now() - start })
+  logInfo('Pasted', {
+    method: pasteMethod,
+    totalMs: Date.now() - start,
+    app: focusedApp.name,
+  })
 
   onState('done')
 
@@ -471,6 +1062,40 @@ export async function runDictationPipeline(
     timestamp: Date.now(),
     pasteMethod,
   }
+}
+
+// Detect whether the selected text is already markdown-formatted.
+// Triggers: ATX headings, list bullets, numbered lists, blockquotes,
+// code fences, inline code, bold/italic markers, or multiple newlines
+// with structure. Used by the command pipeline to tell the LLM to
+// preserve formatting on rewrite/polish — otherwise the 8B model
+// flattens markdown into a single paragraph.
+//
+// Heuristic, not a parser. False positives are acceptable (telling
+// the LLM "preserve markdown" when it isn't is harmless); false
+// negatives mean lost formatting.
+function looksLikeMarkdown(text: string): boolean {
+  // ATX headings: line starts with 1-6 hashes + space.
+  if (/^#{1,6}\s+\S/m.test(text)) return true
+  // Bullet lists: line starts with -, *, or + + space.
+  if (/^\s*[-*+]\s+\S/m.test(text)) return true
+  // Numbered lists: line starts with "1. " / "2. " etc.
+  if (/^\s*\d+\.\s+\S/m.test(text)) return true
+  // Blockquote.
+  if (/^\s*>\s+\S/m.test(text)) return true
+  // Fenced code block.
+  if (/```/.test(text)) return true
+  // Inline code with multiple backticks across the text.
+  const inlineCodeMatches = text.match(/`[^`\n]+`/g)
+  if (inlineCodeMatches && inlineCodeMatches.length >= 2) return true
+  // Bold or italic markers in multiple places.
+  const boldMatches = text.match(/\*\*[^*\n]+\*\*/g)
+  if (boldMatches && boldMatches.length >= 1) return true
+  // Multi-paragraph (blank line separating non-empty content) is a
+  // softer signal — only flag when combined with at least 3 paragraphs.
+  const blanks = text.split(/\n\s*\n/).filter(p => p.trim().length > 0)
+  if (blanks.length >= 3) return true
+  return false
 }
 
 export async function runCommandPipeline(
@@ -499,16 +1124,44 @@ export async function runCommandPipeline(
   await refreshFocusedApp
   const focusedApp = getFocusedApp()
 
-  const systemPrompt = `You are a text editing assistant. The user has selected the following text and dictated an editing command.
+  // Markdown-preservation rule. The 8B model flattens structured
+  // input into a single paragraph by default. If the selection has
+  // markdown shape (headings, bullets, fences, multi-paragraph), we
+  // explicitly tell the model to keep that shape — only the text
+  // inside structural elements changes, never the structure itself.
+  const isMarkdown = looksLikeMarkdown(selectedText)
+  const formatRule = isMarkdown
+    ? `FORMATTING RULE — CRITICAL:
+The selected text contains markdown formatting (headings, lists, code blocks, bold/italic, or multiple paragraphs). PRESERVE all structural formatting EXACTLY:
+- Keep every \`##\` heading at the same level, in the same position.
+- Keep every bullet list (\`-\`, \`*\`, \`+\`) and numbered list (\`1.\`, \`2.\`) intact. The number of items stays the same unless the command explicitly says to add/remove.
+- Keep every code fence (\`\`\`...\`\`\`) and inline backticks intact, with code content unchanged unless the command targets it.
+- Keep every blockquote (\`>\`).
+- Keep every \`**bold**\` and \`*italic*\` marker.
+- Keep paragraph breaks (blank lines) where they were.
+- Do NOT flatten into a single paragraph.
+- The command modifies the TEXT INSIDE the structure, not the structure itself, unless the command is explicitly about formatting.`
+    : `FORMATTING RULE:
+The selected text is plain prose. Output as plain prose. Do not introduce markdown formatting unless the command explicitly asks for it.`
+
+  const systemPrompt = `You are a text editing assistant. The user has selected the following text and dictated an editing command. Apply the command and return ONLY the modified text, nothing else (no preamble, no explanation, no quotes around the output).
+
+${formatRule}
 
 Selected text:
 ${selectedText}
 
 Editing command: ${command}
 
-Apply the command to the selected text and return ONLY the modified text, nothing else.`
+Output the modified text now:`
 
-  const result = await withRetry('Cleanup', () =>
+  logInfo('Command pipeline', {
+    chars: selectedText.length,
+    markdown: isMarkdown,
+    command: command.slice(0, 60),
+  })
+
+  const result = await withCleanupRetry(() =>
     cleanup.cleanup(command, {
       appName: focusedApp.name,
       appCategory: focusedApp.category,

@@ -1,5 +1,9 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { clipboard } from 'electron'
+import { getFocusedApp } from './focused-app'
+import { BROWSER_BUNDLE_IDS, AX_OPAQUE_APPS } from '../shared/constants'
+import { logInfo } from './log'
 
 const exec = promisify(execFile)
 
@@ -26,14 +30,115 @@ tell application "System Events"
 end tell
 `
 
+// Wait after sending ⌘C before reading the clipboard. Chrome writes its
+// selection asynchronously through its IPC, so 80ms was too tight in
+// production. 200ms still leaves ample headroom inside the recording
+// window (the user is talking) and reliably catches Chrome's write.
+const PROBE_WAIT_MS = 200
+
 export async function captureSelectedText(): Promise<void> {
   cachedSelection = ''
   if (process.platform !== 'darwin') return
+
+  // Phase 1: AX fast-path. No clipboard mutation. Works for native
+  // macOS apps (Mail, Notes, Pages, TextEdit, Safari address bar).
   try {
     const { stdout } = await exec('osascript', ['-e', SELECTED_TEXT_SCRIPT])
-    cachedSelection = stdout.trim()
+    const axSelection = stdout.trim()
+    if (axSelection.length > 0) {
+      cachedSelection = axSelection
+      logInfo('Selection captured (AX)', { chars: axSelection.length })
+      return
+    }
   } catch {
-    /* keep default */
+    /* fall through to clipboard probe */
+  }
+
+  // Phase 2: clipboard probe for AX-opaque apps. AXSelectedText
+  // returns empty past the WebView boundary in Chromium/Electron
+  // surfaces even when the user has text highlighted.
+  const focused = getFocusedApp()
+  if (!BROWSER_BUNDLE_IDS.has(focused.bundleId) && !AX_OPAQUE_APPS.has(focused.bundleId)) {
+    logInfo('Selection skipped (not AX-opaque app)', { bundleId: focused.bundleId })
+    return
+  }
+
+  cachedSelection = await probeSelectionViaClipboard()
+  logInfo('Selection captured (clipboard probe)', {
+    bundleId: focused.bundleId,
+    chars: cachedSelection.length,
+  })
+}
+
+// Drive a Copy via the focused app's menu item. Chrome / Chromium apps
+// silently swallow synthetic `keystroke "c" using command down` events
+// from System Events (security hardening), but they DO honor menu-
+// action invocations on their own menu bar. So we fall back to
+// "click menu item Copy of menu Edit" when the keystroke didn't move
+// the clipboard. AppleScript matches the menu item case-insensitively
+// across Chrome locales by walking menu items literally.
+const MENU_COPY_SCRIPT = `
+tell application "System Events"
+  try
+    set frontApp to first application process whose frontmost is true
+    tell frontApp
+      try
+        click menu item "Copy" of menu "Edit" of menu bar 1
+        return "ok"
+      on error
+        -- Some apps localize the menu name. Try a few common variants.
+        try
+          click menu item "Copy" of menu 1 of menu bar item "Edit" of menu bar 1
+          return "ok"
+        on error
+          return "menu-not-found"
+        end try
+      end try
+    end tell
+  on error
+    return "script-error"
+  end try
+end tell
+`
+
+async function probeSelectionViaClipboard(): Promise<string> {
+  const previousText = clipboard.readText()
+  const sentinel = `__YAPPR_SELECTION_PROBE__${Math.random().toString(36).slice(2)}`
+  try {
+    clipboard.writeText(sentinel)
+    // Try the keystroke path first — fastest, works in most apps.
+    await exec('osascript', ['-e', 'tell application "System Events" to keystroke "c" using command down'])
+    await new Promise(r => setTimeout(r, PROBE_WAIT_MS))
+    let after = clipboard.readText()
+    let usedFallback = false
+    // Fallback: drive Edit > Copy menu directly. Chrome hardens against
+    // synthetic ⌘C keystrokes; menu-action invocation goes through and
+    // can't be ignored by the renderer.
+    if (after === sentinel) {
+      usedFallback = true
+      try {
+        await exec('osascript', ['-e', MENU_COPY_SCRIPT])
+        await new Promise(r => setTimeout(r, PROBE_WAIT_MS))
+        after = clipboard.readText()
+      } catch {
+        /* keep `after` as sentinel — will be reported as no selection */
+      }
+    }
+    logInfo('Clipboard probe result', {
+      sentinelUnchanged: after === sentinel,
+      afterChars: after.length,
+      afterPreview: after.slice(0, 40),
+      usedFallback,
+    })
+    if (after === sentinel) return ''
+    return after
+  } catch (err) {
+    logInfo('Clipboard probe threw', { message: err instanceof Error ? err.message : 'unknown' })
+    return ''
+  } finally {
+    // Always restore. Non-text clipboard content (images, files) is
+    // not round-tripped through this path — known limitation.
+    clipboard.writeText(previousText)
   }
 }
 

@@ -1,4 +1,4 @@
-import type { Settings, LocalModelId } from '../shared/types'
+import type { Settings, LocalModelId, DictationResult } from '../shared/types'
 
 export interface LocalModelReadiness {
   ready: boolean
@@ -23,11 +23,22 @@ export interface LocalModelStatus {
 
 declare global {
   interface Window {
-    openflow: {
+    yappr: {
       getSettings: () => Promise<Settings>
       setSettings: (p: Partial<Settings>) => Promise<void>
       testProvider: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>
-      getHistory: () => Promise<unknown>
+      getHistory: () => Promise<DictationResult[]>
+      getAllHistory: () => Promise<DictationResult[]>
+      clearHistory: () => Promise<void>
+      getContextOverview: () => Promise<string>
+      setContextOverview: (text: string) => Promise<void>
+      refreshContextNow: () => Promise<{ ok: boolean; error?: string }>
+      getContextStatus: () => Promise<{
+        count: number
+        threshold: number
+        lastCompactionAt: number
+        compacting: boolean
+      }>
       requestMicPermission: () => Promise<boolean>
       getMicPermissionStatus: () => Promise<'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'>
       openAccessibilitySettings: () => Promise<void>

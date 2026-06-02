@@ -6,6 +6,10 @@ const STATE_CHANGE = 'state-change'
 const AUDIO_CHUNK = 'audio-chunk'
 const AUDIO_DONE = 'audio-done'
 const SETTINGS_GET = 'settings:get'
+const INDICATOR_TOGGLE_RECORD = 'indicator:toggle-record'
+const INDICATOR_PASTE_LAST = 'indicator:paste-last'
+const INDICATOR_POLISH_SELECTION = 'indicator:polish-selection'
+const INDICATOR_SET_INTERACTIVE = 'indicator:set-interactive'
 
 contextBridge.exposeInMainWorld('indicator', {
   onStateChange: (cb: (state: string) => void) => {
@@ -24,4 +28,12 @@ contextBridge.exposeInMainWorld('indicator', {
     const settings = await ipcRenderer.invoke(SETTINGS_GET)
     return settings?.inputDeviceId ?? null
   },
+  // Idle-pill click menu actions.
+  toggleRecord: () => ipcRenderer.send(INDICATOR_TOGGLE_RECORD),
+  pasteLast: () => ipcRenderer.send(INDICATOR_PASTE_LAST),
+  polishSelection: () => ipcRenderer.send(INDICATOR_POLISH_SELECTION),
+  // Tell main to flip setIgnoreMouseEvents so the indicator window can
+  // receive real clicks while the cursor is over the idle pill / menu.
+  setInteractive: (interactive: boolean) =>
+    ipcRenderer.send(INDICATOR_SET_INTERACTIVE, interactive),
 })

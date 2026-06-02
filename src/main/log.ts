@@ -7,7 +7,7 @@ import { join } from 'path'
 const LOG_PATH = (() => {
   const dir = app.getPath('userData')
   mkdirSync(dir, { recursive: true })
-  return join(dir, 'openflow.log')
+  return join(dir, 'yappr.log')
 })()
 
 function fmt(level: string, msg: string, data?: unknown): string {

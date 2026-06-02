@@ -28,9 +28,13 @@ const defaults: Settings = {
   inputDeviceId: null,
   audioCues: true,
   emojiInMessages: false,
+  pauseCleanup: false,
+  licenseKey: '',
+  useContextMemory: false,
+  autoContextUpdate: true,
 }
 
-export const store = new ElectronStore<Settings>({ defaults, name: 'openflow-settings' })
+export const store = new ElectronStore<Settings>({ defaults, name: 'yappr-settings' })
 
 // Old default cleanup models that we now want to migrate off of for
 // latency reasons. Any user whose persisted setting is in this list
