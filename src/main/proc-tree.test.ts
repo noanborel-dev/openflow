@@ -30,7 +30,30 @@ describe('matchAiCli (argv-based)', () => {
     expect(matchAiCli('gh pr create --fill')).toBeNull()
   })
 
-  it('does NOT match bare goose (DB-migration tool, FP4)', () => {
+  it('matches q ONLY when qualified by chat (Amazon Q)', () => {
+    expect(matchAiCli('q chat')).toBe('q chat')
+    expect(matchAiCli('/opt/homebrew/bin/q chat --no-interactive')).toBe('q chat')
+    expect(matchAiCli('q --version')).toBeNull()
+    expect(matchAiCli('q')).toBeNull()
+  })
+
+  it('matches the 2026 native AI CLIs (codex, gemini, copilot, opencode, amp)', () => {
+    expect(matchAiCli('codex')).toBe('codex')
+    expect(matchAiCli('/Users/x/.local/bin/gemini --yolo')).toBe('gemini')
+    expect(matchAiCli('copilot')).toBe('copilot')
+    expect(matchAiCli('opencode run "fix the build"')).toBe('opencode')
+    expect(matchAiCli('amp')).toBe('amp')
+  })
+
+  it('matches AI CLIs launched through python/uv/pipx wrappers (FN)', () => {
+    expect(matchAiCli('python -m aider')).toBe('aider')
+    expect(matchAiCli('python3 -m aider --model gpt-5')).toBe('aider')
+    expect(matchAiCli('uvx aider')).toBe('aider')
+    expect(matchAiCli('uv run aider')).toBe('aider')
+    expect(matchAiCli('pipx run aider')).toBe('aider')
+  })
+
+  it('does NOT match bare goose (DB-migration tool collision, documented FN)', () => {
     expect(matchAiCli('goose -dir=db up')).toBeNull()
     expect(matchAiCli('goose up')).toBeNull()
   })
