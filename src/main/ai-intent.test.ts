@@ -53,13 +53,24 @@ describe('classifyCodeSurface', () => {
     expect(r.register).toBe('faithful_ai')
   })
 
-  it('FP3: AI CLI present but NO spoken cue stays code (verbatim skip)', () => {
+  it('Option B: a detected AI CLI alone (no spoken cue) → faithful_ai', () => {
     const r = classifyCodeSurface({
       ...base,
       terminalAiCli: { isAiCli: true },
       transcript: 'git rebase -i main',
     })
-    expect(r.register).toBe('code')
+    expect(r.register).toBe('faithful_ai')
+  })
+
+  it('INVARIANT: a detected CLI never reaches reformat, even beside an unreadable textarea', () => {
+    const r = classifyCodeSurface({
+      ...base,
+      terminalAiCli: { isAiCli: true },
+      axRole: 'AXTextArea',
+      isAxReadable: false, // editor is AX-opaque: not a localized signal
+      transcript: 'rename getCwd to getWorkingDir',
+    })
+    expect(r.register).toBe('faithful_ai')
   })
 
   it('AI CLI + strong cue → faithful_ai', () => {
@@ -76,6 +87,26 @@ describe('classifyCodeSurface', () => {
       ...base,
       terminalAiCli: { isAiCli: false },
       transcript: 'fix the off by one',
+      weakCueSettingOn: false,
+    })
+    expect(r.register).toBe('code')
+  })
+
+  it('weak-cue opt-in: a weak spoken cue with no detected tool → faithful_ai', () => {
+    const r = classifyCodeSurface({
+      ...base,
+      terminalAiCli: { isAiCli: false },
+      transcript: 'refactor this and add a test',
+      weakCueSettingOn: true,
+    })
+    expect(r.register).toBe('faithful_ai')
+  })
+
+  it('weak cue with the opt-in OFF stays code', () => {
+    const r = classifyCodeSurface({
+      ...base,
+      terminalAiCli: { isAiCli: false },
+      transcript: 'refactor this and add a test',
       weakCueSettingOn: false,
     })
     expect(r.register).toBe('code')

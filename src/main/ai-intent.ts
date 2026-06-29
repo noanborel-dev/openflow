@@ -129,13 +129,25 @@ export function classifyCodeSurface(input: CodeSurfaceInput): CodeSurfaceResult 
     return { register: 'reformat', reason: 'readable-chat-textarea' }
   }
 
-  // 2) FAITHFUL_AI — run the LLM, stay faithful. Reachable by decoupled
-  //    signals, but never reformat.
+  // 2) FAITHFUL_AI — run the LLM, stay faithful. Reachable by focus-DECOUPLED
+  //    signals (a background AI CLI, words merely spoken), but NEVER reformat.
+  //
+  // Option B (user decision 2026-06-03): a DETECTED AI CLI in the focused
+  // editor's process subtree is sufficient on its own — if Claude Code / Codex
+  // / Cursor is running where you're working, you're prompting an AI, so run
+  // the faithful cleanup even when you never spoke an AI name. This is safe
+  // precisely because faithful is non-destructive (fixes brand-name mishears,
+  // preserves every word): a false positive costs one extra Groq call, never a
+  // mangled transcript. That is also why a decoupled CLI signal can stop here
+  // but can never reach the destructive REFORMAT path above.
+  if (input.terminalAiCli?.isAiCli) return { register: 'faithful_ai', reason: 'ai-cli-detected' }
+
   const cue = detectAiAddressing(input.transcript)
   if (cue === 'strong') return { register: 'faithful_ai', reason: 'strong-cue' }
-  if (input.weakCueSettingOn && cue === 'weak' && input.terminalAiCli?.isAiCli) {
-    return { register: 'faithful_ai', reason: 'weak-cue+cli' }
-  }
+  // Opt-in: escalate on a weak spoken cue even when no tool was detected —
+  // rescues editors we can't see into (JetBrains, etc.). Off by default
+  // (low precision); still capped at faithful, never reformat.
+  if (input.weakCueSettingOn && cue === 'weak') return { register: 'faithful_ai', reason: 'weak-cue-opt-in' }
 
   // 3) CODE — verbatim, skip-eligible. The fast path is preserved.
   return { register: 'code', reason: 'no-ai-signal' }
